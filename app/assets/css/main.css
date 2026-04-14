@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+:root {
+  --ui-primary: #0f766e;
+  --ui-secondary: #fb923c;
+  --ui-success: #16a34a;
+  --ui-warning: #f59e0b;
+  --ui-error: #dc2626;
+  --ui-bg: #f7f7f3;
+}
+
+html {
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 28%),
+    radial-gradient(circle at top right, rgba(251, 146, 60, 0.16), transparent 26%),
+    linear-gradient(180deg, #fcfcf8 0%, #f4f4ef 100%);
+  min-height: 100%;
+}
+
+body {
+  font-family: "IBM Plex Sans Thai", "Kanit", sans-serif;
+  color: #16302b;
+  min-height: 100vh;
+}
+
+.line-shell {
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 24px 60px rgba(22, 48, 43, 0.12);
+}
+
+.section-card {
+  @apply rounded-3xl border border-white/60 bg-white/90 shadow-lg shadow-teal-950/5;
+}

@@ -1,0 +1,15 @@
+Mae Manee test payload (1 THB)
+==============================
+
+Payload:
+00020101021230670016A00000067701011201150107536000102860209ORD-TEST10311U1234567890530376454041.005802TH630434A2
+
+Assumptions used:
+- mode = maemanee
+- amount = 1.00
+- billerId = 010753600010286
+- reference1 = ORD-TEST1
+- reference2 = U1234567890
+
+Open test page:
+/maemanee-test

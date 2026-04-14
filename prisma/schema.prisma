@@ -1,0 +1,549 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Machine {
+  id                String           @id @default(cuid())
+  tenantId          String?
+  merchantAccountId String?
+  branchId          String?
+  assetId           String?
+  code              String           @unique
+  name              String
+  kind              MachineKind
+  status            MachineStatus    @default(AVAILABLE)
+  locationLabel     String
+  topic             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  remainingMinutes  Int?
+  commands          DeviceCommand[]
+  prices            MachinePrice[]
+  orderItems        OrderItem[]
+  tenant            Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  merchantAccount   MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
+  branch            Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  asset             Asset?           @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId])
+  @@index([merchantAccountId])
+  @@index([assetId])
+}
+
+model MachinePrice {
+  id              String      @id @default(cuid())
+  machineId       String
+  label           String
+  amount          Int
+  durationMinutes Int
+  sortOrder       Int         @default(0)
+  machine         Machine     @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  orderItems      OrderItem[]
+}
+
+model Order {
+  id                    String           @id @default(cuid())
+  tenantId              String?
+  merchantAccountId     String?
+  branchId              String?
+  paymentIntentPublicId String?
+  orderNumber           String           @unique
+  customerName          String
+  lineUserId            String?
+  note                  String?
+  totalAmount           Int
+  status                OrderStatus      @default(PENDING_PAYMENT)
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  items                 OrderItem[]
+  payment               Payment?
+  tenant                Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  merchantAccount       MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
+  branch                Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, createdAt])
+  @@index([merchantAccountId, createdAt])
+  @@index([paymentIntentPublicId])
+}
+
+model OrderItem {
+  id              String          @id @default(cuid())
+  orderId         String
+  machineId       String
+  assetId         String?
+  priceId         String
+  priceLabel      String
+  amount          Int
+  durationMinutes Int
+  status          OrderItemStatus @default(PENDING)
+  startedAt       DateTime?
+  completedAt     DateTime?
+  machine         Machine         @relation(fields: [machineId], references: [id])
+  asset           Asset?          @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  price           MachinePrice    @relation(fields: [priceId], references: [id])
+
+  @@index([assetId])
+}
+
+model Payment {
+  id                      String           @id @default(cuid())
+  orderId                 String           @unique
+  tenantId                String?
+  merchantAccountId       String?
+  branchId                String?
+  providerCode            String?
+  providerPaymentIntentId String?
+  providerReference       String?
+  amount                  Int
+  qrPayload               String
+  status                  PaymentStatus    @default(PENDING)
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  verifiedAt              DateTime?
+  rejectedNote            String?
+  order                   Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  slips                   PaymentSlip[]
+  tenant                  Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  merchantAccount         MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
+  branch                  Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, branchId, status])
+  @@index([merchantAccountId, status])
+  @@index([providerPaymentIntentId])
+}
+
+model PaymentSlip {
+  id         String   @id @default(cuid())
+  paymentId  String
+  fileName   String
+  mimeType   String?
+  filePath   String
+  uploadedAt DateTime @default(now())
+  payment    Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+}
+
+model DeviceCommand {
+  id             String              @id @default(cuid())
+  orderId        String
+  machineId      String
+  commandType    String
+  payloadJson    String
+  status         DeviceCommandStatus @default(PENDING)
+  queuedAt       DateTime            @default(now())
+  acknowledgedAt DateTime?
+  completedAt    DateTime?
+  errorMessage   String?
+  machine        Machine             @relation(fields: [machineId], references: [id])
+}
+
+enum MachineKind {
+  WASHER
+  DRYER
+}
+
+enum MachineStatus {
+  AVAILABLE
+  RESERVED
+  RUNNING
+  MAINTENANCE
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  SLIP_UPLOADED
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum OrderItemStatus {
+  PENDING
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  SLIP_UPLOADED
+  VERIFIED
+  REJECTED
+}
+
+enum DeviceCommandStatus {
+  PENDING
+  SENT
+  ACKNOWLEDGED
+  COMPLETED
+  FAILED
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum MerchantStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+  DISABLED
+}
+
+enum EnvironmentMode {
+  TEST
+  LIVE
+}
+
+enum AssetStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+enum DeviceBindingStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AppUserRole {
+  ADMIN
+  USER
+}
+
+enum DeviceKeyStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum DeviceRegistrationStatus {
+  READY
+  USED
+  EXPIRED
+  REVOKED
+}
+
+model Tenant {
+  id        String       @id @default(cuid())
+  code      String       @unique
+  name      String
+  status    TenantStatus @default(ACTIVE)
+  metadata  Json?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  merchantAccounts        MerchantAccount[]
+  branches                Branch[]
+  assets                  Asset[]
+  assetBindings           AssetBinding[]
+  assetProductPrices      AssetProductPrice[]
+  machineUnits            MachineUnit[]
+  iotDevices              IotDevice[]
+  products                Product[]
+  machines                Machine[]
+  orders                  Order[]
+  payments                Payment[]
+  users                   User[]
+  deviceRegistrationCodes DeviceRegistrationCode[]
+
+  @@index([status])
+  @@map("tenants")
+}
+
+model MerchantAccount {
+  id          String          @id @default(cuid())
+  tenantId    String
+  code        String
+  name        String
+  status      MerchantStatus  @default(ACTIVE)
+  environment EnvironmentMode @default(TEST)
+  metadata    Json?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branches                Branch[]
+  machines                Machine[]
+  orders                  Order[]
+  payments                Payment[]
+  users                   User[]
+  deviceRegistrationCodes DeviceRegistrationCode[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@map("merchant_accounts")
+}
+
+model Branch {
+  id                String       @id @default(cuid())
+  tenantId          String
+  merchantAccountId String?
+  code              String
+  name              String
+  status            BranchStatus @default(ACTIVE)
+  metadata          Json?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  merchantAccount         MerchantAccount?         @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
+  assets                  Asset[]
+  machines                Machine[]
+  orders                  Order[]
+  payments                Payment[]
+  deviceRegistrationCodes DeviceRegistrationCode[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status])
+  @@index([merchantAccountId])
+  @@map("branches")
+}
+
+model Asset {
+  id        String      @id @default(cuid())
+  tenantId  String
+  branchId  String
+  assetUuid String      @unique
+  code      String
+  name      String
+  kind      MachineKind
+  status    AssetStatus @default(ACTIVE)
+  metadata  Json?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch     Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  machines   Machine[]
+  bindings   AssetBinding[]
+  prices     AssetProductPrice[]
+  orderItems OrderItem[]
+
+  @@unique([branchId, code])
+  @@index([tenantId, branchId, status])
+  @@map("assets")
+}
+
+model MachineUnit {
+  id        String   @id @default(cuid())
+  tenantId  String
+  serialNo  String   @unique
+  brand     String?
+  model     String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bindings AssetBinding[]
+
+  @@index([tenantId])
+  @@map("machine_units")
+}
+
+model IotDevice {
+  id         String   @id @default(cuid())
+  tenantId   String
+  macAddress String   @unique
+  deviceUid  String?  @unique
+  fwVersion  String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bindings                AssetBinding[]
+  keys                    DeviceApiKey[]
+  deviceRegistrationCodes DeviceRegistrationCode[]
+
+  @@index([tenantId])
+  @@map("iot_devices")
+}
+
+model AssetBinding {
+  id            String              @id @default(cuid())
+  tenantId      String
+  assetId       String
+  machineUnitId String?
+  iotDeviceId   String?
+  status        DeviceBindingStatus @default(ACTIVE)
+  startedAt     DateTime            @default(now())
+  endedAt       DateTime?
+  reason        String?
+  metadata      Json?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  asset       Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  machineUnit MachineUnit? @relation(fields: [machineUnitId], references: [id], onDelete: SetNull)
+  iotDevice   IotDevice?   @relation(fields: [iotDeviceId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, assetId, status])
+  @@index([machineUnitId])
+  @@index([iotDeviceId])
+  @@map("asset_bindings")
+}
+
+model Product {
+  id        String      @id @default(cuid())
+  tenantId  String
+  code      String
+  name      String
+  kind      MachineKind
+  active    Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  tenant Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  prices AssetProductPrice[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, kind, active])
+  @@map("products")
+}
+
+model AssetProductPrice {
+  id              String   @id @default(cuid())
+  tenantId        String
+  assetId         String
+  productId       String
+  amount          Int
+  durationMinutes Int
+  sortOrder       Int      @default(0)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  asset   Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, productId])
+  @@index([tenantId, assetId, active])
+  @@map("asset_product_prices")
+}
+
+model User {
+  id                String      @id @default(cuid())
+  tenantId          String?
+  merchantAccountId String?
+  email             String      @unique
+  name              String?
+  passwordHash      String?
+  role              AppUserRole @default(USER)
+  emailVerified     DateTime?
+  image             String?
+  isActive          Boolean     @default(true)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  tenant          Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  merchantAccount MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
+  accounts        Account[]
+  sessions        Session[]
+
+  @@index([tenantId, role, isActive])
+  @@index([merchantAccountId])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+model DeviceApiKey {
+  id          String          @id @default(cuid())
+  iotDeviceId String
+  keyPrefix   String          @unique
+  secretHash  String
+  label       String?
+  status      DeviceKeyStatus @default(ACTIVE)
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  iotDevice IotDevice @relation(fields: [iotDeviceId], references: [id], onDelete: Cascade)
+
+  @@index([iotDeviceId, status])
+  @@index([expiresAt])
+  @@map("device_api_keys")
+}
+
+model DeviceRegistrationCode {
+  id                String                   @id @default(cuid())
+  tenantId          String
+  merchantAccountId String?
+  branchId          String?
+  code              String                   @unique
+  status            DeviceRegistrationStatus @default(READY)
+  note              String?
+  expiresAt         DateTime?
+  usedAt            DateTime?
+  usedByIotDeviceId String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  merchantAccount MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
+  branch          Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  usedByIotDevice IotDevice?       @relation(fields: [usedByIotDeviceId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status, expiresAt])
+  @@index([merchantAccountId, branchId])
+  @@map("device_registration_codes")
+}

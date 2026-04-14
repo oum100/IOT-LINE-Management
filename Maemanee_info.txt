@@ -1,0 +1,119 @@
+Mae Manee / Thai QR payload notes
+=================================
+
+Verified source payload from real Mae Manee QR
+----------------------------------------------
+
+Original payload decoded from shop QR:
+00020101021230690016A000000677010112011501075360001028602150140000039066090307ABCDEFG5802TH540510.00530376462200716000000000059135263046988
+
+Tested modified payload (amount changed to 1.00)
+------------------------------------------------
+
+Working payload that was scanned and paid successfully:
+00020101021230690016A000000677010112011501075360001028602150140000039066090307ABCDEFG5802TH54041.00530376462200716000000000059135263041E52
+
+Confirmed findings
+------------------
+
+- The QR template from Mae Manee is valid and usable when kept in the same structure.
+- The field value `ABCDEFG` is carried through the QR and payment flow successfully.
+- Changing only the amount field and recalculating CRC still produces a valid, payable QR.
+- For this merchant, using the real template is safer than trying to rebuild the full QR structure from scratch with assumptions.
+
+Field interpretation from the real payload
+------------------------------------------
+
+- 00 = 01
+  Payload format indicator
+
+- 01 = 12
+  Dynamic QR
+
+- 30 = Merchant / bill-payment section
+  Nested fields inside tag 30:
+
+  - 00 = A000000677010112
+    Thai QR application identifier used by this Mae Manee QR
+
+  - 01 = 010753600010286
+    Merchant / biller payment identifier
+    Treat this as the primary biller/merchant id for this QR template
+
+  - 02 = 01400003906609
+    Merchant code / shop code
+    Shown on the Mae Manee screen as: รหัสร้านค้า
+
+  - 03 = ABCDEFG
+    Merchant reference field
+    Shown on the Mae Manee screen as: รหัสอ้างอิงร้านค้า
+    Confirmed to travel with the payment flow
+
+- 58 = TH
+  Country code
+
+- 54 = amount
+  Examples verified:
+  - 10.00 encoded as: 540510.00
+  - 1.00 encoded as: 54041.00
+
+- 53 = 764
+  Currency code = Thai Baht
+
+- 63 = CRC
+  Must be recalculated whenever payload content changes
+
+Merchant data confirmed from screenshot / test
+----------------------------------------------
+
+- Merchant name: WASHPOINT
+- Account holder: ธีรินทร์ สีโพยนัย
+- Merchant / shop code: 01400003906609
+- Merchant reference sample: ABCDEFG
+- Merchant/biller id candidate: 010753600010286
+
+Recommended implementation strategy
+-----------------------------------
+
+Do not try to rebuild Mae Manee QR from guessed field mapping.
+Use the real merchant QR payload as a template and only replace:
+
+1. amount field (tag 54)
+2. reference field (tag 30 -> nested tag 03)
+3. CRC (tag 63)
+
+Recommended runtime mapping for this project:
+- template payload = merchant's real Mae Manee payload
+- merchant / shop code = 01400003906609
+- merchant biller id = 010753600010286
+- dynamic reference = replace nested tag 03 value
+- amount = replace tag 54 value
+
+Suggested next step in code
+---------------------------
+
+Implement a `maemanee_template` QR mode that:
+- starts from the real payload template
+- updates tag 54 with order total
+- updates tag 30/03 with order reference
+- recalculates CRC
+
+This approach is currently the safest confirmed path because it has already produced a real payable QR.
+
+Current project runtime setup
+-----------------------------
+
+- `QR_PAYMENT_MODE = maemanee_template`
+- `MAEMANEE_BILLER_ID = 010753600010286`
+- `MAEMANEE_TEMPLATE_PAYLOAD =` the real merchant template payload above
+- The project now uses the actual order number format as the QR reference, for example:
+  - `ORD-8H2K4M9Q`
+
+In the app flow
+---------------
+
+- When an order is created, the system generates a real order number such as `ORD-AB12CD34`.
+- In `maemanee_template` mode, that order number is inserted into nested tag `30/03`.
+- The merchant/shop code inside the template remains `01400003906609`.
+- The amount inside tag `54` is updated from the order total.
+- CRC in tag `63` is recalculated after every change.
