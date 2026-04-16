@@ -1,1 +1,72 @@
-{}
+{
+  "common": {
+    "home": "Home",
+    "features": "Features",
+    "pricing": "Pricing",
+    "contact": "Contact",
+    "signIn": "Sign In",
+    "signOut": "Sign Out",
+    "profile": "Profile",
+    "light": "Light",
+    "dark": "Dark",
+    "dashboard": "Dashboard",
+    "tenants": "Tenants",
+    "merchants": "Merchants",
+    "branches": "Branches",
+    "assets": "Assets",
+    "machines": "Machines",
+    "devices": "Devices",
+    "users": "Users",
+    "settings": "Settings",
+    "createOrder": "Create Order",
+    "available": "Available",
+    "reserved": "Reserved",
+    "running": "Running",
+    "maintenance": "Maintenance",
+    "orders": "Orders",
+    "pendingPayment": "Pending Payment",
+    "completed": "Completed"
+  },
+  "landing": {
+    "tagline": "Laundry IoT Platform",
+    "title": "End-to-end laundry management for multi-branch operations",
+    "description": "Manage washer/dryer fleet, QR payments, slip verification, LINE notifications, and multi-tenant operations in one platform",
+    "login": "Login",
+    "signup": "Sign Up",
+    "whatYouGet": "What You Get",
+    "featureRealtime": "Real-time machine status dashboard",
+    "featureHierarchy": "Supports Tenant \u2192 Merchant \u2192 Branch hierarchy",
+    "featureFirmware": "Single firmware with on-site device registration",
+    "featureNotify": "Automatic receipt and LINE notifications"
+  },
+  "auth": {
+    "tagline": "Auth",
+    "title": "Sign in / Sign up",
+    "description": "Supports Email + Password, Google, LINE and Magic Link",
+    "nameOptional": "Name (optional)",
+    "email": "Email",
+    "password": "Password (min 8 chars)",
+    "login": "Login",
+    "register": "Register",
+    "loginGoogle": "Login Google",
+    "loginLine": "Login LINE",
+    "magicLinkTitle": "Magic Link",
+    "magicLinkPlaceholder": "email@example.com",
+    "sendMagicLink": "Send Magic Link",
+    "registerSuccess": "Registration completed. You can sign in now.",
+    "magicLinkSuccess": "Magic link sent. Please check your email.",
+    "signInFailed": "Sign in failed",
+    "registerFailed": "Register failed",
+    "magicLinkFailed": "Magic Link failed"
+  },
+  "platform": {
+    "title": "Platform Overview",
+    "description": "Multi-tenant overview for platform team",
+    "machineStatusDistribution": "Machine Status Distribution"
+  },
+  "tenant": {
+    "title": "Tenant Operations Overview",
+    "description": "Machine usage and order overview",
+    "machineStatusDistribution": "Machine Status Distribution"
+  }
+}

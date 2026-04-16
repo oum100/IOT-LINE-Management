@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
+definePageMeta({
+  middleware: 'portal-auth'
+})
+
 type Tenant = { id: string; code: string; name: string; status: string }
 type Merchant = { id: string; code: string; name: string; status: string; environment: string }
 type Branch = { id: string; code: string; name: string; status: string; merchantAccountId?: string | null }
@@ -555,7 +559,6 @@ async function runRegisterTest() {
 
 const selectedTenant = computed(() => tenants.value.find(item => item.id === selectedTenantId.value) || null)
 type AdminView = 'all' | 'tenant' | 'merchant' | 'branch' | 'asset' | 'machine' | 'device' | 'user'
-
 const route = useRoute()
 const adminView = computed<AdminView>(() => {
   const path = route.path.toLowerCase()
@@ -600,13 +603,7 @@ onMounted(async () => {
       <div class="flex flex-wrap items-center gap-3">
         <p class="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-600">Admin Ops</p>
         <a href="/admin/ops" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">All</a>
-        <a href="/admin/tenants" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Tenants</a>
-        <a href="/admin/merchants" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Merchants</a>
-        <a href="/admin/branches" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Branches</a>
-        <a href="/admin/assets" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Assets</a>
-        <a href="/admin/machines" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Machines</a>
-        <a href="/admin/devices" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Devices</a>
-        <a href="/admin/users" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Users</a>
+        <a href="/admin/tenant" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Tenant</a>
         <a href="/admin/settings" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Payment Settings</a>
         <a href="/auth/signin" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Auth Signin</a>
       </div>

@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import AdminOpsPage from './ops.vue'
+definePageMeta({
+  middleware: 'portal-auth'
+})
+
+await navigateTo('/admin/tenant')
 </script>
 
 <template>
-  <AdminOpsPage />
+  <div />
 </template>

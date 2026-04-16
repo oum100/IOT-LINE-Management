@@ -10,6 +10,15 @@
   --ui-bg: #f7f7f3;
 }
 
+.dark {
+  --ui-bg: #0f172a;
+  --ui-bg-elevated: #111d34;
+  --ui-bg-muted: #1e293b;
+  --ui-border: #334155;
+  --ui-text: #e2e8f0;
+  --ui-text-muted: #cbd5e1;
+}
+
 html {
   background:
     radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 28%),

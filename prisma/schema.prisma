@@ -97,6 +97,7 @@ model Payment {
   tenantId                String?
   merchantAccountId       String?
   branchId                String?
+  billerProfileId         String?
   providerCode            String?
   providerPaymentIntentId String?
   providerReference       String?
@@ -112,10 +113,79 @@ model Payment {
   tenant                  Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   merchantAccount         MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
   branch                  Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  billerProfile           BillerProfile?   @relation(fields: [billerProfileId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, branchId, status])
   @@index([merchantAccountId, status])
+  @@index([billerProfileId, status])
   @@index([providerPaymentIntentId])
+}
+
+model BillerProfile {
+  id           String       @id @default(cuid())
+  tenantId     String
+  code         String
+  displayName  String
+  providerCode ProviderCode
+  status       BillerStatus @default(ACTIVE)
+  priority     Int          @default(100)
+  billerId     String?
+  credentials  Json?
+  config       Json?
+  metadata     Json?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  tenant           Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payments         Payment[]
+  merchantBindings MerchantBillerBinding[]
+  branchBindings   BranchBillerBinding[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, providerCode, status])
+  @@map("biller_profiles")
+}
+
+model MerchantBillerBinding {
+  id                String   @id @default(cuid())
+  tenantId          String
+  merchantAccountId String
+  billerProfileId   String
+  isDefault         Boolean  @default(false)
+  priority          Int      @default(100)
+  active            Boolean  @default(true)
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  merchantAccount MerchantAccount @relation(fields: [merchantAccountId], references: [id], onDelete: Cascade)
+  billerProfile   BillerProfile   @relation(fields: [billerProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([merchantAccountId, billerProfileId])
+  @@index([tenantId, merchantAccountId, active, priority])
+  @@map("merchant_biller_bindings")
+}
+
+model BranchBillerBinding {
+  id              String   @id @default(cuid())
+  tenantId        String
+  branchId        String
+  billerProfileId String
+  isDefault       Boolean  @default(false)
+  priority        Int      @default(100)
+  active          Boolean  @default(true)
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch        Branch        @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  billerProfile BillerProfile @relation(fields: [billerProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([branchId, billerProfileId])
+  @@index([tenantId, branchId, active, priority])
+  @@map("branch_biller_bindings")
 }
 
 model PaymentSlip {
@@ -237,6 +307,20 @@ enum DeviceRegistrationStatus {
   REVOKED
 }
 
+enum ProviderCode {
+  SLIP2GO
+  MAEMANEE
+  KSHOP
+  PROMPTPAY
+  INTERNAL
+}
+
+enum BillerStatus {
+  ACTIVE
+  INACTIVE
+  DISABLED
+}
+
 model Tenant {
   id        String       @id @default(cuid())
   code      String       @unique
@@ -257,6 +341,9 @@ model Tenant {
   machines                Machine[]
   orders                  Order[]
   payments                Payment[]
+  billerProfiles          BillerProfile[]
+  merchantBillerBindings  MerchantBillerBinding[]
+  branchBillerBindings    BranchBillerBinding[]
   users                   User[]
   deviceRegistrationCodes DeviceRegistrationCode[]
 
@@ -280,6 +367,7 @@ model MerchantAccount {
   machines                Machine[]
   orders                  Order[]
   payments                Payment[]
+  billerBindings          MerchantBillerBinding[]
   users                   User[]
   deviceRegistrationCodes DeviceRegistrationCode[]
 
@@ -305,6 +393,7 @@ model Branch {
   machines                Machine[]
   orders                  Order[]
   payments                Payment[]
+  billerBindings          BranchBillerBinding[]
   deviceRegistrationCodes DeviceRegistrationCode[]
 
   @@unique([tenantId, code])

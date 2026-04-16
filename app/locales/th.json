@@ -1,1 +1,72 @@
-{}
+{
+  "common": {
+    "home": "หน้าหลัก",
+    "features": "ฟีเจอร์",
+    "pricing": "ราคา",
+    "contact": "ติดต่อ",
+    "signIn": "เข้าสู่ระบบ",
+    "signOut": "ออกจากระบบ",
+    "profile": "โปรไฟล์",
+    "light": "โหมดสว่าง",
+    "dark": "โหมดมืด",
+    "dashboard": "แดชบอร์ด",
+    "tenants": "เทนแนนต์",
+    "merchants": "ร้านค้า",
+    "branches": "สาขา",
+    "assets": "ทรัพย์สิน",
+    "machines": "เครื่อง",
+    "devices": "อุปกรณ์",
+    "users": "ผู้ใช้งาน",
+    "settings": "ตั้งค่า",
+    "createOrder": "สร้างออเดอร์",
+    "available": "ว่าง",
+    "reserved": "จองแล้ว",
+    "running": "กำลังทำงาน",
+    "maintenance": "ซ่อมบำรุง",
+    "orders": "ออเดอร์",
+    "pendingPayment": "รอชำระเงิน",
+    "completed": "เสร็จสิ้น"
+  },
+  "landing": {
+    "tagline": "แพลตฟอร์ม IoT สำหรับร้านซักผ้า",
+    "title": "ระบบจัดการร้านซักผ้าแบบครบวงจรสำหรับหลายสาขา",
+    "description": "จัดการเครื่องซัก/อบ ระบบจ่ายเงิน QR ตรวจสอบสลิป แจ้งเตือนผ่าน LINE และระบบหลายผู้เช่าได้ในแพลตฟอร์มเดียว",
+    "login": "เข้าสู่ระบบ",
+    "signup": "สมัครสมาชิก",
+    "whatYouGet": "สิ่งที่คุณจะได้รับ",
+    "featureRealtime": "แดชบอร์ดสถานะเครื่องแบบเรียลไทม์",
+    "featureHierarchy": "รองรับโครงสร้าง Tenant → Merchant → Branch",
+    "featureFirmware": "ใช้เฟิร์มแวร์เดียว พร้อมลงทะเบียนอุปกรณ์หน้างาน",
+    "featureNotify": "แจ้งเตือนใบเสร็จและ LINE อัตโนมัติ"
+  },
+  "auth": {
+    "tagline": "ระบบยืนยันตัวตน",
+    "title": "เข้าสู่ระบบ / สมัครสมาชิก",
+    "description": "รองรับ Email + Password, Google, LINE และ Magic Link",
+    "nameOptional": "ชื่อ (ไม่บังคับ)",
+    "email": "อีเมล",
+    "password": "รหัสผ่าน (อย่างน้อย 8 ตัว)",
+    "login": "เข้าสู่ระบบ",
+    "register": "สมัครสมาชิก",
+    "loginGoogle": "เข้าสู่ระบบด้วย Google",
+    "loginLine": "เข้าสู่ระบบด้วย LINE",
+    "magicLinkTitle": "Magic Link",
+    "magicLinkPlaceholder": "email@example.com",
+    "sendMagicLink": "ส่ง Magic Link",
+    "registerSuccess": "สมัครสมาชิกสำเร็จ สามารถเข้าสู่ระบบได้แล้ว",
+    "magicLinkSuccess": "ส่ง Magic Link แล้ว กรุณาตรวจสอบอีเมล",
+    "signInFailed": "เข้าสู่ระบบไม่สำเร็จ",
+    "registerFailed": "สมัครสมาชิกไม่สำเร็จ",
+    "magicLinkFailed": "ส่ง Magic Link ไม่สำเร็จ"
+  },
+  "platform": {
+    "title": "ภาพรวมแพลตฟอร์ม",
+    "description": "ภาพรวมระบบหลายผู้เช่าสำหรับทีมแพลตฟอร์ม",
+    "machineStatusDistribution": "สัดส่วนสถานะเครื่อง"
+  },
+  "tenant": {
+    "title": "ภาพรวมการดำเนินงานของ Tenant",
+    "description": "ภาพรวมการใช้งานเครื่องและออเดอร์",
+    "machineStatusDistribution": "สัดส่วนสถานะเครื่อง"
+  }
+}

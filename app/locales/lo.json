@@ -1,0 +1,72 @@
+{
+  "common": {
+    "home": "ໜ້າຫຼັກ",
+    "features": "ຟີເຈີ",
+    "pricing": "ລາຄາ",
+    "contact": "ຕິດຕໍ່",
+    "signIn": "ເຂົ້າລະບົບ",
+    "signOut": "ອອກຈາກລະບົບ",
+    "profile": "ໂປຣໄຟລ໌",
+    "light": "ໂໝດສວ່າງ",
+    "dark": "ໂໝດມືດ",
+    "dashboard": "ແດຊບອດ",
+    "tenants": "ເທນແນນ",
+    "merchants": "ຮ້ານຄ້າ",
+    "branches": "ສາຂາ",
+    "assets": "ຊັບສິນ",
+    "machines": "ເຄື່ອງ",
+    "devices": "ອຸປະກອນ",
+    "users": "ຜູ້ໃຊ້",
+    "settings": "ການຕັ້ງຄ່າ",
+    "createOrder": "ສ້າງອໍເດີ",
+    "available": "ວ່າງ",
+    "reserved": "ຈອງແລ້ວ",
+    "running": "ກຳລັງເຮັດວຽກ",
+    "maintenance": "ບຳລຸງຮັກສາ",
+    "orders": "ອໍເດີ",
+    "pendingPayment": "ລໍຖ້າຊຳລະເງິນ",
+    "completed": "ສຳເລັດ"
+  },
+  "landing": {
+    "tagline": "ແພລດຟອມ IoT ສຳລັບຮ້ານຊັກຜ້າ",
+    "title": "ລະບົບຈັດການຮ້ານຊັກຜ້າແບບຄົບວົງຈອນສຳລັບຫຼາຍສາຂາ",
+    "description": "ຈັດການເຄື່ອງຊັກ/ອົບ, ການຈ່າຍເງິນ QR, ການກວດສອບສະລິບ, ແຈ້ງເຕືອນຜ່ານ LINE ແລະ ລະບົບ multi-tenant ໃນແພລດຟອມດຽວ",
+    "login": "ເຂົ້າລະບົບ",
+    "signup": "ສະໝັກສະມາຊິກ",
+    "whatYouGet": "ສິ່ງທີ່ທ່ານຈະໄດ້ຮັບ",
+    "featureRealtime": "ແດຊບອດສະຖານະເຄື່ອງແບບເວລາຈິງ",
+    "featureHierarchy": "ຮອງຮັບໂຄງສ້າງ Tenant → Merchant → Branch",
+    "featureFirmware": "ໃຊ້ firmware ດຽວ ພ້ອມລົງທະບຽນອຸປະກອນທີ່ໜ້າງານ",
+    "featureNotify": "ແຈ້ງເຕືອນໃບຮັບເງິນ ແລະ LINE ອັດຕະໂນມັດ"
+  },
+  "auth": {
+    "tagline": "ການຢືນຢັນຕົວຕົນ",
+    "title": "ເຂົ້າລະບົບ / ສະໝັກສະມາຊິກ",
+    "description": "ຮອງຮັບ Email + Password, Google, LINE ແລະ Magic Link",
+    "nameOptional": "ຊື່ (ບໍ່ບັງຄັບ)",
+    "email": "ອີເມວ",
+    "password": "ລະຫັດຜ່ານ (ຢ່າງນ້ອຍ 8 ຕົວ)",
+    "login": "ເຂົ້າລະບົບ",
+    "register": "ສະໝັກສະມາຊິກ",
+    "loginGoogle": "ເຂົ້າລະບົບດ້ວຍ Google",
+    "loginLine": "ເຂົ້າລະບົບດ້ວຍ LINE",
+    "magicLinkTitle": "Magic Link",
+    "magicLinkPlaceholder": "email@example.com",
+    "sendMagicLink": "ສົ່ງ Magic Link",
+    "registerSuccess": "ສະໝັກສຳເລັດ ສາມາດເຂົ້າລະບົບໄດ້ແລ້ວ",
+    "magicLinkSuccess": "ສົ່ງ Magic Link ແລ້ວ ກະລຸນາກວດອີເມວ",
+    "signInFailed": "ເຂົ້າລະບົບບໍ່ສຳເລັດ",
+    "registerFailed": "ສະໝັກບໍ່ສຳເລັດ",
+    "magicLinkFailed": "ສົ່ງ Magic Link ບໍ່ສຳເລັດ"
+  },
+  "platform": {
+    "title": "ພາບລວມແພລດຟອມ",
+    "description": "ພາບລວມລະບົບ multi-tenant ສຳລັບທີມແພລດຟອມ",
+    "machineStatusDistribution": "ສັດສ່ວນສະຖານະເຄື່ອງ"
+  },
+  "tenant": {
+    "title": "ພາບລວມການດຳເນີນງານຂອງ Tenant",
+    "description": "ພາບລວມການໃຊ້ງານເຄື່ອງ ແລະ ອໍເດີ",
+    "machineStatusDistribution": "ສັດສ່ວນສະຖານະເຄື່ອງ"
+  }
+}

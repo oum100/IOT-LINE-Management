@@ -1,108 +1,253 @@
 <script setup lang="ts">
+definePageMeta({
+  layout: 'auth',
+  auth: false
+})
+
 const { signIn } = useAuth()
+const { t, ts } = useI18n()
 
 const email = ref('')
 const password = ref('')
-const signupName = ref('')
-const magicEmail = ref('')
+const showPassword = ref(false)
 const loading = ref(false)
+const magicLoading = ref(false)
+const magicMessage = ref('')
 const errorMessage = ref('')
-const successMessage = ref('')
+const authTab = ref<'password' | 'magic'>('password')
+const emailError = ref('')
+const passwordError = ref('')
+
+const trimmedEmail = computed(() => email.value.trim().toLowerCase())
+const isEmailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail.value))
+const isPasswordValid = computed(() =>
+  /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(password.value)
+)
+const canLogin = computed(() => isEmailValid.value && isPasswordValid.value && !loading.value)
+const canSendMagicLink = computed(() => isEmailValid.value && !magicLoading.value)
 
 async function loginWithCredentials() {
-  loading.value = true
-  errorMessage.value = ''
-  successMessage.value = ''
-  try {
-    await signIn('credentials', {
-      email: email.value,
-      password: password.value,
-      callbackUrl: '/order'
-    })
-  } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Sign in failed'
-  } finally {
-    loading.value = false
+  emailError.value = ''
+  passwordError.value = ''
+  magicMessage.value = ''
+  if (!isEmailValid.value) {
+    emailError.value = 'Please enter a valid email address.'
+    return
   }
-}
+  if (!isPasswordValid.value) {
+    passwordError.value = 'Password must be at least 8 chars, 1 uppercase, 1 number, 1 special.'
+    return
+  }
 
-async function registerAccount() {
   loading.value = true
   errorMessage.value = ''
-  successMessage.value = ''
   try {
-    await $fetch('/api/auth/register', {
-      method: 'POST',
-      body: {
-        email: email.value,
-        password: password.value,
-        name: signupName.value || undefined,
-        tenantCode: 'washpoint',
-        merchantCode: '1000105'
-      }
+    const result = await signIn('credentials', {
+      email: trimmedEmail.value,
+      password: password.value,
+      callbackUrl: '/portal',
+      redirect: false
     })
-    successMessage.value = 'สมัครสมาชิกสำเร็จแล้ว ลองเข้าสู่ระบบได้ทันที'
+
+    const authResult = result as
+      | { ok?: boolean; error?: string | null; status?: number; url?: string | null }
+      | undefined
+
+    if (authResult?.error || authResult?.ok === false || authResult?.status === 401) {
+      errorMessage.value = 'Email or password is incorrect.'
+      return
+    }
+
+    const nextUrl = authResult?.url
+    if (nextUrl) {
+      await navigateTo(nextUrl, { external: nextUrl.startsWith('http') })
+      return
+    }
+
+    errorMessage.value = 'Unable to sign in. Please try again.'
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Register failed'
+    errorMessage.value = error instanceof Error ? error.message : ts('auth.signInFailed')
   } finally {
     loading.value = false
   }
 }
 
 async function loginWithProvider(provider: string) {
-  await signIn(provider, { callbackUrl: '/order' })
+  errorMessage.value = ''
+  emailError.value = ''
+  passwordError.value = ''
+  const callbackUrl = `${window.location.origin}/portal`
+  await signIn(provider, { callbackUrl, redirect: true })
 }
 
 async function sendMagicLink() {
-  if (!magicEmail.value) return
-  loading.value = true
+  emailError.value = ''
+  passwordError.value = ''
+  if (!isEmailValid.value) {
+    emailError.value = 'Please enter a valid email address.'
+    return
+  }
+
+  magicLoading.value = true
   errorMessage.value = ''
-  successMessage.value = ''
+  magicMessage.value = ''
   try {
+    const callbackUrl = `${window.location.origin}/portal`
     await signIn('email', {
-      email: magicEmail.value,
-      callbackUrl: '/order',
+      email: trimmedEmail.value,
+      callbackUrl,
       redirect: false
     })
-    successMessage.value = 'ส่ง Magic Link แล้ว กรุณาเช็คอีเมล'
+    magicMessage.value = ts('auth.magicLinkSuccess')
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : 'Magic Link failed'
+    errorMessage.value = error instanceof Error ? error.message : ts('auth.magicLinkFailed')
   } finally {
-    loading.value = false
+    magicLoading.value = false
   }
 }
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-lg p-4 sm:p-6">
-    <div class="section-card p-6">
-      <p class="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-600">Auth</p>
-      <h1 class="mt-1 text-2xl font-semibold text-slate-900">Sign in / Sign up</h1>
-      <p class="mt-2 text-sm text-slate-600">รองรับ Email + Password, Google, LINE และ Magic Link</p>
-
-      <div class="mt-5 space-y-3">
-        <UInput v-model="signupName" placeholder="ชื่อ (optional)" size="lg" />
-        <UInput v-model="email" type="email" placeholder="อีเมล" size="lg" />
-        <UInput v-model="password" type="password" placeholder="รหัสผ่าน (อย่างน้อย 8 ตัว)" size="lg" />
-        <div class="grid grid-cols-2 gap-3">
-          <UButton :loading="loading" color="primary" @click="loginWithCredentials">Login</UButton>
-          <UButton :loading="loading" color="neutral" variant="soft" @click="registerAccount">Register</UButton>
+  <div class="flex min-h-[calc(100vh-120px)] items-start justify-center px-4 pt-0 pb-16 sm:px-6 sm:pt-1 lg:px-8">
+    <div class="relative w-full max-w-xl pt-16">
+      <div class="absolute left-1/2 top-0 z-10 -translate-x-1/2 -translate-y-1/6">
+        <div
+          class="flex h-40 w-40 items-center justify-center rounded-full border-4 border-white bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900">
+          <UIcon name="i-lucide-user-round" class="size-24 text-slate-500 dark:text-slate-300" />
         </div>
       </div>
 
-      <div class="mt-5 space-y-3">
-        <UButton color="neutral" variant="outline" block @click="loginWithProvider('google')">Login Google</UButton>
-        <UButton color="neutral" variant="outline" block @click="loginWithProvider('line')">Login LINE</UButton>
-      </div>
+      <UCard class="rounded-[24px] shadow-2xl shadow-slate-400/15 dark:shadow-slate-950/45" :ui="{
+        root: 'rounded-[24px] bg-white/96 dark:bg-slate-900/92 ring-1 ring-slate-200/80 dark:ring-slate-700/80',
+        body: 'pt-14 pb-6 px-6 sm:px-8'
+      }">
+        <div>
+          <div class="pt-8 pb-4 text-left">
+            <h1 class="text-4xl font-bold tracking-tight text-slate-900 dark:text-white">
+              Sign in
+            </h1>
+            <p class="text-base font-medium text-slate-600 dark:text-slate-300">
+              Sign In to manage all your devices
+            </p>
+          </div>
 
-      <div class="mt-5 space-y-3 rounded-xl border border-slate-200 p-3">
-        <p class="text-sm font-medium text-slate-700">Magic Link</p>
-        <UInput v-model="magicEmail" type="email" placeholder="email@example.com" size="lg" />
-        <UButton :loading="loading" color="warning" block @click="sendMagicLink">Send Magic Link</UButton>
-      </div>
+          <div class="space-y-4">
+            <div
+              class="grid w-full grid-cols-2 gap-0 overflow-hidden rounded-xl border border-slate-300 dark:border-slate-700">
+              <UButton size="sm" :variant="authTab === 'password' ? 'solid' : 'ghost'"
+                :color="authTab === 'password' ? 'primary' : 'neutral'"
+                :class="authTab === 'password'
+                  ? 'rounded-none text-white'
+                  : 'rounded-none bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800'" block
+                @click="authTab = 'password'">
+                Password
+              </UButton>
+              <UButton size="sm" :variant="authTab === 'magic' ? 'solid' : 'ghost'"
+                :color="authTab === 'magic' ? 'primary' : 'neutral'"
+                :class="authTab === 'magic'
+                  ? 'rounded-none text-white'
+                  : 'rounded-none bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800'" block
+                @click="authTab = 'magic'">
+                Magic Link
+              </UButton>
+            </div>
 
-      <p v-if="successMessage" class="mt-4 text-sm font-medium text-emerald-700">{{ successMessage }}</p>
-      <p v-if="errorMessage" class="mt-2 text-sm font-medium text-rose-600">{{ errorMessage }}</p>
+            <UFormField :label="ts('auth.email')" class="text-base font-semibold text-slate-800 dark:text-slate-200"
+              required>
+              <UInput v-model="email" type="email" :placeholder="ts('auth.email')" size="xl" color="neutral"
+                variant="outline" class="w-full"
+                :ui="{ base: 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ring-1 ring-slate-300 dark:ring-slate-600' }" />
+              <template #help>
+                <p v-if="emailError" class="text-xs font-semibold text-rose-600">
+                  {{ emailError }}
+                </p>
+              </template>
+            </UFormField>
+
+            <UFormField v-if="authTab === 'password'" :label="ts('auth.password')"
+              class="text-base font-semibold text-slate-800 dark:text-slate-200" required>
+              <UInput v-model="password" :type="showPassword ? 'text' : 'password'" :placeholder="ts('auth.password')"
+                size="xl" color="neutral" variant="outline" class="w-full"
+                :ui="{ base: 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ring-1 ring-slate-300 dark:ring-slate-600' }">
+                <template #trailing>
+                  <UButton color="neutral" variant="ghost" size="md"
+                    class="inline-flex h-9 w-9 items-center justify-center rounded-full p-0 text-slate-600 dark:text-slate-300"
+                    @click="showPassword = !showPassword">
+                    <UIcon :name="showPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'" class="size-5" />
+                  </UButton>
+                </template>
+              </UInput>
+              <template #help>
+                <p class="text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Password hint: at least 8 chars, 1 Capital, 1 number, 1 special
+                </p>
+                <p v-if="passwordError" class="text-xs font-semibold text-rose-600">
+                  {{ passwordError }}
+                </p>
+              </template>
+            </UFormField>
+          </div>
+
+          <div class="space-y-4 pt-6">
+            <div v-if="authTab === 'password'" class="text-right text-sm font-semibold">
+              <NuxtLink to="/auth/forgot-password"
+                class="text-slate-600 transition hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-300">
+                Forget password?
+              </NuxtLink>
+            </div>
+
+            <UButton v-if="authTab === 'password'" :loading="loading" :disabled="!canLogin" color="primary" block
+              size="xl" class="text-white dark:text-white rounded-full" @click="loginWithCredentials">
+              {{ t('auth.login') }}
+            </UButton>
+            <UButton v-else :loading="magicLoading" :disabled="!canSendMagicLink" color="primary" block size="xl"
+              class="text-white dark:text-white rounded-full" @click="sendMagicLink">
+              {{ ts('auth.sendMagicLink') }}
+            </UButton>
+
+            <p v-if="authTab === 'magic' && magicMessage" class="text-center text-sm font-semibold text-emerald-600">
+              {{ magicMessage }}
+            </p>
+
+            <div class="text-center text-sm font-semibold text-slate-600 dark:text-slate-300">
+              Do not have an account?
+              <NuxtLink to="/signup"
+                class="ml-1 text-blue-600 underline-offset-2 transition hover:underline dark:text-blue-300">
+                Sign Up
+              </NuxtLink>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-3 pt-1">
+            <div class="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+            <p class="text-sm font-semibold text-slate-500 dark:text-slate-400">
+              or connect with
+            </p>
+            <div class="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+          </div>
+
+          <div class="flex items-center justify-center gap-4">
+            <UButton color="neutral" variant="ghost" size="xl"
+              class="inline-flex h-12 w-12 items-center justify-center rounded-full p-0 text-slate-700 transition-all duration-200 hover:scale-150 hover:bg-blue-150 dark:text-slate-100 dark:hover:bg-slate-800"
+              @click="loginWithProvider('google')">
+              <UIcon name="i-simple-icons-google" class="size-7 text-[#4285F4]" />
+            </UButton>
+            <UButton color="neutral" variant="ghost" size="xl"
+              class="inline-flex h-12 w-12 items-center justify-center rounded-full p-0 text-slate-700 transition-all duration-200 hover:scale-150 hover:bg-emerald-150 dark:text-slate-100 dark:hover:bg-slate-800"
+              @click="loginWithProvider('line')">
+              <UIcon name="i-simple-icons-line" class="size-7 text-[#06C755]" />
+            </UButton>
+            <UButton color="neutral" variant="ghost" size="xl"
+              class="inline-flex h-12 w-12 items-center justify-center rounded-full p-0 text-slate-700 transition-all duration-200 hover:scale-150 hover:bg-emerald-150 dark:text-slate-100 dark:hover:bg-slate-800"
+              @click="loginWithProvider('github')">
+              <UIcon name="i-simple-icons-github" class="size-7 text-[#817f7f]" />
+            </UButton>
+          </div>
+
+          <UAlert v-if="errorMessage" color="error" variant="soft" icon="i-lucide-alert-triangle"
+            :title="errorMessage" />
+        </div>
+      </UCard>
     </div>
   </div>
 </template>
