@@ -4,7 +4,10 @@ const { locale, toggleLocale, t } = useAppLocale()
 
 const items = computed(() => [
   { to: '/platform/dashboard', label: t('แดชบอร์ด', 'Dashboard') },
-  { to: '/admin/tenant', label: t('ผู้เช่า', 'Tenant Management') },
+  { to: '/admin/tenant', label: t('common.tenants', 'Tenants') },
+  { to: '/admin/merchants', label: t('common.merchants', 'Merchants') },
+  { to: '/admin/branches', label: t('common.branches', 'Branches') },
+  { to: '/admin/assets', label: t('common.assets', 'Assets') },
   { to: '/admin/settings', label: t('ตั้งค่า', 'Settings') }
 ])
 

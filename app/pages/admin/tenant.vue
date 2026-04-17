@@ -33,6 +33,9 @@ const message = ref("");
 const error = ref("");
 const query = ref("");
 const tenants = ref<Tenant[]>([]);
+const page = ref(1);
+const pageSize = ref(10);
+const total = ref(0);
 const selectedTenantId = ref("");
 const selectedTenantName = ref("");
 const selectedTenantCode = ref("");
@@ -56,6 +59,9 @@ const nameEditValue = ref("");
 const editingStatusId = ref("");
 const statusEditValue = ref<TenantStatus>("ACTIVE");
 const router = useRouter();
+const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
+const hasPrevPage = computed(() => page.value > 1);
+const hasNextPage = computed(() => page.value < totalPages.value);
 
 const inputUi = {
   base: "bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ring-1 ring-slate-300 dark:ring-slate-600",
@@ -84,13 +90,29 @@ async function run(task: () => Promise<void>) {
 
 async function loadTenants() {
   await run(async () => {
-    const response = await $fetch<{ items: Tenant[] }>("/api/admin/tenants", {
-      query: query.value ? { q: query.value } : undefined,
+    const response = await $fetch<{ items: Tenant[]; total: number; page: number; pageSize: number }>("/api/admin/tenants", {
+      query: {
+        ...(query.value ? { q: query.value } : {}),
+        page: page.value,
+        pageSize: pageSize.value,
+      },
     });
     tenants.value = response.items || [];
-    const firstTenant = tenants.value[0];
-    if (!selectedTenantId.value && firstTenant) {
-      await selectTenant(firstTenant);
+    total.value = Number(response.total || 0);
+    page.value = Number(response.page || page.value);
+    pageSize.value = Number(response.pageSize || pageSize.value);
+
+    const stillExists = tenants.value.some(item => item.id === selectedTenantId.value);
+    if (!stillExists) {
+      const firstTenant = tenants.value[0];
+      if (firstTenant) {
+        await selectTenant(firstTenant);
+      } else {
+        selectedTenantId.value = "";
+        selectedTenantName.value = "";
+        selectedTenantCode.value = "";
+        tenantSummary.value = null;
+      }
     }
   });
 }
@@ -196,6 +218,18 @@ type TenantArea =
 
 async function goToTenantArea(area: TenantArea, tenantId = selectedTenantId.value) {
   if (!tenantId) return;
+  if (area === "merchant") {
+    await navigateTo(`/admin/merchants?tenantId=${tenantId}`);
+    return;
+  }
+  if (area === "branch") {
+    await navigateTo(`/admin/branches?tenantId=${tenantId}`);
+    return;
+  }
+  if (area === "asset") {
+    await navigateTo(`/admin/assets?tenantId=${tenantId}`);
+    return;
+  }
   setMessage(`ส่วน ${area} ปิดไว้ก่อน จะทำหน้าใหม่ภายหลัง`);
 }
 
@@ -237,6 +271,18 @@ async function openCreateDialog() {
 
 function closeCreateDialog() {
   createOpen.value = false;
+}
+
+async function goToPage(target: number) {
+  const next = Math.min(Math.max(1, target), totalPages.value);
+  if (next === page.value) return;
+  page.value = next;
+  await loadTenants();
+}
+
+async function onSearch() {
+  page.value = 1;
+  await loadTenants();
 }
 
 async function createTenant() {
@@ -446,7 +492,7 @@ onMounted(async () => {
               icon="i-lucide-search"
               class="text-blue-700 dark:text-blue-200 ring-blue-300/70 dark:ring-blue-700/60 hover:bg-blue-100 dark:hover:bg-blue-900/30"
               :loading="loading"
-              @click="loadTenants"
+              @click="onSearch"
             >
               Search
             </UButton>
@@ -581,6 +627,49 @@ onMounted(async () => {
             </tr>
           </tbody>
         </table>
+      </div>
+
+      <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <p class="text-xs text-slate-500 dark:text-slate-400">
+          Showing {{ tenants.length }} of {{ total }} tenants
+        </p>
+        <div class="flex items-center gap-2">
+          <UButton
+            size="xs"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-chevrons-left"
+            :disabled="!hasPrevPage || loading"
+            @click="goToPage(1)"
+          />
+          <UButton
+            size="xs"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-chevron-left"
+            :disabled="!hasPrevPage || loading"
+            @click="goToPage(page - 1)"
+          />
+          <span class="px-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            Page {{ page }} / {{ totalPages }}
+          </span>
+          <UButton
+            size="xs"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-chevron-right"
+            :disabled="!hasNextPage || loading"
+            @click="goToPage(page + 1)"
+          />
+          <UButton
+            size="xs"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-chevrons-right"
+            :disabled="!hasNextPage || loading"
+            @click="goToPage(totalPages)"
+          />
+        </div>
       </div>
     </UCard>
 

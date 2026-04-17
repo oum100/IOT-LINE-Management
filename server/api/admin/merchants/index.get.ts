@@ -6,12 +6,11 @@ import { withPaging } from '../../../utils/admin-crud'
 export default defineEventHandler(async (event) => {
   await assertAdminAccess(event)
   const query = getQuery(event)
-  const tenantId = String(query.tenantId || '')
-  if (!tenantId) throw createError({ statusCode: 400, statusMessage: 'tenantId is required' })
+  const tenantId = String(query.tenantId || '').trim()
 
   const { q, skip, take, page, pageSize } = withPaging(query)
   const where = {
-    tenantId,
+    ...(tenantId ? { tenantId } : {}),
     ...(q
       ? {
           OR: [

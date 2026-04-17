@@ -4,7 +4,6 @@ import { prisma } from '../../../utils/prisma'
 import { assertAdminAccess } from '../../../utils/admin-auth'
 
 const querySchema = z.object({
-  top: z.coerce.number().int().min(1).max(50).default(5),
   period: z.enum(['24h', 'week', 'month', 'year', 'custom']).default('month'),
   start: z.string().optional(),
   end: z.string().optional(),
@@ -42,11 +41,10 @@ function getRange(period: '24h' | 'week' | 'month' | 'year' | 'custom', startRaw
   }
 
   if (period === 'week') {
-    const day = now.getDay() // 0 = Sunday
+    const day = now.getDay()
     const start = new Date(now)
     start.setDate(now.getDate() - day)
     start.setHours(0, 0, 0, 0)
-
     const end = new Date(start)
     end.setDate(start.getDate() + 6)
     end.setHours(23, 59, 59, 999)
@@ -79,41 +77,15 @@ export default defineEventHandler(async (event) => {
   const tenantIdFilter = tenantIds.length ? { in: tenantIds } : undefined
   const range = getRange(query.period, query.start, query.end)
 
-  const tenantWhere = tenantIdFilter ? { id: tenantIdFilter } : {}
-  const byTenantWhere = tenantIdFilter ? { tenantId: tenantIdFilter } : {}
-  const salesWhere = {
-    ...(tenantIdFilter ? { tenantId: tenantIdFilter } : {}),
+  const tenantWhere = {
+    ...(tenantIdFilter ? { id: tenantIdFilter } : {}),
     createdAt: { gte: range.start, lte: range.end }
   }
-
-  const [tenantRows, salesByTenantRaw] = await Promise.all([
-    prisma.tenant.findMany({
-      where: tenantWhere,
-      select: { id: true, code: true, name: true, status: true }
-    }),
-    prisma.order.groupBy({
-      by: ['tenantId'],
-      where: salesWhere,
-      _sum: { totalAmount: true },
-      _count: { _all: true }
-    })
-  ])
-
-  const tenantMap = new Map(tenantRows.map(item => [item.id, item]))
-  const salesByTenant = salesByTenantRaw
-    .map(item => {
-      const tenantId = item.tenantId || ''
-      const tenant = tenantMap.get(tenantId)
-      return {
-        tenantId,
-        tenantCode: tenant?.code || '-',
-        tenantName: tenant?.name || 'Unknown',
-        amount: Number(item._sum.totalAmount || 0),
-        orderCount: item._count._all
-      }
-    })
-    .sort((a, b) => b.amount - a.amount)
-    .slice(0, query.top)
+  const byTenantWhere = tenantIdFilter ? { tenantId: tenantIdFilter } : {}
+  const byTenantAndDateWhere = {
+    ...byTenantWhere,
+    createdAt: { gte: range.start, lte: range.end }
+  }
 
   const [
     tenantTotal,
@@ -142,41 +114,42 @@ export default defineEventHandler(async (event) => {
       where: tenantWhere,
       _count: { _all: true }
     }),
-    prisma.merchantAccount.count({ where: byTenantWhere }),
+    prisma.merchantAccount.count({ where: byTenantAndDateWhere }),
     prisma.merchantAccount.groupBy({
       by: ['status'],
-      where: byTenantWhere,
+      where: byTenantAndDateWhere,
       _count: { _all: true }
     }),
-    prisma.branch.count({ where: byTenantWhere }),
+    prisma.branch.count({ where: byTenantAndDateWhere }),
     prisma.branch.groupBy({
       by: ['status'],
-      where: byTenantWhere,
+      where: byTenantAndDateWhere,
       _count: { _all: true }
     }),
-    prisma.asset.count({ where: byTenantWhere }),
+    prisma.asset.count({ where: byTenantAndDateWhere }),
     prisma.asset.groupBy({
       by: ['status'],
-      where: byTenantWhere,
+      where: byTenantAndDateWhere,
       _count: { _all: true }
     }),
     prisma.asset.groupBy({
       by: ['kind'],
-      where: byTenantWhere,
+      where: byTenantAndDateWhere,
       _count: { _all: true }
     }),
-    prisma.iotDevice.count({ where: byTenantWhere }),
+    prisma.iotDevice.count({ where: byTenantAndDateWhere }),
     prisma.assetBinding.groupBy({
       by: ['status'],
       where: {
         ...(tenantIdFilter ? { tenantId: tenantIdFilter } : {}),
+        createdAt: { gte: range.start, lte: range.end },
         iotDeviceId: { not: null }
       },
       _count: { _all: true }
     }),
     prisma.iotDevice.count({
       where: {
-        ...byTenantWhere,
+        ...byTenantAndDateWhere,
         bindings: {
           none: {
             status: 'ACTIVE',
@@ -185,42 +158,37 @@ export default defineEventHandler(async (event) => {
         }
       }
     }),
-    prisma.user.count({ where: byTenantWhere }),
+    prisma.user.count({ where: byTenantAndDateWhere }),
     prisma.user.groupBy({
       by: ['isActive'],
-      where: byTenantWhere,
+      where: byTenantAndDateWhere,
       _count: { _all: true }
     }),
     prisma.user.groupBy({
       by: ['role'],
-      where: byTenantWhere,
+      where: byTenantAndDateWhere,
       _count: { _all: true }
     }),
-    prisma.order.count({ where: byTenantWhere }),
+    prisma.order.count({ where: byTenantAndDateWhere }),
     prisma.order.groupBy({
       by: ['status'],
-      where: byTenantWhere,
+      where: byTenantAndDateWhere,
       _count: { _all: true }
     }),
-    prisma.payment.count({ where: byTenantWhere }),
+    prisma.payment.count({ where: byTenantAndDateWhere }),
     prisma.payment.groupBy({
       by: ['status'],
-      where: byTenantWhere,
+      where: byTenantAndDateWhere,
       _count: { _all: true }
     })
   ])
 
   return {
     filters: {
-      top: query.top,
       period: query.period,
       start: range.start.toISOString(),
       end: range.end.toISOString(),
       tenantIds
-    },
-    sales: {
-      totalAmount: salesByTenant.reduce((sum, item) => sum + item.amount, 0),
-      byTenant: salesByTenant
     },
     cards: [
       {
