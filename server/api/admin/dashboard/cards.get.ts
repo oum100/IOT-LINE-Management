@@ -69,6 +69,48 @@ function toBreakdown(group: Array<{ status: string; _count: { _all: number } }>)
   }))
 }
 
+function withDefaultStatuses(
+  group: Array<{ status: string; _count: { _all: number } }>,
+  defaults: string[]
+) {
+  const map = new Map(group.map(item => [item.status, item._count._all]))
+  const defaultSet = new Set(defaults)
+  const normalized = defaults.map(status => ({
+    label: status,
+    count: map.get(status) || 0
+  }))
+  const extras = group
+    .filter(item => !defaultSet.has(item.status))
+    .map(item => ({
+      label: item.status,
+      count: item._count._all
+    }))
+  return [...normalized, ...extras]
+}
+
+function withDefaultLabelCounts(
+  items: Array<{ label: string; count: number }>,
+  defaults: string[]
+) {
+  const map = new Map(items.map(item => [item.label, item.count]))
+  const defaultSet = new Set(defaults)
+  const normalized = defaults.map(label => ({
+    label,
+    count: map.get(label) || 0
+  }))
+  const extras = items.filter(item => !defaultSet.has(item.label))
+  return [...normalized, ...extras]
+}
+
+const TENANT_STATUSES = ['ACTIVE', 'SUSPENDED', 'DISABLED']
+const MERCHANT_STATUSES = ['ACTIVE', 'SUSPENDED', 'DISABLED']
+const BRANCH_STATUSES = ['ACTIVE', 'INACTIVE', 'DISABLED']
+const ASSET_STATUSES = ['ACTIVE', 'INACTIVE', 'MAINTENANCE']
+const ASSET_TYPE_STATUSES = ['WASHER', 'DRYER', 'WATER', 'VENDING']
+const DEVICE_BINDING_STATUSES = ['BIND_ACTIVE', 'BIND_INACTIVE', 'UNBOUND']
+const ORDER_STATUSES = ['PENDING_PAYMENT', 'SLIP_UPLOADED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
+const PAYMENT_STATUSES = ['PENDING', 'SLIP_UPLOADED', 'VERIFIED', 'REJECTED']
+
 export default defineEventHandler(async (event) => {
   await assertAdminAccess(event)
 
@@ -195,43 +237,49 @@ export default defineEventHandler(async (event) => {
         key: 'tenants',
         title: 'Tenants',
         total: tenantTotal,
-        statuses: toBreakdown(tenantStatus.map(item => ({ status: item.status, _count: item._count })))
+        statuses: withDefaultStatuses(tenantStatus.map(item => ({ status: item.status, _count: item._count })), TENANT_STATUSES)
       },
       {
         key: 'merchants',
         title: 'Merchants',
         total: merchantTotal,
-        statuses: toBreakdown(merchantStatus.map(item => ({ status: item.status, _count: item._count })))
+        statuses: withDefaultStatuses(merchantStatus.map(item => ({ status: item.status, _count: item._count })), MERCHANT_STATUSES)
       },
       {
         key: 'branches',
         title: 'Branches',
         total: branchTotal,
-        statuses: toBreakdown(branchStatus.map(item => ({ status: item.status, _count: item._count })))
+        statuses: withDefaultStatuses(branchStatus.map(item => ({ status: item.status, _count: item._count })), BRANCH_STATUSES)
       },
       {
         key: 'assets',
         title: 'Assets',
         total: assetTotal,
-        statuses: toBreakdown(assetStatus.map(item => ({ status: item.status, _count: item._count })))
+        statuses: withDefaultStatuses(assetStatus.map(item => ({ status: item.status, _count: item._count })), ASSET_STATUSES)
       },
       {
         key: 'asset_types',
         title: 'Asset Type',
         total: assetTypeGroup.reduce((sum, item) => sum + item._count._all, 0),
-        statuses: assetTypeGroup.map(item => ({
-          label: item.kind,
-          count: item._count._all
-        }))
+        statuses: withDefaultLabelCounts(
+          assetTypeGroup.map(item => ({
+            label: item.kind,
+            count: item._count._all
+          })),
+          ASSET_TYPE_STATUSES
+        )
       },
       {
         key: 'devices',
         title: 'Devices',
         total: deviceTotal,
-        statuses: [
-          ...toBreakdown(deviceBindingStatus.map(item => ({ status: `BIND_${item.status}`, _count: item._count }))),
-          { label: 'UNBOUND', count: unboundDeviceCount }
-        ]
+        statuses: withDefaultLabelCounts(
+          [
+            ...toBreakdown(deviceBindingStatus.map(item => ({ status: `BIND_${item.status}`, _count: item._count }))),
+            { label: 'UNBOUND', count: unboundDeviceCount }
+          ],
+          DEVICE_BINDING_STATUSES
+        )
       },
       {
         key: 'users',
@@ -252,13 +300,13 @@ export default defineEventHandler(async (event) => {
         key: 'orders',
         title: 'Orders',
         total: orderTotal,
-        statuses: toBreakdown(orderStatus.map(item => ({ status: item.status, _count: item._count })))
+        statuses: withDefaultStatuses(orderStatus.map(item => ({ status: item.status, _count: item._count })), ORDER_STATUSES)
       },
       {
         key: 'payments',
         title: 'Payments',
         total: paymentTotal,
-        statuses: toBreakdown(paymentStatus.map(item => ({ status: item.status, _count: item._count })))
+        statuses: withDefaultStatuses(paymentStatus.map(item => ({ status: item.status, _count: item._count })), PAYMENT_STATUSES)
       }
     ]
   }

@@ -631,12 +631,12 @@ onMounted(async () => {
           <label class="text-xs text-slate-500">Active Tenant</label>
           <select v-model="selectedTenantId" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
             <option value="">- select -</option>
-            <option v-for="item in tenants" :key="item.id" :value="item.id">{{ item.code }} • {{ item.name }}</option>
+            <option v-for="item in tenants" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </div>
         <div class="mt-3 space-y-2 text-sm">
           <div v-for="item in tenants" :key="item.id" class="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
-            <span>{{ item.code }} • {{ item.name }}</span>
+            <span>{{ item.name }}</span>
             <div class="flex items-center gap-3">
               <button class="text-sky-700" @click="editTenant(item)">Edit</button>
               <button class="text-rose-600" @click="deleteBy('/api/admin/tenants', item.id, reloadAll)">Delete</button>
@@ -656,12 +656,12 @@ onMounted(async () => {
           <label class="text-xs text-slate-500">Active Merchant</label>
           <select v-model="selectedMerchantId" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
             <option value="">- select -</option>
-            <option v-for="item in merchants" :key="item.id" :value="item.id">{{ item.code }} • {{ item.name }}</option>
+            <option v-for="item in merchants" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </div>
         <div class="mt-3 space-y-2 text-sm">
           <div v-for="item in merchants" :key="item.id" class="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
-            <span>{{ item.code }} • {{ item.name }}</span>
+            <span>{{ item.name }}</span>
             <div class="flex items-center gap-3">
               <button class="text-sky-700" @click="editMerchant(item)">Edit</button>
               <button class="text-rose-600" @click="deleteBy('/api/admin/merchants', item.id, reloadAll)">Delete</button>
@@ -681,12 +681,12 @@ onMounted(async () => {
           <label class="text-xs text-slate-500">Active Branch</label>
           <select v-model="selectedBranchId" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
             <option value="">- select -</option>
-            <option v-for="item in branches" :key="item.id" :value="item.id">{{ item.code }} • {{ item.name }}</option>
+            <option v-for="item in branches" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </div>
         <div class="mt-3 space-y-2 text-sm">
           <div v-for="item in branches" :key="item.id" class="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
-            <span>{{ item.code }} • {{ item.name }}</span>
+            <span>{{ item.name }}</span>
             <div class="flex items-center gap-3">
               <button class="text-sky-700" @click="editBranch(item)">Edit</button>
               <button class="text-rose-600" @click="deleteBy('/api/admin/branches', item.id, reloadAll)">Delete</button>

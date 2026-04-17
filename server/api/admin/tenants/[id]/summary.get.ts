@@ -7,6 +7,7 @@ type SummaryResponse = {
   branchCount: number
   assetCount: number
   deviceCount: number
+  paymentCount: number
   billerCount: number
   userCount: number
   orderCount: number
@@ -24,7 +25,7 @@ async function safeCount(task: () => Promise<number>) {
 async function safeTotalAmount(tenantId: string) {
   try {
     const result = await prisma.order.aggregate({
-      where: { tenantId },
+      where: tenantId === 'all' ? {} : { tenantId },
       _sum: { totalAmount: true }
     })
     return Number(result._sum.totalAmount || 0)
@@ -41,23 +42,27 @@ export default defineEventHandler(async (event): Promise<SummaryResponse> => {
     throw createError({ statusCode: 400, statusMessage: 'Missing tenant id' })
   }
 
+  const isAll = tenantId === 'all'
+
   const [
     merchantCount,
     branchCount,
     assetCount,
     deviceCount,
+    paymentCount,
     billerCount,
     userCount,
     orderCount,
     totalOrderAmount
   ] = await Promise.all([
-    safeCount(() => prisma.merchantAccount.count({ where: { tenantId } })),
-    safeCount(() => prisma.branch.count({ where: { tenantId } })),
-    safeCount(() => prisma.asset.count({ where: { tenantId } })),
-    safeCount(() => prisma.iotDevice.count({ where: { tenantId } })),
-    safeCount(() => prisma.billerProfile.count({ where: { tenantId } })),
-    safeCount(() => prisma.user.count({ where: { tenantId } })),
-    safeCount(() => prisma.order.count({ where: { tenantId } })),
+    safeCount(() => prisma.merchantAccount.count({ where: isAll ? {} : { tenantId } })),
+    safeCount(() => prisma.branch.count({ where: isAll ? {} : { tenantId } })),
+    safeCount(() => prisma.asset.count({ where: isAll ? {} : { tenantId } })),
+    safeCount(() => prisma.iotDevice.count({ where: isAll ? {} : { tenantId } })),
+    safeCount(() => prisma.payment.count({ where: isAll ? {} : { tenantId } })),
+    safeCount(() => prisma.billerProfile.count({ where: isAll ? {} : { tenantId } })),
+    safeCount(() => prisma.user.count({ where: isAll ? {} : { tenantId } })),
+    safeCount(() => prisma.order.count({ where: isAll ? {} : { tenantId } })),
     safeTotalAmount(tenantId)
   ])
 
@@ -67,6 +72,7 @@ export default defineEventHandler(async (event): Promise<SummaryResponse> => {
     branchCount,
     assetCount,
     deviceCount,
+    paymentCount,
     billerCount,
     userCount,
     orderCount,

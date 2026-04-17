@@ -6,37 +6,40 @@ definePageMeta({
   middleware: "portal-auth",
 })
 
-type MerchantStatus = "ACTIVE" | "SUSPENDED" | "DISABLED"
-type MerchantEnvironment = "TEST" | "LIVE"
+type BranchStatus = "ACTIVE" | "INACTIVE" | "DISABLED"
 type Tenant = {
   id: string
   code: string
   name: string
 }
 
-type MerchantRecord = {
+type MerchantOption = {
   id: string
-  tenantId: string
-  tenant?: Tenant | null
   code: string
   name: string
-  status: MerchantStatus
-  environment: MerchantEnvironment
-  metadata?: Record<string, any> | null
-  branches?: { id: string }[]
-  createdAt: string
-  updatedAt: string
 }
 
-type MerchantSummary = {
-  merchantId: string
+type BranchRecord = {
+  id: string
   tenantId: string
-  branchCount: number
+  merchantAccountId?: string | null
+  merchantAccount?: MerchantOption | null
+  code: string
+  name: string
+  status: BranchStatus
+  metadata?: Record<string, any> | null
+  createdAt?: string
+  updatedAt?: string
+}
+
+type BranchSummary = {
+  branchId: string
+  tenantId: string
+  merchantAccountId: string | null
   assetCount: number
   deviceCount: number
+  machineCount: number
   paymentCount: number
-  billerCount: number
-  userCount: number
   orderCount: number
 }
 
@@ -48,39 +51,42 @@ type PagingResponse<T> = {
 }
 
 const route = useRoute()
+
 const loading = ref(false)
 const message = ref("")
 const error = ref("")
 const query = ref("")
 const selectedTenantFilter = ref("")
+const selectedMerchantFilter = ref("")
+const tenants = ref<Tenant[]>([])
+const merchants = ref<MerchantOption[]>([])
+const branches = ref<BranchRecord[]>([])
+const selectedBranchId = ref("")
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
-const merchants = ref<MerchantRecord[]>([])
-const tenants = ref<Tenant[]>([])
-const selectedMerchantId = ref("")
 
 const summaryLoading = ref(false)
 const summaryError = ref("")
-const merchantSummary = ref<MerchantSummary | null>(null)
+const branchSummary = ref<BranchSummary | null>(null)
 
 const createOpen = ref(false)
 const createForm = ref({
   tenantId: "",
+  merchantAccountId: "",
   code: "",
   name: "",
-  status: "ACTIVE" as MerchantStatus,
-  environment: "TEST" as MerchantEnvironment,
+  status: "ACTIVE" as BranchStatus,
 })
 
 const editingNameId = ref("")
 const nameEditValue = ref("")
 const editingStatusId = ref("")
-const statusEditValue = ref<MerchantStatus>("ACTIVE")
+const statusEditValue = ref<BranchStatus>("ACTIVE")
 
 const metadataOpen = ref(false)
 const metadataTitle = ref("")
-const metadataMerchantId = ref("")
+const metadataBranchId = ref("")
 const metadataRaw = ref("")
 
 const inputUi = {
@@ -90,44 +96,16 @@ const inputUi = {
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const hasPrevPage = computed(() => page.value > 1)
 const hasNextPage = computed(() => page.value < totalPages.value)
-const selectedMerchant = computed(() => merchants.value.find(item => item.id === selectedMerchantId.value) || null)
-const tenantFilterOptions = computed(() => {
-  const mapped = new Map<string, Tenant>()
-  for (const tenant of tenants.value) {
-    mapped.set(tenant.id, tenant)
-  }
-  for (const item of merchants.value) {
-    if (item.tenant?.id && !mapped.has(item.tenant.id)) {
-      mapped.set(item.tenant.id, {
-        id: item.tenant.id,
-        code: item.tenant.code,
-        name: item.tenant.name,
-      })
-    }
-  }
-  return Array.from(mapped.values())
-})
+const selectedBranch = computed(() => branches.value.find(item => item.id === selectedBranchId.value) || null)
 
 function readTenantId(): string {
   const raw = route.query.tenantId
   return typeof raw === "string" ? raw.trim() : ""
 }
 
-function formatDate(value?: string) {
-  if (!value) return "-"
-  return new Date(value).toLocaleString()
-}
-
-function formatMetadata(value: unknown) {
-  if (!value) return ""
-  const raw = JSON.stringify(value)
-  return raw.length > 80 ? `${raw.slice(0, 80)}...` : raw
-}
-
-function merchantStatusClass(status: MerchantStatus) {
-  if (status === "ACTIVE") return "text-emerald-600 dark:text-emerald-400"
-  if (status === "SUSPENDED") return "text-amber-600 dark:text-amber-400"
-  return "text-rose-600 dark:text-rose-400"
+function readMerchantId(): string {
+  const raw = route.query.merchantAccountId
+  return typeof raw === "string" ? raw.trim() : ""
 }
 
 function setMessage(text: string) {
@@ -151,20 +129,37 @@ async function run(task: () => Promise<void>) {
   }
 }
 
+function formatDate(value?: string) {
+  if (!value) return "-"
+  return new Date(value).toLocaleString()
+}
+
+function formatMetadata(value: unknown) {
+  if (!value) return ""
+  const raw = JSON.stringify(value)
+  return raw.length > 80 ? `${raw.slice(0, 80)}...` : raw
+}
+
+function branchStatusClass(status: BranchStatus) {
+  if (status === "ACTIVE") return "text-emerald-600 dark:text-emerald-400"
+  if (status === "INACTIVE") return "text-amber-600 dark:text-amber-400"
+  return "text-rose-600 dark:text-rose-400"
+}
+
 async function loadTenants() {
   try {
     const collected: Tenant[] = []
     let nextPage = 1
     const maxPages = 20
-    const pageSize = 200
+    const perPage = 200
 
     while (nextPage <= maxPages) {
       const response = await $fetch<{ items: Tenant[] }>("/api/admin/tenants", {
-        query: { page: nextPage, pageSize },
+        query: { page: nextPage, pageSize: perPage },
       })
       const items = response.items || []
       collected.push(...items)
-      if (items.length < pageSize) break
+      if (items.length < perPage) break
       nextPage += 1
     }
 
@@ -175,87 +170,119 @@ async function loadTenants() {
   }
 }
 
-function tenantLabel(tenantId: string) {
-  const tenant = tenants.value.find(item => item.id === tenantId)
-    || merchants.value.find(item => item.tenantId === tenantId)?.tenant
-  if (!tenant) return "-"
-  return tenant.name
-}
-
-async function loadMerchants(resetPage = false) {
-  await run(async () => {
-    if (resetPage) page.value = 1
-    const tenantId = selectedTenantFilter.value
-    const response = await $fetch<PagingResponse<MerchantRecord>>("/api/admin/merchants", {
+async function loadMerchantsByTenant(tenantId: string) {
+  try {
+    const response = await $fetch<{ items: MerchantOption[] }>("/api/admin/merchants", {
       query: {
         ...(tenantId ? { tenantId } : {}),
+        page: 1,
+        pageSize: 200,
+      },
+    })
+    merchants.value = response.items || []
+  } catch {
+    merchants.value = []
+  }
+}
+
+function tenantLabel(tenantId?: string | null) {
+  if (!tenantId) return "-"
+  const tenant = tenants.value.find(item => item.id === tenantId)
+  return tenant ? tenant.name : "-"
+}
+
+function merchantLabel(merchantId?: string | null) {
+  if (!merchantId) return "-"
+  const merchant = merchants.value.find(item => item.id === merchantId)
+  if (merchant) return merchant.name
+  const linked = branches.value.find(item => item.merchantAccountId === merchantId)?.merchantAccount
+  return linked ? linked.name : "-"
+}
+
+async function loadBranches(resetPage = false) {
+  await run(async () => {
+    if (resetPage) page.value = 1
+
+    const response = await $fetch<PagingResponse<BranchRecord>>("/api/admin/branches", {
+      query: {
+        ...(selectedTenantFilter.value ? { tenantId: selectedTenantFilter.value } : {}),
+        ...(selectedMerchantFilter.value ? { merchantAccountId: selectedMerchantFilter.value } : {}),
         ...(query.value ? { q: query.value } : {}),
         page: page.value,
         pageSize: pageSize.value,
       },
     })
 
-    merchants.value = response.items || []
+    branches.value = response.items || []
     total.value = Number(response.total || 0)
     page.value = Number(response.page || page.value)
     pageSize.value = Number(response.pageSize || pageSize.value)
 
-    const stillExists = merchants.value.some(item => item.id === selectedMerchantId.value)
+    const stillExists = branches.value.some(item => item.id === selectedBranchId.value)
     if (!stillExists) {
-      selectedMerchantId.value = merchants.value[0]?.id || ""
+      selectedBranchId.value = branches.value[0]?.id || ""
     }
   })
 }
 
-async function loadMerchantSummary(merchantId: string) {
+async function loadBranchSummary(branchId: string) {
   summaryLoading.value = true
   summaryError.value = ""
   try {
-    merchantSummary.value = await $fetch<MerchantSummary>(`/api/admin/merchants/${merchantId}/summary`)
+    branchSummary.value = await $fetch<BranchSummary>(`/api/admin/branches/${branchId}/summary`)
   } catch (err) {
-    merchantSummary.value = null
-    summaryError.value = err instanceof Error ? err.message : "Failed to load merchant summary"
+    branchSummary.value = null
+    summaryError.value = err instanceof Error ? err.message : "Failed to load branch summary"
   } finally {
     summaryLoading.value = false
   }
 }
 
-function selectMerchant(item: MerchantRecord) {
-  selectedMerchantId.value = item.id
+function selectBranch(item: BranchRecord) {
+  selectedBranchId.value = item.id
 }
 
-function refreshMerchants() {
-  void loadMerchants()
-  if (selectedMerchantId.value) {
-    void loadMerchantSummary(selectedMerchantId.value)
-  }
+async function onTenantFilterChange() {
+  selectedMerchantFilter.value = ""
+  await loadMerchantsByTenant(selectedTenantFilter.value)
+  await loadBranches(true)
+}
+
+async function onMerchantFilterChange() {
+  await loadBranches(true)
 }
 
 async function onSearch() {
   page.value = 1
-  await loadMerchants()
+  await loadBranches()
 }
 
-async function onTenantFilterChange() {
-  page.value = 1
-  await loadMerchants()
+function refreshBranches() {
+  void loadBranches()
+  if (selectedBranchId.value) {
+    void loadBranchSummary(selectedBranchId.value)
+  }
 }
 
 async function goToPage(target: number) {
   const next = Math.min(Math.max(1, target), totalPages.value)
   if (next === page.value) return
   page.value = next
-  await loadMerchants()
+  await loadBranches()
 }
 
 function openCreateDialog() {
-  const routeTenantId = selectedTenantFilter.value || readTenantId()
+  if (!selectedTenantFilter.value) {
+    setError("Please select tenant first.")
+    return
+  }
+
   createForm.value = {
-    tenantId: routeTenantId,
+    tenantId: selectedTenantFilter.value,
+    merchantAccountId: selectedMerchantFilter.value,
     code: "",
     name: "",
     status: "ACTIVE",
-    environment: "TEST",
   }
   createOpen.value = true
 }
@@ -264,33 +291,35 @@ function closeCreateDialog() {
   createOpen.value = false
 }
 
-async function createMerchant() {
+async function createBranch() {
   await run(async () => {
     const tenantId = (createForm.value.tenantId || "").trim()
     const code = (createForm.value.code || "").trim()
     const name = (createForm.value.name || "").trim()
-    if (!tenantId) throw new Error("Tenant is required.")
-    if (!code) throw new Error("Merchant code is required.")
-    if (!name) throw new Error("Merchant name is required.")
+    const merchantAccountId = (createForm.value.merchantAccountId || "").trim()
 
-    await $fetch("/api/admin/merchants", {
+    if (!tenantId) throw new Error("Tenant is required.")
+    if (!code) throw new Error("Branch code is required.")
+    if (!name) throw new Error("Branch name is required.")
+
+    await $fetch("/api/admin/branches", {
       method: "POST",
       body: {
         tenantId,
+        merchantAccountId: merchantAccountId || null,
         code,
         name,
         status: createForm.value.status,
-        environment: createForm.value.environment,
       },
     })
 
-    setMessage(`Merchant created: ${code}`)
+    setMessage(`Branch created: ${code}`)
     closeCreateDialog()
-    await loadMerchants()
+    await loadBranches()
   })
 }
 
-function startEditName(item: MerchantRecord) {
+function startEditName(item: BranchRecord) {
   editingNameId.value = item.id
   nameEditValue.value = item.name
 }
@@ -300,23 +329,23 @@ function cancelEditName() {
   nameEditValue.value = ""
 }
 
-async function saveName(item: MerchantRecord) {
+async function saveName(item: BranchRecord) {
   await run(async () => {
     const name = (nameEditValue.value || "").trim()
-    if (!name) throw new Error("Merchant name is required.")
+    if (!name) throw new Error("Branch name is required.")
 
-    await $fetch(`/api/admin/merchants/${item.id}`, {
+    await $fetch(`/api/admin/branches/${item.id}`, {
       method: "PATCH",
       body: { name },
     })
 
-    setMessage(`Merchant name updated: ${item.code}`)
+    setMessage(`Branch name updated: ${item.code}`)
     cancelEditName()
-    await loadMerchants()
+    await loadBranches()
   })
 }
 
-function startEditStatus(item: MerchantRecord) {
+function startEditStatus(item: BranchRecord) {
   editingStatusId.value = item.id
   statusEditValue.value = item.status
 }
@@ -325,29 +354,29 @@ function cancelEditStatus() {
   editingStatusId.value = ""
 }
 
-async function saveStatus(item: MerchantRecord) {
+async function saveStatus(item: BranchRecord) {
   await run(async () => {
-    await $fetch(`/api/admin/merchants/${item.id}`, {
+    await $fetch(`/api/admin/branches/${item.id}`, {
       method: "PATCH",
       body: { status: statusEditValue.value },
     })
 
-    setMessage(`Merchant status updated: ${item.code}`)
+    setMessage(`Branch status updated: ${item.code}`)
     cancelEditStatus()
-    await loadMerchants()
+    await loadBranches()
   })
 }
 
-function openMetadata(item: MerchantRecord) {
+function openMetadata(item: BranchRecord) {
   metadataTitle.value = `${item.code} details`
-  metadataMerchantId.value = item.id
+  metadataBranchId.value = item.id
   metadataRaw.value = item.metadata ? JSON.stringify(item.metadata, null, 2) : "{}"
   metadataOpen.value = true
 }
 
 async function saveMetadata() {
   await run(async () => {
-    if (!metadataMerchantId.value) throw new Error("Missing merchant id.")
+    if (!metadataBranchId.value) throw new Error("Missing branch id.")
     let parsed: Record<string, any> | null = null
     const raw = metadataRaw.value.trim()
     if (raw) {
@@ -357,57 +386,71 @@ async function saveMetadata() {
       }
     }
 
-    await $fetch(`/api/admin/merchants/${metadataMerchantId.value}`, {
+    await $fetch(`/api/admin/branches/${metadataBranchId.value}`, {
       method: "PATCH",
       body: { metadata: parsed || {} },
     })
 
     metadataOpen.value = false
-    setMessage("Merchant details updated.")
-    await loadMerchants()
+    setMessage("Branch details updated.")
+    await loadBranches()
   })
 }
 
-async function goToMerchantArea(area: "branch" | "asset" | "device" | "payment" | "biller" | "user" | "order") {
-  const item = selectedMerchant.value
-  if (!item) return
-  const tenantId = encodeURIComponent(item.tenantId)
-  const merchantId = encodeURIComponent(item.id)
+async function goToBranchArea(area: "asset" | "device_machine" | "payment" | "order") {
+  const branch = selectedBranch.value
+  if (!branch) return
 
-  if (area === "branch") {
-    await navigateTo(`/admin/branchs?tenantId=${tenantId}&merchantAccountId=${merchantId}`)
-    return
-  }
+  const tenantId = encodeURIComponent(branch.tenantId)
+  const branchId = encodeURIComponent(branch.id)
+  const merchantId = encodeURIComponent(branch.merchantAccountId || "")
+
   if (area === "asset") {
-    await navigateTo(`/admin/assets?tenantId=${tenantId}&merchantAccountId=${merchantId}`)
+    const merchantQuery = branch.merchantAccountId ? `&merchantAccountId=${merchantId}` : ""
+    await navigateTo(`/admin/assets?tenantId=${tenantId}&branchId=${branchId}${merchantQuery}`)
     return
   }
-  await navigateTo(`/admin/ops?tenantId=${tenantId}&merchantAccountId=${merchantId}`)
+
+  const merchantQuery = branch.merchantAccountId ? `&merchantAccountId=${merchantId}` : ""
+  await navigateTo(`/admin/ops?tenantId=${tenantId}&branchId=${branchId}${merchantQuery}`)
 }
 
 onMounted(async () => {
   selectedTenantFilter.value = readTenantId()
+  selectedMerchantFilter.value = readMerchantId()
+
   await loadTenants()
-  await loadMerchants(true)
+  await loadMerchantsByTenant(selectedTenantFilter.value)
+
+  if (selectedMerchantFilter.value && !merchants.value.some(item => item.id === selectedMerchantFilter.value)) {
+    selectedMerchantFilter.value = ""
+  }
+
+  await loadBranches(true)
 })
 
 watch(
-  () => route.query.tenantId,
+  () => [route.query.tenantId, route.query.merchantAccountId],
   async () => {
     selectedTenantFilter.value = readTenantId()
-    await loadMerchants(true)
+    selectedMerchantFilter.value = readMerchantId()
+    await loadMerchantsByTenant(selectedTenantFilter.value)
+    if (selectedMerchantFilter.value && !merchants.value.some(item => item.id === selectedMerchantFilter.value)) {
+      selectedMerchantFilter.value = ""
+    }
+    await loadBranches(true)
   },
 )
 
 watch(
-  selectedMerchantId,
-  async (merchantId) => {
-    if (!merchantId) {
-      merchantSummary.value = null
+  selectedBranchId,
+  async (branchId) => {
+    if (!branchId) {
+      branchSummary.value = null
       summaryError.value = ""
       return
     }
-    await loadMerchantSummary(merchantId)
+    await loadBranchSummary(branchId)
   },
   { immediate: true },
 )
@@ -416,9 +459,9 @@ watch(
 <template>
   <section class="space-y-4 text-slate-900 dark:text-slate-100">
     <div>
-      <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Merchant Management</h1>
+      <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Branch Management</h1>
       <p class="text-sm text-slate-600 dark:text-slate-300">
-        Merchant list only: code locked, name editable, status active/inactive.
+        New branch page: structure aligned with merchants.
       </p>
     </div>
 
@@ -438,17 +481,17 @@ watch(
     />
 
     <UCard
-      v-if="selectedMerchant"
+      v-if="selectedBranch"
       :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }"
     >
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white">
-              {{ selectedMerchant.name }} ({{ selectedMerchant.code }})
+              {{ selectedBranch.name }} ({{ selectedBranch.code }})
             </h2>
             <p class="text-xs text-slate-500 dark:text-slate-400">
-              {{ tenantLabel(selectedMerchant.tenantId) }}
+              {{ tenantLabel(selectedBranch.tenantId) }} | {{ merchantLabel(selectedBranch.merchantAccountId) }}
             </p>
           </div>
           <UButton
@@ -456,7 +499,7 @@ watch(
             variant="soft"
             icon="i-lucide-refresh-cw"
             :loading="summaryLoading"
-            @click="loadMerchantSummary(selectedMerchantId)"
+            @click="loadBranchSummary(selectedBranchId)"
           >
             Refresh
           </UButton>
@@ -476,62 +519,38 @@ watch(
         Loading summary...
       </div>
 
-      <div v-else-if="merchantSummary" class="overflow-x-auto">
-        <div class="grid min-w-[840px] grid-cols-7 gap-1">
-          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToMerchantArea('branch')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
-              <UIcon name="i-lucide-building-2" class="size-4" />
-              <span>Branch</span>
-            </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ merchantSummary.branchCount }}</p>
-          </button>
-
-          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToMerchantArea('asset')">
+      <div v-else-if="branchSummary" class="overflow-x-auto">
+        <div class="grid min-w-[820px] grid-cols-4 gap-2">
+          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToBranchArea('asset')">
             <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-package" class="size-4" />
-              <span>Asset</span>
+              <span>Assets</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ merchantSummary.assetCount }}</p>
+            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ branchSummary.assetCount }}</p>
           </button>
 
-          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToMerchantArea('device')">
+          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToBranchArea('device_machine')">
             <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-cpu" class="size-4" />
-              <span>Device</span>
+              <span>Devices / Machines</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ merchantSummary.deviceCount }}</p>
+            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ branchSummary.deviceCount }} / {{ branchSummary.machineCount }}</p>
           </button>
 
-          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToMerchantArea('order')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
-              <UIcon name="i-lucide-shopping-cart" class="size-4" />
-              <span>Orders</span>
-            </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ merchantSummary.orderCount }}</p>
-          </button>
-
-          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToMerchantArea('payment')">
+          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToBranchArea('payment')">
             <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-wallet" class="size-4" />
               <span>Payment</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ merchantSummary.paymentCount }}</p>
+            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ branchSummary.paymentCount }}</p>
           </button>
 
-          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToMerchantArea('biller')">
+          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToBranchArea('order')">
             <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
-              <UIcon name="i-lucide-receipt-text" class="size-4" />
-              <span>Biller</span>
+              <UIcon name="i-lucide-shopping-cart" class="size-4" />
+              <span>Order</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ merchantSummary.billerCount }}</p>
-          </button>
-
-          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToMerchantArea('user')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
-              <UIcon name="i-lucide-users" class="size-4" />
-              <span>User</span>
-            </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ merchantSummary.userCount }}</p>
+            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ branchSummary.orderCount }}</p>
           </button>
         </div>
       </div>
@@ -540,22 +559,34 @@ watch(
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <template #header>
         <div class="flex items-center justify-between gap-3">
-          <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Merchant List</h2>
+          <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Branch List</h2>
           <div class="flex items-center gap-2">
             <select
               v-model="selectedTenantFilter"
-              class="w-[320px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              class="w-[280px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               @change="onTenantFilterChange"
             >
-              <option value="">All tenants</option>
-              <option v-for="tenant in tenantFilterOptions" :key="tenant.id" :value="tenant.id">
+              <option value="">Select tenant</option>
+              <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">
                 {{ tenant.name }}
               </option>
             </select>
+
+            <select
+              v-model="selectedMerchantFilter"
+              class="w-[260px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              @change="onMerchantFilterChange"
+            >
+              <option value="">All merchants</option>
+              <option v-for="merchant in merchants" :key="merchant.id" :value="merchant.id">
+                {{ merchant.name }}
+              </option>
+            </select>
+
             <UInput
               v-model="query"
-              placeholder="Search merchant..."
-              class="w-[320px]"
+              placeholder="Search branch..."
+              class="w-[280px]"
               :ui="inputUi"
             />
             <UButton
@@ -581,13 +612,13 @@ watch(
       </template>
 
       <div class="overflow-auto rounded-lg border border-slate-200 dark:border-slate-800">
-        <table class="w-full min-w-[1200px] text-sm">
+        <table class="w-full min-w-[1260px] text-sm">
           <thead class="bg-slate-100/70 dark:bg-slate-800/70">
             <tr class="text-left">
               <th class="px-3 py-2">code</th>
               <th class="px-3 py-2">Name</th>
+              <th class="px-3 py-2">Merchant</th>
               <th class="px-3 py-2">Status</th>
-              <th class="px-3 py-2">Environment</th>
               <th class="px-3 py-2">Details</th>
               <th class="px-3 py-2">createdAt</th>
               <th class="px-3 py-2">updatedAt</th>
@@ -596,13 +627,13 @@ watch(
           </thead>
           <tbody>
             <tr
-              v-for="item in merchants"
+              v-for="item in branches"
               :key="item.id"
               class="cursor-pointer border-t border-slate-200 transition-colors duration-150 dark:border-slate-800"
-              :class="selectedMerchantId === item.id
+              :class="selectedBranchId === item.id
                 ? 'bg-blue-100/80 text-slate-900 hover:bg-blue-200/80 dark:bg-slate-800/70 dark:text-slate-100 dark:hover:bg-slate-700/80'
                 : 'hover:bg-slate-100/80 dark:hover:bg-slate-800/60'"
-              @click="selectMerchant(item)"
+              @click="selectBranch(item)"
             >
               <td class="px-3 py-2">
                 <span class="rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
@@ -614,7 +645,7 @@ watch(
                   <template v-if="editingNameId === item.id">
                     <UInput
                       v-model="nameEditValue"
-                      placeholder="Merchant name"
+                      placeholder="Branch name"
                       class="w-full"
                       :ui="inputUi"
                     />
@@ -627,6 +658,9 @@ watch(
                   </template>
                 </div>
               </td>
+              <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300">
+                {{ merchantLabel(item.merchantAccountId) }}
+              </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-2">
                   <template v-if="editingStatusId === item.id">
@@ -635,22 +669,19 @@ watch(
                       class="w-[140px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
                     >
                       <option value="ACTIVE">ACTIVE</option>
-                      <option value="SUSPENDED">SUSPENDED</option>
+                      <option value="INACTIVE">INACTIVE</option>
                       <option value="DISABLED">DISABLED</option>
                     </select>
                     <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="loading" @click="saveStatus(item)" />
                     <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="cancelEditStatus" />
                   </template>
                   <template v-else>
-                    <span class="text-xs font-semibold" :class="merchantStatusClass(item.status)">
+                    <span class="text-xs font-semibold" :class="branchStatusClass(item.status)">
                       {{ item.status }}
                     </span>
                     <UButton size="xs" color="primary" variant="ghost" icon="i-lucide-pencil" @click="startEditStatus(item)" />
                   </template>
                 </div>
-              </td>
-              <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
-                {{ item.environment }}
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-2">
@@ -687,13 +718,14 @@ watch(
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
-                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-building-2" @click.stop="goToMerchantArea('branch')" />
+                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-package" @click.stop="goToBranchArea('asset')" />
+                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-cpu" @click.stop="goToBranchArea('device_machine')" />
                 </div>
               </td>
             </tr>
-            <tr v-if="merchants.length === 0">
+            <tr v-if="branches.length === 0">
               <td colspan="8" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                No merchants found.
+                No branches found.
               </td>
             </tr>
           </tbody>
@@ -702,7 +734,7 @@ watch(
 
       <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
         <p class="text-xs text-slate-500 dark:text-slate-400">
-          Showing {{ merchants.length }} of {{ total }} merchants
+          Showing {{ branches.length }} of {{ total }} branches
         </p>
         <div class="flex items-center gap-2">
           <UButton
@@ -749,7 +781,7 @@ watch(
         <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
           <template #header>
             <div class="flex items-center justify-between gap-3">
-              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Create Merchant</h3>
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Create Branch</h3>
               <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeCreateDialog" />
             </div>
           </template>
@@ -767,10 +799,22 @@ watch(
               </select>
             </UFormField>
 
+            <UFormField label="Merchant">
+              <select
+                v-model="createForm.merchantAccountId"
+                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              >
+                <option value="">No merchant</option>
+                <option v-for="merchant in merchants" :key="merchant.id" :value="merchant.id">
+                  {{ merchant.name }}
+                </option>
+              </select>
+            </UFormField>
+
             <UFormField label="Code">
               <UInput
                 v-model="createForm.code"
-                placeholder="MCH-00001"
+                placeholder="BR-00001"
                 :ui="inputUi"
               />
             </UFormField>
@@ -778,33 +822,21 @@ watch(
             <UFormField label="Name">
               <UInput
                 v-model="createForm.name"
-                placeholder="Merchant name"
+                placeholder="Branch name"
                 :ui="inputUi"
               />
             </UFormField>
 
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <UFormField label="Status">
-                <select
-                  v-model="createForm.status"
-                  class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                >
-                  <option value="ACTIVE">ACTIVE</option>
-                  <option value="SUSPENDED">SUSPENDED</option>
-                  <option value="DISABLED">DISABLED</option>
-                </select>
-              </UFormField>
-
-              <UFormField label="Environment">
-                <select
-                  v-model="createForm.environment"
-                  class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                >
-                  <option value="TEST">TEST</option>
-                  <option value="LIVE">LIVE</option>
-                </select>
-              </UFormField>
-            </div>
+            <UFormField label="Status">
+              <select
+                v-model="createForm.status"
+                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              >
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="INACTIVE">INACTIVE</option>
+                <option value="DISABLED">DISABLED</option>
+              </select>
+            </UFormField>
           </div>
 
           <template #footer>
@@ -812,8 +844,8 @@ watch(
               <UButton color="neutral" variant="soft" class="text-slate-700 dark:text-slate-100" @click="closeCreateDialog">
                 Cancel
               </UButton>
-              <UButton color="primary" class="text-white" :loading="loading" @click="createMerchant">
-                Create Merchant
+              <UButton color="primary" class="text-white" :loading="loading" @click="createBranch">
+                Create Branch
               </UButton>
             </div>
           </template>
@@ -835,7 +867,7 @@ watch(
             v-model="metadataRaw"
             rows="14"
             class="w-full rounded-lg border border-slate-300 bg-slate-50 p-3 font-mono text-xs text-slate-700 outline-none ring-primary/30 placeholder:text-slate-400 focus:ring-2 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:placeholder:text-slate-500"
-            placeholder="{ &quot;contactName&quot;: &quot;Merchant Owner&quot;, &quot;note&quot;: &quot;optional&quot; }"
+            placeholder="{ &quot;locationHint&quot;: &quot;2nd floor&quot;, &quot;note&quot;: &quot;optional&quot; }"
           />
 
           <template #footer>

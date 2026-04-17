@@ -22,6 +22,7 @@ type TenantSummary = {
   branchCount: number;
   assetCount: number;
   deviceCount: number;
+  paymentCount: number;
   billerCount: number;
   userCount: number;
   orderCount: number;
@@ -39,6 +40,7 @@ const total = ref(0);
 const selectedTenantId = ref("");
 const selectedTenantName = ref("");
 const selectedTenantCode = ref("");
+const ALL_TENANTS_ID = "all";
 const summaryLoading = ref(false);
 const summaryError = ref("");
 const tenantSummary = ref<TenantSummary | null>(null);
@@ -102,17 +104,10 @@ async function loadTenants() {
     page.value = Number(response.page || page.value);
     pageSize.value = Number(response.pageSize || pageSize.value);
 
-    const stillExists = tenants.value.some(item => item.id === selectedTenantId.value);
+    const stillExists = selectedTenantId.value === ALL_TENANTS_ID
+      || tenants.value.some(item => item.id === selectedTenantId.value);
     if (!stillExists) {
-      const firstTenant = tenants.value[0];
-      if (firstTenant) {
-        await selectTenant(firstTenant);
-      } else {
-        selectedTenantId.value = "";
-        selectedTenantName.value = "";
-        selectedTenantCode.value = "";
-        tenantSummary.value = null;
-      }
+      await selectAllTenants();
     }
   });
 }
@@ -135,6 +130,26 @@ async function selectTenant(item: Tenant) {
   selectedTenantName.value = item.name;
   selectedTenantCode.value = item.code;
   await loadTenantSummary(item.id);
+}
+
+async function selectAllTenants() {
+  selectedTenantId.value = ALL_TENANTS_ID;
+  selectedTenantName.value = "All Tenants";
+  selectedTenantCode.value = "";
+  await loadTenantSummary(ALL_TENANTS_ID);
+}
+
+async function onTenantSummaryChange() {
+  if (selectedTenantId.value === ALL_TENANTS_ID) {
+    await selectAllTenants();
+    return;
+  }
+  const tenant = tenants.value.find(item => item.id === selectedTenantId.value);
+  if (!tenant) {
+    await selectAllTenants();
+    return;
+  }
+  await selectTenant(tenant);
 }
 
 function startEditName(item: Tenant) {
@@ -212,22 +227,31 @@ type TenantArea =
   | "branch"
   | "asset"
   | "device"
+  | "payment"
   | "biller"
   | "user"
   | "order";
 
 async function goToTenantArea(area: TenantArea, tenantId = selectedTenantId.value) {
-  if (!tenantId) return;
+  const isAll = !tenantId || tenantId === ALL_TENANTS_ID;
   if (area === "merchant") {
-    await navigateTo(`/admin/merchants?tenantId=${tenantId}`);
+    await navigateTo(isAll ? "/admin/merchants" : `/admin/merchants?tenantId=${tenantId}`);
     return;
   }
   if (area === "branch") {
-    await navigateTo(`/admin/branches?tenantId=${tenantId}`);
+    await navigateTo(isAll ? "/admin/branchs" : `/admin/branchs?tenantId=${tenantId}`);
     return;
   }
   if (area === "asset") {
-    await navigateTo(`/admin/assets?tenantId=${tenantId}`);
+    await navigateTo(isAll ? "/admin/assets" : `/admin/assets?tenantId=${tenantId}`);
+    return;
+  }
+  if (area === "payment") {
+    await navigateTo(isAll ? "/admin/ops" : `/admin/ops?tenantId=${tenantId}`);
+    return;
+  }
+  if (area === "biller") {
+    await navigateTo(isAll ? "/admin/ops" : `/admin/ops?tenantId=${tenantId}`);
     return;
   }
   setMessage(`ส่วน ${area} ปิดไว้ก่อน จะทำหน้าใหม่ภายหลัง`);
@@ -348,17 +372,31 @@ async function saveMetadata() {
 }
 
 onMounted(async () => {
+  await selectAllTenants();
   await loadTenants();
 });
 </script>
 
 <template>
   <section class="space-y-4 text-slate-900 dark:text-slate-100">
-    <div>
-      <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Tenant Management</h1>
-      <p class="text-sm text-slate-600 dark:text-slate-300">
-        Tenant list only: code is locked, name editable, status active/inactive, delete disabled.
-      </p>
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Tenant Management</h1>
+        <p class="text-sm text-slate-600 dark:text-slate-300">
+          Tenant list only: code is locked, name editable, status active/inactive, delete disabled.
+        </p>
+      </div>
+      <button
+        type="button"
+        class="rounded-md border border-emerald-300/40 bg-emerald-50/60 px-5 py-3 text-center transition hover:bg-emerald-100/70 dark:border-emerald-700/40 dark:bg-emerald-900/20 dark:hover:bg-emerald-800/25"
+        @click="goToTenantArea('sales')"
+      >
+        <div class="flex items-center justify-center gap-2 text-emerald-700 dark:text-emerald-200">
+          <UIcon name="i-lucide-badge-dollar-sign" class="size-4 text-emerald-700/90 dark:text-emerald-300" />
+          <span class="text-sm font-semibold text-emerald-700/90 dark:text-emerald-300">Revenue</span>
+          <span class="text-xl font-bold">{{ formatMoney(tenantSummary?.totalOrderAmount) }}</span>
+        </div>
+      </button>
     </div>
 
     <UAlert
@@ -384,7 +422,7 @@ onMounted(async () => {
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 class="text-lg font-semibold text-slate-900 dark:text-white">
-              {{ selectedTenantName }} ({{ selectedTenantCode }})
+              {{ selectedTenantCode ? `${selectedTenantName} (${selectedTenantCode})` : selectedTenantName }}
             </h2>
             <p class="text-xs text-slate-500 dark:text-slate-400">Tenant related counters</p>
           </div>
@@ -414,14 +452,7 @@ onMounted(async () => {
       </div>
 
       <div v-else-if="tenantSummary" class="overflow-x-auto">
-        <div class="grid min-w-[1100px] grid-cols-8 gap-2">
-          <button type="button" class="rounded-md border border-emerald-300/40 bg-emerald-50/60 px-2 py-2 text-center transition hover:bg-emerald-100/70 dark:border-emerald-700/40 dark:bg-emerald-900/20 dark:hover:bg-emerald-800/25" @click="goToTenantArea('sales')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-emerald-700/90 dark:text-emerald-300">
-              <UIcon name="i-lucide-badge-dollar-sign" class="size-4" />
-              <span>ยอดขายรวม</span>
-            </p>
-            <p class="mt-1 text-lg font-bold text-emerald-700 dark:text-emerald-200">{{ formatMoney(tenantSummary.totalOrderAmount) }}</p>
-          </button>
+        <div class="grid min-w-[980px] grid-cols-8 gap-1">
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('merchant')">
             <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-store" class="size-4" />
@@ -450,6 +481,20 @@ onMounted(async () => {
             </p>
             <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.deviceCount }}</p>
           </button>
+          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('order')">
+            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+              <UIcon name="i-lucide-shopping-cart" class="size-4" />
+              <span>Order</span>
+            </p>
+            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.orderCount }}</p>
+          </button>
+          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('payment')">
+            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+              <UIcon name="i-lucide-wallet" class="size-4" />
+              <span>Payment</span>
+            </p>
+            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.paymentCount }}</p>
+          </button>
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('biller')">
             <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-receipt-text" class="size-4" />
@@ -464,13 +509,6 @@ onMounted(async () => {
             </p>
             <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.userCount }}</p>
           </button>
-          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('order')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
-              <UIcon name="i-lucide-shopping-cart" class="size-4" />
-              <span>Order</span>
-            </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.orderCount }}</p>
-          </button>
         </div>
       </div>
     </UCard>
@@ -480,6 +518,16 @@ onMounted(async () => {
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Tenant List</h2>
           <div class="flex items-center gap-2">
+            <select
+              v-model="selectedTenantId"
+              class="w-[260px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              @change="onTenantSummaryChange"
+            >
+              <option :value="ALL_TENANTS_ID">All tenants</option>
+              <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">
+                {{ tenant.name }}
+              </option>
+            </select>
             <UInput
               v-model="query"
               placeholder="Search tenant..."

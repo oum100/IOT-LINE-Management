@@ -25,7 +25,16 @@ export default defineEventHandler(async (event) => {
     prisma.merchantAccount.findMany({
       where,
       orderBy: { createdAt: 'desc' },
-      include: { branches: true },
+      include: {
+        branches: true,
+        tenant: {
+          select: {
+            id: true,
+            code: true,
+            name: true
+          }
+        }
+      },
       skip,
       take
     }),

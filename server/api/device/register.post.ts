@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '../../utils/prisma'
 import { generateDeviceApiKey } from '../../utils/device-keys'
+import { assertMachineKindExists } from '../../utils/machine-kind'
 
 const schema = z.object({
   registrationCode: z.string().trim().min(6),
@@ -9,13 +10,14 @@ const schema = z.object({
   fwVersion: z.string().trim().optional(),
   machineSerialNo: z.string().trim().min(3),
   machineName: z.string().trim().min(1),
-  machineKind: z.enum(['WASHER', 'DRYER']),
+  machineKind: z.string().trim().min(1).max(40),
   machineCode: z.string().trim().optional(),
   locationLabel: z.string().trim().optional()
 })
 
 export default defineEventHandler(async (event) => {
   const body = schema.parse(await readBody(event))
+  const machineKind = await assertMachineKindExists(body.machineKind)
 
   const registration = await prisma.deviceRegistrationCode.findUnique({
     where: { code: body.registrationCode },
@@ -38,7 +40,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Registration code missing branch assignment' })
   }
 
-  const machineCode = body.machineCode || `AUTO-${body.machineKind}-${body.machineSerialNo.replace(/[^a-zA-Z0-9]/g, '').slice(-8)}`
+  const machineCode = body.machineCode || `AUTO-${machineKind}-${body.machineSerialNo.replace(/[^a-zA-Z0-9]/g, '').slice(-8)}`
   const deviceUid = body.deviceUid || `${registration.branch?.code || 'BR'}-${Date.now()}`
 
   const iotDevice = await prisma.iotDevice.upsert({
@@ -75,14 +77,14 @@ export default defineEventHandler(async (event) => {
       assetUuid: deviceUid,
       code: machineCode,
       name: body.machineName,
-      kind: body.machineKind,
+      kind: machineKind,
       status: 'ACTIVE'
     },
     update: {
       branchId: registration.branchId,
       code: machineCode,
       name: body.machineName,
-      kind: body.machineKind
+      kind: machineKind
     }
   })
 
@@ -126,7 +128,7 @@ export default defineEventHandler(async (event) => {
       assetId: asset.id,
       code: machineCode,
       name: body.machineName,
-      kind: body.machineKind,
+      kind: machineKind,
       status: 'AVAILABLE',
       locationLabel: body.locationLabel || registration.branch?.name || 'Default',
       topic: `iot/${deviceUid}`
@@ -137,7 +139,7 @@ export default defineEventHandler(async (event) => {
       branchId: registration.branchId,
       assetId: asset.id,
       name: body.machineName,
-      kind: body.machineKind,
+      kind: machineKind,
       locationLabel: body.locationLabel || registration.branch?.name || 'Default',
       topic: `iot/${deviceUid}`
     }

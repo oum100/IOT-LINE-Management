@@ -5,7 +5,7 @@ const sidebarMenus = computed(() => [
   { to: '/platform/dashboard', label: t('common.dashboard') },
   { to: '/admin/tenant', label: t('common.tenants') },
   { to: '/admin/merchants', label: t('common.merchants') },
-  { to: '/admin/branches', label: t('common.branches') },
+  { to: '/admin/branchs', label: t('common.branches') },
   { to: '/admin/assets', label: t('common.assets') },
   { to: '/admin/settings', label: t('common.settings') }
 ])

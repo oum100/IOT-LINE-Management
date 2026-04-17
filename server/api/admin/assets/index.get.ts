@@ -12,6 +12,13 @@ export default defineEventHandler(async (event) => {
   const { q, skip, take, page, pageSize } = withPaging(query)
   const where = {
     tenantId,
+    ...(query.merchantAccountId
+      ? {
+          branch: {
+            merchantAccountId: String(query.merchantAccountId)
+          }
+        }
+      : {}),
     ...(query.branchId ? { branchId: String(query.branchId) } : {}),
     ...(q
       ? {

@@ -82,8 +82,15 @@ const cardsSelectedMonth = ref(new Date().toISOString().slice(0, 7))
 const cardsSelectedWeekOfMonth = ref(1)
 const cardsSelectedTenantIds = ref<string[]>([])
 const colorMode = useColorMode()
+const { getLocale } = useI18n()
 const ApexChart = defineAsyncComponent(async () => (await import('vue3-apexcharts')).default)
 const chartPalette = ['#3b82f6', '#06b6d4', '#22c55e', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#eab308', '#8b5cf6', '#ec4899']
+const isThai = computed(() => String(getLocale?.() || '').toLowerCase().startsWith('th'))
+const numberLocale = computed(() => (isThai.value ? 'th-TH' : 'en-US'))
+
+function tx(th: string, en: string) {
+  return isThai.value ? th : en
+}
 
 const { data: tenantListData } = await useFetch<{ items: TenantOption[] }>('/api/admin/tenants')
 const tenantOptions = computed(() => tenantListData.value?.items || [])
@@ -262,11 +269,11 @@ const cardsAlertSummary = computed(() => {
     alerts.push({
       id: 'orders-waiting',
       level: 'critical',
-      title: 'คำสั่งรอชำระ',
-      summary: 'พบสถานะออเดอร์รอการจ่ายเงิน',
+      title: tx('คำสั่งรอชำระ', 'Orders Awaiting Payment'),
+      summary: tx('พบสถานะออเดอร์รอการจ่ายเงิน', 'Found orders waiting for payment'),
       count: waitingOrders,
       link: '/admin/tenant?status=order_waiting_payment',
-      linkLabel: 'ตรวจออเดอร์รอชำระ'
+      linkLabel: tx('ตรวจออเดอร์รอชำระ', 'Review waiting orders')
     })
   }
 
@@ -274,11 +281,11 @@ const cardsAlertSummary = computed(() => {
     alerts.push({
       id: 'orders-failed',
       level: 'high',
-      title: 'ออเดอร์ชำรุด',
-      summary: 'พบสถานะออเดอร์ผิดปกติ',
+      title: tx('ออเดอร์ชำรุด', 'Failed Orders'),
+      summary: tx('พบสถานะออเดอร์ผิดปกติ', 'Found abnormal/failed order statuses'),
       count: failedOrders,
       link: '/admin/tenant?status=order_failed',
-      linkLabel: 'ตรวจออเดอร์ไม่สมบูรณ์'
+      linkLabel: tx('ตรวจออเดอร์ไม่สมบูรณ์', 'Inspect failed orders')
     })
   }
 
@@ -286,11 +293,11 @@ const cardsAlertSummary = computed(() => {
     alerts.push({
       id: 'orders-running',
       level: 'medium',
-      title: 'ออเดอร์กำลังทำงาน',
-      summary: 'มีคำสั่งที่กำลังใช้งานเครื่องในช่วงเวลาที่เลือก',
+      title: tx('ออเดอร์กำลังทำงาน', 'Running Orders'),
+      summary: tx('มีคำสั่งที่กำลังใช้งานเครื่องในช่วงเวลาที่เลือก', 'Orders are currently running in the selected period'),
       count: runningOrders,
       link: '/admin/tenant?status=order_running',
-      linkLabel: 'ติดตามออเดอร์ดำเนินการ'
+      linkLabel: tx('ติดตามออเดอร์ดำเนินการ', 'Track running orders')
     })
   }
 
@@ -298,11 +305,11 @@ const cardsAlertSummary = computed(() => {
     alerts.push({
       id: 'payment-failed',
       level: 'high',
-      title: 'การชำระเงินล้มเหลว',
-      summary: 'พบธุรกรรมที่ต้องรีวิว',
+      title: tx('การชำระเงินล้มเหลว', 'Failed Payments'),
+      summary: tx('พบธุรกรรมที่ต้องรีวิว', 'Found transactions that need review'),
       count: failedPayments,
       link: '/admin/settings',
-      linkLabel: 'ดูการตั้งค่า Payment'
+      linkLabel: tx('ดูการตั้งค่า Payment', 'Open payment settings')
     })
   }
 
@@ -310,11 +317,11 @@ const cardsAlertSummary = computed(() => {
     alerts.push({
       id: 'payment-disputed',
       level: 'medium',
-      title: 'รายการ Payment ติดค้าง',
-      summary: 'พบรายการค้าง/ยืนยันช้า',
+      title: tx('รายการ Payment ติดค้าง', 'Pending Payments'),
+      summary: tx('พบรายการค้าง/ยืนยันช้า', 'Found pending/slow-to-verify payments'),
       count: disputedPayments,
       link: '/admin/settings',
-      linkLabel: 'ดูแนวทางแก้ปัญหา'
+      linkLabel: tx('ดูแนวทางแก้ปัญหา', 'View troubleshooting guide')
     })
   }
 
@@ -322,11 +329,11 @@ const cardsAlertSummary = computed(() => {
     alerts.push({
       id: 'account-status',
       level: 'high',
-      title: 'Tenant/Merchant/Branch ไม่พร้อมใช้งาน',
-      summary: 'มีสถานะ Suspended/Disabled ที่ต้องตรวจสอบ',
+      title: tx('Tenant/Merchant/Branch ไม่พร้อมใช้งาน', 'Unavailable Tenant/Merchant/Branch'),
+      summary: tx('มีสถานะ Suspended/Disabled ที่ต้องตรวจสอบ', 'Suspended/disabled statuses require investigation'),
       count: criticalSuspendedTenants,
       link: '/admin/tenant?status=resource_unavailable',
-      linkLabel: 'ตรวจสอบโครงสร้างองค์กร'
+      linkLabel: tx('ตรวจสอบโครงสร้างองค์กร', 'Check organization structure')
     })
   }
 
@@ -334,11 +341,11 @@ const cardsAlertSummary = computed(() => {
     alerts.push({
       id: 'device-health',
       level: 'medium',
-      title: 'อุปกรณ์มีความเสี่ยง',
+      title: tx('อุปกรณ์มีความเสี่ยง', 'Device Risk Detected'),
       summary: `MA/Unbound/Offline: ${deviceMa + deviceUnbound}`,
       count: deviceUnhealthy,
       link: '/admin/ops?section=device',
-      linkLabel: 'ตรวจสอบ Device'
+      linkLabel: tx('ตรวจสอบ Device', 'Inspect devices')
     })
   }
 
@@ -349,11 +356,11 @@ const cardsAlertSummary = computed(() => {
       alerts.push({
         id: 'order-ratio',
         level: 'medium',
-        title: 'อัตราออเดอร์ผิดปกติ',
-        summary: `ออเดอร์รอ/ล้มเหลวเกิน 20%` ,
+        title: tx('อัตราออเดอร์ผิดปกติ', 'Abnormal Order Ratio'),
+        summary: tx('ออเดอร์รอ/ล้มเหลวเกิน 20%', 'Waiting/failed orders exceed 20%'),
         count: Math.round(badOrderPercent),
         link: '/admin/tenant',
-        linkLabel: 'ดูแนวโน้มใน Tenant'
+        linkLabel: tx('ดูแนวโน้มใน Tenant', 'View tenant trend')
       })
     }
   }
@@ -365,11 +372,11 @@ const cardsAlertSummary = computed(() => {
       alerts.push({
         id: 'payment-ratio',
         level: 'high',
-        title: 'อัตราการชำระผิดปกติ',
-        summary: `อัตรา Payment ล้มเหลวเกิน 15%`,
+        title: tx('อัตราการชำระผิดปกติ', 'Abnormal Payment Ratio'),
+        summary: tx('อัตรา Payment ล้มเหลวเกิน 15%', 'Failed payment ratio exceeds 15%'),
         count: Math.round(badPaymentPercent),
         link: '/admin/settings',
-        linkLabel: 'เช็ค Payment Logs'
+        linkLabel: tx('เช็ค Payment Logs', 'Check payment logs')
       })
     }
   }
@@ -557,7 +564,6 @@ function statusOrder(label: string) {
 
 function sortedStatuses(card: DashboardCard) {
   return [...card.statuses]
-    .filter(item => item.count > 0)
     .sort((a, b) => {
       const rankDiff = statusOrder(a.label) - statusOrder(b.label)
       if (rankDiff !== 0) return rankDiff
@@ -570,8 +576,7 @@ function cardSeriesData(card: DashboardCard) {
 }
 
 function cardLabels(card: DashboardCard) {
-  const filtered = sortedStatuses(card)
-  return (filtered.length ? filtered : card.statuses).map(item => item.label)
+  return sortedStatuses(card).map(item => item.label)
 }
 
 function cardSeries(card: DashboardCard, chartType: CardChartType) {
@@ -585,6 +590,19 @@ function cardSeries(card: DashboardCard, chartType: CardChartType) {
     ]
   }
   return values
+}
+
+function cardRenderKey(card: DashboardCard, chartType: CardChartType) {
+  const signature = sortedStatuses(card)
+    .map(item => `${item.label}:${item.count}`)
+    .join('|')
+  return `${card.key}-${chartType}-${signature}`
+}
+
+function tenantAxisLabel(item: { tenantName: string; tenantCode: string }) {
+  const name = String(item.tenantName || '').trim()
+  const code = String(item.tenantCode || '').trim()
+  return name || code || '-'
 }
 
 function cardChartOptions(card: DashboardCard, chartType: CardChartType): ApexOptions {
@@ -692,7 +710,7 @@ const chartOptions = computed<ApexOptions>(() => {
       formatter: (val) => Number(val).toLocaleString('th-TH')
     },
     xaxis: {
-      categories: salesRows.value.map(item => `${item.tenantName} (${item.tenantCode})`),
+      categories: salesRows.value.map(item => tenantAxisLabel(item)),
       labels: {
         formatter: (val) => Number(val).toLocaleString('th-TH')
       }
@@ -708,7 +726,9 @@ const chartOptions = computed<ApexOptions>(() => {
     tooltip: {
       theme: isDark ? 'dark' : 'light',
       y: {
-        formatter: (val) => `${Number(val).toLocaleString('th-TH')} บาท`
+        formatter: (val) => isThai.value
+          ? `${Number(val).toLocaleString(numberLocale.value)} บาท`
+          : `${Number(val).toLocaleString(numberLocale.value)} THB`
       }
     },
     colors: salesRows.value.map((_, index) => chartPalette[index % chartPalette.length])
@@ -716,7 +736,7 @@ const chartOptions = computed<ApexOptions>(() => {
 })
 
 function formatMoney(value: number) {
-  return value.toLocaleString('th-TH')
+  return value.toLocaleString(numberLocale.value)
 }
 </script>
 
@@ -730,7 +750,7 @@ function formatMoney(value: number) {
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <h3 class="text-lg font-semibold text-slate-900 dark:text-white">ยอดขายรวม (Multi-Tenant)</h3>
+          <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{{ tx('ยอดขายรวม (Multi-Tenant)', 'Total Sales (Multi-Tenant)') }}</h3>
           <div class="flex flex-wrap items-center gap-2">
             <select v-model="chartMode" class="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
               <option value="top5">Top-5</option>
@@ -793,11 +813,11 @@ function formatMoney(value: number) {
               class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
             >
               <option v-for="item in tenantOptions" :key="item.id" :value="item.id">
-                {{ item.name }} ({{ item.code }})
+                {{ item.name }}
               </option>
             </select>
           </label>
-          <p v-if="chartMode === 'custom'" class="text-xs text-slate-500 dark:text-slate-400">Tip: กด `Ctrl/Cmd` เพื่อเลือกหลาย tenant</p>
+          <p v-if="chartMode === 'custom'" class="text-xs text-slate-500 dark:text-slate-400">{{ tx('Tip: กด `Ctrl/Cmd` เพื่อเลือกหลาย tenant', 'Tip: Press `Ctrl/Cmd` to select multiple tenants') }}</p>
         </div>
 
         <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
@@ -874,7 +894,7 @@ function formatMoney(value: number) {
         </div>
       </div>
       <div v-else class="rounded-lg border border-emerald-200/60 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-200">
-        ไม่มี alert ในช่วงเวลาที่เลือก
+        {{ tx('ไม่มี alert ในช่วงเวลาที่เลือก', 'No alerts in selected period') }}
       </div>
     </div>
 
@@ -882,7 +902,7 @@ function formatMoney(value: number) {
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">จำนวนรวมและสถานะตามตารางข้อมูล</h3>
+            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{{ tx('จำนวนรวมและสถานะตามตารางข้อมูล', 'Totals and statuses by data table') }}</h3>
             <p v-if="cardsRangeLabel" class="text-xs text-slate-500 dark:text-slate-400">Data range: {{ cardsRangeLabel }}</p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -945,7 +965,7 @@ function formatMoney(value: number) {
             class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
           >
             <option v-for="item in tenantOptions" :key="item.id" :value="item.id">
-              {{ item.name }} ({{ item.code }})
+              {{ item.name }}
             </option>
           </select>
         </label>
@@ -972,7 +992,7 @@ function formatMoney(value: number) {
             <div v-if="card.statuses.length" class="mt-3">
               <ClientOnly>
                 <ApexChart
-                  :key="`${card.key}-${cardChartType(card)}-${card.statuses.length}`"
+                  :key="cardRenderKey(card, cardChartType(card))"
                   :type="cardChartType(card)"
                   :height="cardChartHeight(card)"
                   :options="cardChartOptions(card, cardChartType(card))"
@@ -996,7 +1016,7 @@ function formatMoney(value: number) {
             <div v-if="card.statuses.length" class="mt-3">
               <ClientOnly>
                 <ApexChart
-                  :key="`${card.key}-${cardChartType(card)}-${card.statuses.length}`"
+                  :key="cardRenderKey(card, cardChartType(card))"
                   :type="cardChartType(card)"
                   :height="cardChartHeight(card)"
                   :options="cardChartOptions(card, cardChartType(card))"
@@ -1020,7 +1040,7 @@ function formatMoney(value: number) {
             <div v-if="card.statuses.length" class="mt-3">
               <ClientOnly>
                 <ApexChart
-                  :key="`${card.key}-${cardChartType(card)}-${card.statuses.length}`"
+                  :key="cardRenderKey(card, cardChartType(card))"
                   :type="cardChartType(card)"
                   :height="cardChartHeight(card)"
                   :options="cardChartOptions(card, cardChartType(card))"

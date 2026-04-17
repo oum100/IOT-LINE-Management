@@ -15,7 +15,7 @@ model Machine {
   assetId           String?
   code              String           @unique
   name              String
-  kind              MachineKind
+  kind              String
   status            MachineStatus    @default(AVAILABLE)
   locationLabel     String
   topic             String?
@@ -29,6 +29,7 @@ model Machine {
   merchantAccount   MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
   branch            Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
   asset             Asset?           @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  machineKind       MachineKind      @relation(fields: [kind], references: [code], onDelete: Restrict)
 
   @@index([tenantId, branchId])
   @@index([merchantAccountId])
@@ -212,9 +213,20 @@ model DeviceCommand {
   machine        Machine             @relation(fields: [machineId], references: [id])
 }
 
-enum MachineKind {
-  WASHER
-  DRYER
+model MachineKind {
+  code      String   @id
+  name      String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets   Asset[]
+  products Product[]
+  machines Machine[]
+
+  @@index([active, sortOrder])
+  @@map("machine_kinds")
 }
 
 enum MachineStatus {
@@ -409,7 +421,7 @@ model Asset {
   assetUuid String      @unique
   code      String
   name      String
-  kind      MachineKind
+  kind      String
   status    AssetStatus @default(ACTIVE)
   metadata  Json?
   createdAt DateTime    @default(now())
@@ -417,6 +429,7 @@ model Asset {
 
   tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch     Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  machineKind MachineKind        @relation(fields: [kind], references: [code], onDelete: Restrict)
   machines   Machine[]
   bindings   AssetBinding[]
   prices     AssetProductPrice[]
@@ -493,13 +506,14 @@ model Product {
   tenantId  String
   code      String
   name      String
-  kind      MachineKind
+  kind      String
   active    Boolean     @default(true)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  tenant Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  prices AssetProductPrice[]
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  machineKind MachineKind         @relation(fields: [kind], references: [code], onDelete: Restrict)
+  prices      AssetProductPrice[]
 
   @@unique([tenantId, code])
   @@index([tenantId, kind, active])
