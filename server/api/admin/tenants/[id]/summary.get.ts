@@ -7,6 +7,8 @@ type SummaryResponse = {
   branchCount: number
   assetCount: number
   deviceCount: number
+  machineCount: number
+  productCount: number
   paymentCount: number
   billerCount: number
   userCount: number
@@ -49,6 +51,8 @@ export default defineEventHandler(async (event): Promise<SummaryResponse> => {
     branchCount,
     assetCount,
     deviceCount,
+    machineCount,
+    productCount,
     paymentCount,
     billerCount,
     userCount,
@@ -59,6 +63,8 @@ export default defineEventHandler(async (event): Promise<SummaryResponse> => {
     safeCount(() => prisma.branch.count({ where: isAll ? {} : { tenantId } })),
     safeCount(() => prisma.asset.count({ where: isAll ? {} : { tenantId } })),
     safeCount(() => prisma.iotDevice.count({ where: isAll ? {} : { tenantId } })),
+    safeCount(() => prisma.machineUnit.count({ where: isAll ? {} : { tenantId } })),
+    safeCount(() => prisma.product.count({ where: isAll ? {} : { tenantId } })),
     safeCount(() => prisma.payment.count({ where: isAll ? {} : { tenantId } })),
     safeCount(() => prisma.billerProfile.count({ where: isAll ? {} : { tenantId } })),
     safeCount(() => prisma.user.count({ where: isAll ? {} : { tenantId } })),
@@ -72,6 +78,8 @@ export default defineEventHandler(async (event): Promise<SummaryResponse> => {
     branchCount,
     assetCount,
     deviceCount,
+    machineCount,
+    productCount,
     paymentCount,
     billerCount,
     userCount,

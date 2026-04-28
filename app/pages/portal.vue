@@ -1,17 +1,28 @@
 <script setup lang="ts">
 import { resolvePortalHome } from '~/utils/portal'
 
+const route = useRoute()
 const { data, getSession } = useAuth()
 await getSession()
 
-const user = data.value?.user
-if (!user) {
-  await navigateTo('/login')
-} else {
-  await navigateTo(resolvePortalHome(user.role))
+if (route.path === '/portal') {
+  const user = data.value?.user
+  if (!user) {
+    await navigateTo('/login')
+  } else {
+    const role = String(user.role || '').toUpperCase()
+    const isPlatformAdmin = role === 'ADMIN' || role === 'PLATFORM_ADMIN'
+    if (isPlatformAdmin) {
+      await navigateTo('/platform/dashboard')
+    } else if (!user.tenantId) {
+      await navigateTo('/portal/new-user')
+    } else {
+      await navigateTo(resolvePortalHome(user.role))
+    }
+  }
 }
 </script>
 
 <template>
-  <div />
+  <NuxtPage />
 </template>

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 definePageMeta({
-  middleware: 'portal-auth'
+  middleware: "portal-auth",
 })
 
-await navigateTo('/admin/tenant')
+await navigateTo("/admin/machine")
 </script>
 
 <template>

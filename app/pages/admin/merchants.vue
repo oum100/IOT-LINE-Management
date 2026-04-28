@@ -605,9 +605,12 @@ watch(
               @click="selectMerchant(item)"
             >
               <td class="px-3 py-2">
-                <span class="rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                  {{ item.code }}
-                </span>
+                <div class="flex items-center gap-2">
+                  <span class="rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    {{ item.code }}
+                  </span>
+                  <CopyIconButton :value="item.code" aria-label="Copy merchant code" />
+                </div>
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-2">

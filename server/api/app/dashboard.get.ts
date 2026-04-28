@@ -21,49 +21,235 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
   }
 
-  const where = isPlatformRole(user.role)
-    ? {}
-    : {
-        ...(user.tenantId ? { tenantId: user.tenantId } : {}),
-        ...(user.merchantAccountId ? { merchantAccountId: user.merchantAccountId } : {})
+  try {
+    const resolvedTenantId = user.tenantId
+      || (user.merchantAccountId
+        ? (await prisma.merchantAccount.findUnique({
+            where: { id: user.merchantAccountId },
+            select: { tenantId: true }
+          }))?.tenantId
+        : null)
+
+    if (!isPlatformRole(user.role) && !resolvedTenantId && !user.merchantAccountId) {
+      throw createError({ statusCode: 403, statusMessage: 'Tenant scope is required' })
+    }
+
+    const insightStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    const insightEnd = new Date()
+
+    const where = isPlatformRole(user.role)
+      ? {}
+      : {
+          ...(resolvedTenantId ? { tenantId: resolvedTenantId } : {}),
+          ...(user.merchantAccountId ? { merchantAccountId: user.merchantAccountId } : {})
+        }
+
+    const tenant = resolvedTenantId
+      ? await prisma.tenant.findUnique({
+          where: { id: resolvedTenantId },
+          select: { id: true, code: true, name: true }
+        })
+      : null
+
+    const tenantScope = isPlatformRole(user.role) ? null : (resolvedTenantId || null)
+    const merchantScope = isPlatformRole(user.role) ? null : (user.merchantAccountId || null)
+
+    const tenantWhere = tenantScope ? { tenantId: tenantScope } : {}
+    const merchantWhere = {
+      ...tenantWhere,
+      ...(merchantScope ? { id: merchantScope } : {})
+    }
+    const branchWhere = {
+      ...tenantWhere,
+      ...(merchantScope ? { merchantAccountId: merchantScope } : {})
+    }
+    const assetWhere = {
+      ...tenantWhere,
+      ...(merchantScope ? { branch: { merchantAccountId: merchantScope } } : {})
+    }
+    const orderWhere = {
+      ...where
+    }
+    const paymentWhere = {
+      ...where
+    }
+    const insightOrderScope = {
+      createdAt: { gte: insightStart, lte: insightEnd },
+      ...(tenantScope ? { tenantId: tenantScope } : {}),
+      ...(merchantScope ? { merchantAccountId: merchantScope } : {})
+    }
+
+    const [
+      merchantTotal,
+      merchantActive,
+      merchantSuspended,
+      merchantDisabled,
+      branchTotal,
+      branchActive,
+      branchSuspended,
+      branchDisabled,
+      assetTotal,
+      assetActive,
+      assetMaintenance,
+      assetInactive,
+      deviceTotal,
+      deviceInUse,
+      deviceSpare,
+      deviceOffline,
+      machineTotal,
+      machineInUse,
+      machineSpare,
+      machineOffline,
+      orderTotal,
+      orderPending,
+      orderInProgress,
+      orderCompleted,
+      paymentTotal,
+      topProductGroups,
+      topAssetGroups
+    ] = await Promise.all([
+      prisma.merchantAccount.count({ where: merchantWhere }),
+      prisma.merchantAccount.count({ where: { ...merchantWhere, status: 'ACTIVE' } }),
+      prisma.merchantAccount.count({ where: { ...merchantWhere, status: 'SUSPENDED' } }),
+      prisma.merchantAccount.count({ where: { ...merchantWhere, status: 'DISABLED' } }),
+      prisma.branch.count({ where: branchWhere }),
+      prisma.branch.count({ where: { ...branchWhere, status: 'ACTIVE' } }),
+      prisma.branch.count({ where: { ...branchWhere, status: 'SUSPENDED' } }),
+      prisma.branch.count({ where: { ...branchWhere, status: 'DISABLED' } }),
+      prisma.asset.count({ where: assetWhere }),
+      prisma.asset.count({ where: { ...assetWhere, status: 'ACTIVE' } }),
+      prisma.asset.count({ where: { ...assetWhere, status: 'MAINTENANCE' } }),
+      prisma.asset.count({ where: { ...assetWhere, status: 'INACTIVE' } }),
+      prisma.iotDevice.count({ where: tenantWhere }),
+      prisma.iotDevice.count({ where: { ...tenantWhere, status: 'IN_USE' } }),
+      prisma.iotDevice.count({ where: { ...tenantWhere, status: 'SPARE' } }),
+      prisma.iotDevice.count({ where: { ...tenantWhere, status: 'OFFLINE' } }),
+      prisma.machineUnit.count({ where: tenantWhere }),
+      prisma.machineUnit.count({ where: { ...tenantWhere, status: 'IN_USE' } }),
+      prisma.machineUnit.count({ where: { ...tenantWhere, status: 'SPARE' } }),
+      prisma.machineUnit.count({ where: { ...tenantWhere, status: 'OFFLINE' } }),
+      prisma.order.count({ where: orderWhere }),
+      prisma.order.count({ where: { ...orderWhere, status: 'PENDING_PAYMENT' } }),
+      prisma.order.count({ where: { ...orderWhere, status: 'IN_PROGRESS' } }),
+      prisma.order.count({ where: { ...orderWhere, status: 'COMPLETED' } }),
+      prisma.payment.count({ where: paymentWhere }),
+      prisma.orderItem.groupBy({
+        by: ['priceLabel'],
+        where: {
+          order: { is: insightOrderScope }
+        },
+        _count: { _all: true },
+        _sum: { amount: true },
+        orderBy: { _sum: { amount: 'desc' } },
+        take: 5
+      }),
+      prisma.orderItem.groupBy({
+        by: ['assetId'],
+        where: {
+          assetId: { not: null },
+          order: { is: insightOrderScope }
+        },
+        _count: { _all: true },
+        _sum: { amount: true },
+        orderBy: { _count: { assetId: 'desc' } },
+        take: 5
+      })
+    ])
+
+    const topAssetIds = topAssetGroups.map(item => item.assetId).filter((id): id is string => Boolean(id))
+    const topAssetInfos = topAssetIds.length
+      ? await prisma.asset.findMany({
+          where: { id: { in: topAssetIds } },
+          select: { id: true, code: true, name: true }
+        })
+      : []
+    const topAssetInfoMap = new Map(topAssetInfos.map(item => [item.id, item]))
+
+    return {
+      scope: isPlatformRole(user.role) ? 'platform' : 'tenant',
+      tenant,
+      order: {
+        total: orderTotal,
+        pendingPayment: orderPending,
+        inProgress: orderInProgress,
+        completed: orderCompleted
+      },
+      payment: {
+        total: paymentTotal
+      },
+      merchant: {
+        total: merchantTotal,
+        active: merchantActive,
+        suspended: merchantSuspended,
+        disabled: merchantDisabled
+      },
+      branch: {
+        total: branchTotal,
+        active: branchActive,
+        suspended: branchSuspended,
+        disabled: branchDisabled
+      },
+      asset: {
+        total: assetTotal,
+        active: assetActive,
+        maintenance: assetMaintenance,
+        disabled: assetInactive
+      },
+      device: {
+        total: deviceTotal,
+        active: deviceInUse + deviceSpare,
+        inUse: deviceInUse,
+        spare: deviceSpare,
+        offline: deviceOffline
+      },
+      machine: {
+        total: machineTotal,
+        active: machineInUse + machineSpare,
+        inUse: machineInUse,
+        spare: machineSpare,
+        offline: machineOffline
+      },
+      insight: {
+        start: insightStart.toISOString(),
+        end: insightEnd.toISOString(),
+        topProducts: topProductGroups.map((item) => ({
+          id: item.priceLabel,
+          label: item.priceLabel,
+          revenue: Number(item._sum.amount || 0),
+          useCount: Number(item._count._all || 0)
+        })),
+        topAssets: topAssetGroups
+          .map((item) => {
+            if (!item.assetId) return null
+            const asset = topAssetInfoMap.get(item.assetId)
+            return {
+              id: item.assetId,
+              label: asset ? `${asset.code} (${asset.name})` : item.assetId,
+              revenue: Number(item._sum.amount || 0),
+              useCount: Number(item._count._all || 0)
+            }
+          })
+          .filter((item): item is { id: string; label: string; revenue: number; useCount: number } => Boolean(item))
       }
-
-  const [
-    machineTotal,
-    available,
-    reserved,
-    running,
-    maintenance,
-    orderTotal,
-    orderPending,
-    orderInProgress,
-    orderCompleted
-  ] = await Promise.all([
-    prisma.machine.count({ where }),
-    prisma.machine.count({ where: { ...where, status: 'AVAILABLE' } }),
-    prisma.machine.count({ where: { ...where, status: 'RESERVED' } }),
-    prisma.machine.count({ where: { ...where, status: 'RUNNING' } }),
-    prisma.machine.count({ where: { ...where, status: 'MAINTENANCE' } }),
-    prisma.order.count({ where }),
-    prisma.order.count({ where: { ...where, status: 'PENDING_PAYMENT' } }),
-    prisma.order.count({ where: { ...where, status: 'IN_PROGRESS' } }),
-    prisma.order.count({ where: { ...where, status: 'COMPLETED' } })
-  ])
-
-  return {
-    scope: isPlatformRole(user.role) ? 'platform' : 'tenant',
-    machine: {
-      total: machineTotal,
-      available,
-      reserved,
-      running,
-      maintenance
-    },
-    order: {
-      total: orderTotal,
-      pendingPayment: orderPending,
-      inProgress: orderInProgress,
-      completed: orderCompleted
+    }
+  } catch (error) {
+    console.error('[app/dashboard] failed:', error)
+    return {
+      scope: isPlatformRole(user.role) ? 'platform' : 'tenant',
+      tenant: null,
+      order: { total: 0, pendingPayment: 0, inProgress: 0, completed: 0 },
+      payment: { total: 0 },
+      merchant: { total: 0, active: 0, suspended: 0, disabled: 0 },
+      branch: { total: 0, active: 0, suspended: 0, disabled: 0 },
+      asset: { total: 0, active: 0, maintenance: 0, disabled: 0 },
+      device: { total: 0, active: 0, inUse: 0, spare: 0, offline: 0 },
+      machine: { total: 0, active: 0, inUse: 0, spare: 0, offline: 0 },
+      insight: {
+        start: new Date().toISOString(),
+        end: new Date().toISOString(),
+        topProducts: [],
+        topAssets: []
+      }
     }
   }
 })

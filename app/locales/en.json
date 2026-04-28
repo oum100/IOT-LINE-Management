@@ -11,7 +11,7 @@
     "dark": "Dark",
     "dashboard": "Dashboard",
     "tenants": "Tenants",
-    "merchants": "Merchants",
+    "merchants": "Merchant (Brand)",
     "branches": "Branches",
     "assets": "Assets",
     "machines": "Machines",
@@ -24,6 +24,7 @@
     "running": "Running",
     "maintenance": "Maintenance",
     "orders": "Orders",
+    "payments": "Payments",
     "pendingPayment": "Pending Payment",
     "completed": "Completed"
   },
@@ -35,7 +36,7 @@
     "signup": "Sign Up",
     "whatYouGet": "What You Get",
     "featureRealtime": "Real-time machine status dashboard",
-    "featureHierarchy": "Supports Tenant \u2192 Merchant \u2192 Branch hierarchy",
+    "featureHierarchy": "Supports Tenant \u2192 Merchant (Brand) \u2192 Branch hierarchy",
     "featureFirmware": "Single firmware with on-site device registration",
     "featureNotify": "Automatic receipt and LINE notifications"
   },

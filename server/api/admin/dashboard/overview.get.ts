@@ -8,7 +8,9 @@ const querySchema = z.object({
   period: z.enum(['24h', 'week', 'month', 'year', 'custom']).default('month'),
   start: z.string().optional(),
   end: z.string().optional(),
-  tenantIds: z.string().optional()
+  tenantIds: z.string().optional(),
+  merchantIds: z.string().optional(),
+  branchIds: z.string().optional()
 })
 
 function parseTenantIds(raw?: string) {
@@ -106,7 +108,7 @@ function withDefaultLabelCounts(
 
 const TENANT_STATUSES = ['ACTIVE', 'SUSPENDED', 'DISABLED']
 const MERCHANT_STATUSES = ['ACTIVE', 'SUSPENDED', 'DISABLED']
-const BRANCH_STATUSES = ['ACTIVE', 'INACTIVE', 'DISABLED']
+const BRANCH_STATUSES = ['ACTIVE', 'SUSPENDED', 'DISABLED']
 const ASSET_STATUSES = ['ACTIVE', 'INACTIVE', 'MAINTENANCE']
 const ASSET_TYPE_STATUSES = ['WASHER', 'DRYER', 'WATER', 'VENDING']
 const DEVICE_BINDING_STATUSES = ['BIND_ACTIVE', 'BIND_INACTIVE', 'UNBOUND']
@@ -118,153 +120,160 @@ export default defineEventHandler(async (event) => {
 
   const query = querySchema.parse(getQuery(event))
   const tenantIds = parseTenantIds(query.tenantIds)
+  const merchantIds = parseTenantIds(query.merchantIds)
+  const branchIds = parseTenantIds(query.branchIds)
   const tenantIdFilter = tenantIds.length ? { in: tenantIds } : undefined
+  const merchantIdFilter = merchantIds.length ? { in: merchantIds } : undefined
+  const branchIdFilter = branchIds.length ? { in: branchIds } : undefined
   const range = getRange(query.period, query.start, query.end)
 
-  const tenantWhere = tenantIdFilter ? { id: tenantIdFilter } : {}
-  const byTenantWhere = tenantIdFilter ? { tenantId: tenantIdFilter } : {}
-  const salesWhere = {
-    ...(tenantIdFilter ? { tenantId: tenantIdFilter } : {}),
-    createdAt: { gte: range.start, lte: range.end }
-  }
+  try {
+    const tenantWhere = tenantIdFilter ? { id: tenantIdFilter } : {}
+    const byTenantWhere = tenantIdFilter ? { tenantId: tenantIdFilter } : {}
+    const salesWhere = {
+      ...(tenantIdFilter ? { tenantId: tenantIdFilter } : {}),
+      ...(merchantIdFilter ? { merchantId: merchantIdFilter } : {}),
+      ...(branchIdFilter ? { branchId: branchIdFilter } : {}),
+      createdAt: { gte: range.start, lte: range.end }
+    }
 
-  const [tenantRows, salesByTenantRaw] = await Promise.all([
-    prisma.tenant.findMany({
-      where: tenantWhere,
-      select: { id: true, code: true, name: true, status: true }
-    }),
-    prisma.order.groupBy({
-      by: ['tenantId'],
-      where: salesWhere,
-      _sum: { totalAmount: true },
-      _count: { _all: true }
-    })
-  ])
+    const [tenantRows, salesByTenantRaw] = await Promise.all([
+      prisma.tenant.findMany({
+        where: tenantWhere,
+        select: { id: true, code: true, name: true, status: true }
+      }),
+      prisma.order.groupBy({
+        by: ['tenantId'],
+        where: salesWhere,
+        _sum: { totalAmount: true },
+        _count: { _all: true }
+      })
+    ])
 
-  const tenantMap = new Map(tenantRows.map(item => [item.id, item]))
-  const salesByTenant = salesByTenantRaw
-    .map(item => {
-      const tenantId = item.tenantId || ''
-      const tenant = tenantMap.get(tenantId)
-      return {
-        tenantId,
-        tenantCode: tenant?.code || '-',
-        tenantName: tenant?.name || 'Unknown',
-        amount: Number(item._sum.totalAmount || 0),
-        orderCount: item._count._all
-      }
-    })
-    .sort((a, b) => b.amount - a.amount)
-    .slice(0, query.top)
+    const tenantMap = new Map(tenantRows.map(item => [item.id, item]))
+    const salesByTenant = salesByTenantRaw
+      .map(item => {
+        const tenantId = item.tenantId || ''
+        const tenant = tenantMap.get(tenantId)
+        return {
+          tenantId,
+          tenantCode: tenant?.code || '-',
+          tenantName: tenant?.name || 'Unknown',
+          amount: Number(item._sum.totalAmount || 0),
+          orderCount: item._count._all
+        }
+      })
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, query.top)
 
-  const [
-    tenantTotal,
-    tenantStatus,
-    merchantTotal,
-    merchantStatus,
-    branchTotal,
-    branchStatus,
-    assetTotal,
-    assetStatus,
-    assetTypeGroup,
-    deviceTotal,
-    deviceBindingStatus,
-    unboundDeviceCount,
-    userTotal,
-    userActiveGroup,
-    userRoleGroup,
-    orderTotal,
-    orderStatus,
-    paymentTotal,
-    paymentStatus
-  ] = await Promise.all([
-    prisma.tenant.count({ where: tenantWhere }),
-    prisma.tenant.groupBy({
-      by: ['status'],
-      where: tenantWhere,
-      _count: { _all: true }
-    }),
-    prisma.merchantAccount.count({ where: byTenantWhere }),
-    prisma.merchantAccount.groupBy({
-      by: ['status'],
-      where: byTenantWhere,
-      _count: { _all: true }
-    }),
-    prisma.branch.count({ where: byTenantWhere }),
-    prisma.branch.groupBy({
-      by: ['status'],
-      where: byTenantWhere,
-      _count: { _all: true }
-    }),
-    prisma.asset.count({ where: byTenantWhere }),
-    prisma.asset.groupBy({
-      by: ['status'],
-      where: byTenantWhere,
-      _count: { _all: true }
-    }),
-    prisma.asset.groupBy({
-      by: ['kind'],
-      where: byTenantWhere,
-      _count: { _all: true }
-    }),
-    prisma.iotDevice.count({ where: byTenantWhere }),
-    prisma.assetBinding.groupBy({
-      by: ['status'],
-      where: {
-        ...(tenantIdFilter ? { tenantId: tenantIdFilter } : {}),
-        iotDeviceId: { not: null }
-      },
-      _count: { _all: true }
-    }),
-    prisma.iotDevice.count({
-      where: {
-        ...byTenantWhere,
-        bindings: {
-          none: {
-            status: 'ACTIVE',
-            endedAt: null
+    const [
+      tenantTotal,
+      tenantStatus,
+      merchantTotal,
+      merchantStatus,
+      branchTotal,
+      branchStatus,
+      assetTotal,
+      assetStatus,
+      assetTypeGroup,
+      deviceTotal,
+      deviceBindingStatus,
+      unboundDeviceCount,
+      userTotal,
+      userActiveGroup,
+      userRoleGroup,
+      orderTotal,
+      orderStatus,
+      paymentTotal,
+      paymentStatus
+    ] = await Promise.all([
+      prisma.tenant.count({ where: tenantWhere }),
+      prisma.tenant.groupBy({
+        by: ['status'],
+        where: tenantWhere,
+        _count: { _all: true }
+      }),
+      prisma.merchantAccount.count({ where: byTenantWhere }),
+      prisma.merchantAccount.groupBy({
+        by: ['status'],
+        where: byTenantWhere,
+        _count: { _all: true }
+      }),
+      prisma.branch.count({ where: byTenantWhere }),
+      prisma.branch.groupBy({
+        by: ['status'],
+        where: byTenantWhere,
+        _count: { _all: true }
+      }),
+      prisma.asset.count({ where: byTenantWhere }),
+      prisma.asset.groupBy({
+        by: ['status'],
+        where: byTenantWhere,
+        _count: { _all: true }
+      }),
+      prisma.asset.groupBy({
+        by: ['kind'],
+        where: byTenantWhere,
+        _count: { _all: true }
+      }),
+      prisma.iotDevice.count({ where: byTenantWhere }),
+      prisma.assetBinding.groupBy({
+        by: ['status'],
+        where: {
+          ...(tenantIdFilter ? { tenantId: tenantIdFilter } : {}),
+          iotDeviceId: { not: null }
+        },
+        _count: { _all: true }
+      }),
+      prisma.iotDevice.count({
+        where: {
+          ...byTenantWhere,
+          bindings: {
+            none: {
+              status: 'ACTIVE',
+              endedAt: null
+            }
           }
         }
-      }
-    }),
-    prisma.user.count({ where: byTenantWhere }),
-    prisma.user.groupBy({
-      by: ['isActive'],
-      where: byTenantWhere,
-      _count: { _all: true }
-    }),
-    prisma.user.groupBy({
-      by: ['role'],
-      where: byTenantWhere,
-      _count: { _all: true }
-    }),
-    prisma.order.count({ where: byTenantWhere }),
-    prisma.order.groupBy({
-      by: ['status'],
-      where: byTenantWhere,
-      _count: { _all: true }
-    }),
-    prisma.payment.count({ where: byTenantWhere }),
-    prisma.payment.groupBy({
-      by: ['status'],
-      where: byTenantWhere,
-      _count: { _all: true }
-    })
-  ])
+      }),
+      prisma.user.count({ where: byTenantWhere }),
+      prisma.user.groupBy({
+        by: ['isActive'],
+        where: byTenantWhere,
+        _count: { _all: true }
+      }),
+      prisma.user.groupBy({
+        by: ['role'],
+        where: byTenantWhere,
+        _count: { _all: true }
+      }),
+      prisma.order.count({ where: byTenantWhere }),
+      prisma.order.groupBy({
+        by: ['status'],
+        where: byTenantWhere,
+        _count: { _all: true }
+      }),
+      prisma.payment.count({ where: byTenantWhere }),
+      prisma.payment.groupBy({
+        by: ['status'],
+        where: byTenantWhere,
+        _count: { _all: true }
+      })
+    ])
 
-  return {
-    filters: {
-      top: query.top,
-      period: query.period,
-      start: range.start.toISOString(),
-      end: range.end.toISOString(),
-      tenantIds
-    },
-    sales: {
-      totalAmount: salesByTenant.reduce((sum, item) => sum + item.amount, 0),
-      byTenant: salesByTenant
-    },
-    cards: [
+    return {
+      filters: {
+        top: query.top,
+        period: query.period,
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+        tenantIds
+      },
+      sales: {
+        totalAmount: salesByTenant.reduce((sum, item) => sum + item.amount, 0),
+        byTenant: salesByTenant
+      },
+      cards: [
       {
         key: 'tenants',
         title: 'Tenants',
@@ -340,6 +349,23 @@ export default defineEventHandler(async (event) => {
         total: paymentTotal,
         statuses: withDefaultStatuses(paymentStatus.map(item => ({ status: item.status, _count: item._count })), PAYMENT_STATUSES)
       }
-    ]
+      ]
+    }
+  } catch (err) {
+    console.error('[dashboard/overview] failed:', err)
+    return {
+      filters: {
+        top: query.top,
+        period: query.period,
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+        tenantIds
+      },
+      sales: {
+        totalAmount: 0,
+        byTenant: []
+      },
+      cards: []
+    }
   }
 })

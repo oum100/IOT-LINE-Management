@@ -63,6 +63,7 @@ model Order {
   updatedAt             DateTime         @updatedAt
   items                 OrderItem[]
   payment               Payment?
+  refunds               Refund[]
   tenant                Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   merchantAccount       MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
   branch                Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
@@ -88,6 +89,7 @@ model OrderItem {
   asset           Asset?          @relation(fields: [assetId], references: [id], onDelete: SetNull)
   order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   price           MachinePrice    @relation(fields: [priceId], references: [id])
+  refundItems     RefundItem[]
 
   @@index([assetId])
 }
@@ -110,6 +112,7 @@ model Payment {
   verifiedAt              DateTime?
   rejectedNote            String?
   order                   Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refunds                 Refund[]
   slips                   PaymentSlip[]
   tenant                  Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   merchantAccount         MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
@@ -260,6 +263,15 @@ enum PaymentStatus {
   REJECTED
 }
 
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  PROCESSING
+  REFUNDED
+  FAILED
+  REJECTED
+}
+
 enum DeviceCommandStatus {
   PENDING
   SENT
@@ -282,7 +294,7 @@ enum MerchantStatus {
 
 enum BranchStatus {
   ACTIVE
-  INACTIVE
+  SUSPENDED
   DISABLED
 }
 
@@ -295,6 +307,26 @@ enum AssetStatus {
   ACTIVE
   INACTIVE
   MAINTENANCE
+}
+
+enum IotDeviceStatus {
+  SPARE
+  IN_USE
+  OFFLINE
+  DISABLED
+}
+
+enum MachineUnitStatus {
+  SPARE
+  IN_USE
+  OFFLINE
+  DISABLED
+}
+
+enum ProductPricingType {
+  STANDARD
+  PROMOTION
+  SPECIAL
 }
 
 enum DeviceBindingStatus {
@@ -347,6 +379,7 @@ model Tenant {
   assets                  Asset[]
   assetBindings           AssetBinding[]
   assetProductPrices      AssetProductPrice[]
+  assetProductOffers      AssetProductOffer[]
   machineUnits            MachineUnit[]
   iotDevices              IotDevice[]
   products                Product[]
@@ -433,6 +466,7 @@ model Asset {
   machines   Machine[]
   bindings   AssetBinding[]
   prices     AssetProductPrice[]
+  offers     AssetProductOffer[]
   orderItems OrderItem[]
 
   @@unique([branchId, code])
@@ -444,6 +478,7 @@ model MachineUnit {
   id        String   @id @default(cuid())
   tenantId  String
   serialNo  String   @unique
+  status    MachineUnitStatus @default(SPARE)
   brand     String?
   model     String?
   metadata  Json?
@@ -454,6 +489,7 @@ model MachineUnit {
   bindings AssetBinding[]
 
   @@index([tenantId])
+  @@index([tenantId, status])
   @@map("machine_units")
 }
 
@@ -462,6 +498,9 @@ model IotDevice {
   tenantId   String
   macAddress String   @unique
   deviceUid  String?  @unique
+  name       String?
+  model      String?
+  status     IotDeviceStatus @default(SPARE)
   fwVersion  String?
   metadata   Json?
   createdAt  DateTime @default(now())
@@ -473,6 +512,7 @@ model IotDevice {
   deviceRegistrationCodes DeviceRegistrationCode[]
 
   @@index([tenantId])
+  @@index([tenantId, status])
   @@map("iot_devices")
 }
 
@@ -507,6 +547,8 @@ model Product {
   code      String
   name      String
   kind      String
+  amount    Int?
+  durationMinutes Int?
   active    Boolean     @default(true)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
@@ -514,6 +556,7 @@ model Product {
   tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   machineKind MachineKind         @relation(fields: [kind], references: [code], onDelete: Restrict)
   prices      AssetProductPrice[]
+  offers      AssetProductOffer[]
 
   @@unique([tenantId, code])
   @@index([tenantId, kind, active])
@@ -539,6 +582,98 @@ model AssetProductPrice {
   @@unique([assetId, productId])
   @@index([tenantId, assetId, active])
   @@map("asset_product_prices")
+}
+
+model AssetProductOffer {
+  id              String             @id @default(cuid())
+  tenantId        String
+  assetId         String
+  productId       String
+  pricingType     ProductPricingType @default(STANDARD)
+  amount          Int
+  durationMinutes Int
+  priority        Int                @default(100)
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  active          Boolean            @default(true)
+  reason          String?
+  metadata        Json?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  asset   Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, assetId, active, effectiveFrom, effectiveTo])
+  @@index([tenantId, productId, active, pricingType])
+  @@index([assetId, productId, pricingType, active])
+  @@map("asset_product_offers")
+}
+
+model Refund {
+  id                String       @id @default(cuid())
+  orderId           String
+  paymentId         String?
+  tenantId          String?
+  merchantAccountId String?
+  branchId          String?
+  status            RefundStatus @default(REQUESTED)
+  reason            String
+  note              String?
+  totalAmount       Int
+  requestedByUserId String?
+  approvedByUserId  String?
+  approvedAt        DateTime?
+  providerRefundRef String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  order     Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment   Payment?          @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  items     RefundItem[]
+  auditLogs RefundAuditLog[]
+
+  @@index([orderId, status, createdAt])
+  @@index([paymentId, status])
+  @@index([tenantId, status])
+  @@map("refunds")
+}
+
+model RefundItem {
+  id          String   @id @default(cuid())
+  refundId    String
+  orderItemId String
+  amount      Int
+  reason      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  refund    Refund    @relation(fields: [refundId], references: [id], onDelete: Cascade)
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+
+  @@index([orderItemId])
+  @@unique([refundId, orderItemId])
+  @@map("refund_items")
+}
+
+model RefundAuditLog {
+  id                String       @id @default(cuid())
+  refundId          String
+  fromStatus        RefundStatus?
+  toStatus          RefundStatus
+  action            String
+  actorUserId       String?
+  note              String?
+  providerRefundRef String?
+  metadata          Json?
+  createdAt         DateTime     @default(now())
+
+  refund Refund @relation(fields: [refundId], references: [id], onDelete: Cascade)
+
+  @@index([refundId, createdAt])
+  @@index([toStatus, createdAt])
+  @@map("refund_audit_logs")
 }
 
 model User {

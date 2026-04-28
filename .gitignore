@@ -6,3 +6,5 @@ dist
 coverage
 public/uploads
 .env
+
+.DS_Store

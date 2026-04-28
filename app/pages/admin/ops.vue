@@ -484,9 +484,9 @@ async function editMerchant(item: Merchant) {
 async function editBranch(item: Branch) {
   const name = ask('Branch name', item.name)
   if (name === null) return
-  const statusRaw = ask('Status: ACTIVE | INACTIVE | DISABLED', item.status)
+  const statusRaw = ask('Status: ACTIVE | SUSPENDED | DISABLED', item.status)
   if (statusRaw === null) return
-  const status = pickEnum(statusRaw, ['ACTIVE', 'INACTIVE', 'DISABLED'] as const, item.status as 'ACTIVE' | 'INACTIVE' | 'DISABLED')
+  const status = pickEnum(statusRaw, ['ACTIVE', 'SUSPENDED', 'DISABLED'] as const, item.status as 'ACTIVE' | 'SUSPENDED' | 'DISABLED')
   await patchBy('/api/admin/branches', item.id, { name: name || item.name, status }, reloadAll, 'Branch updated')
 }
 

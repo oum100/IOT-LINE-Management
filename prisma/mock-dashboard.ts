@@ -5,7 +5,6 @@ import {
   BranchStatus,
   DeviceBindingStatus,
   EnvironmentMode,
-  MachineKind,
   MerchantStatus,
   OrderStatus,
   PaymentStatus,
@@ -40,6 +39,16 @@ function code(prefix: string, index: number, width = 4) {
 }
 
 async function clearAllData() {
+  const preservedPlatformAdmins = await prisma.user.findMany({
+    where: {
+      role: AppUserRole.ADMIN,
+      tenantId: null,
+      merchantAccountId: null
+    },
+    select: { id: true }
+  })
+  const preservedIds = preservedPlatformAdmins.map(item => item.id)
+
   await prisma.paymentSlip.deleteMany()
   await prisma.deviceCommand.deleteMany()
   await prisma.orderItem.deleteMany()
@@ -58,9 +67,15 @@ async function clearAllData() {
   await prisma.iotDevice.deleteMany()
   await prisma.machineUnit.deleteMany()
   await prisma.product.deleteMany()
-  await prisma.session.deleteMany()
-  await prisma.account.deleteMany()
-  await prisma.user.deleteMany()
+  if (preservedIds.length) {
+    await prisma.session.deleteMany({ where: { userId: { notIn: preservedIds } } })
+    await prisma.account.deleteMany({ where: { userId: { notIn: preservedIds } } })
+    await prisma.user.deleteMany({ where: { id: { notIn: preservedIds } } })
+  } else {
+    await prisma.session.deleteMany()
+    await prisma.account.deleteMany()
+    await prisma.user.deleteMany()
+  }
   await prisma.verificationToken.deleteMany()
   await prisma.branch.deleteMany()
   await prisma.merchantAccount.deleteMany()
@@ -74,7 +89,7 @@ function merchantStatusByIndex(i: number) {
 }
 
 function branchStatusByIndex(i: number) {
-  if (i % 8 === 0) return BranchStatus.INACTIVE
+  if (i % 8 === 0) return BranchStatus.SUSPENDED
   if (i % 11 === 0) return BranchStatus.DISABLED
   return BranchStatus.ACTIVE
 }
@@ -110,7 +125,7 @@ async function seedMockData() {
     )
   }
 
-  const tenantTotal = 14
+  const tenantTotal = 5
   let merchantSeq = 1
   let branchSeq = 1
   let assetSeq = 1
@@ -141,7 +156,7 @@ async function seedMockData() {
         tenantId: tenant.id,
         code: 'P-WASH',
         name: 'Wash Program',
-        kind: MachineKind.WASHER,
+        kind: 'WASHER',
         active: true
       }
     })
@@ -150,7 +165,7 @@ async function seedMockData() {
         tenantId: tenant.id,
         code: 'P-DRY',
         name: 'Dry Program',
-        kind: MachineKind.DRYER,
+        kind: 'DRYER',
         active: true
       }
     })
@@ -237,14 +252,14 @@ async function seedMockData() {
     for (const branch of branches) {
       const assetCount = randInt(5, 9)
       for (let a = 0; a < assetCount; a += 1) {
-        const kind = a % 2 === 0 ? MachineKind.WASHER : MachineKind.DRYER
+        const kind = a % 2 === 0 ? 'WASHER' : 'DRYER'
         const asset = await prisma.asset.create({
           data: {
             tenantId: tenant.id,
             branchId: branch.id,
             assetUuid: `ASSET-${tenantCode}-${assetSeq}`,
             code: code('AS', assetSeq, 5),
-            name: `${kind === MachineKind.WASHER ? 'Washer' : 'Dryer'} ${assetSeq}`,
+            name: `${kind === 'WASHER' ? 'Washer' : 'Dryer'} ${assetSeq}`,
             kind,
             status: assetStatusByIndex(assetSeq)
           }
@@ -321,7 +336,7 @@ async function seedMockData() {
       userSeq += 1
     }
 
-    const orderCount = randInt(40, 120)
+    const orderCount = randInt(80, 180)
     for (let o = 0; o < orderCount; o += 1) {
       const branch = pick(branches)
       const merchant = merchants.find(item => item.id === branch.merchantAccountId) || merchants[0]!

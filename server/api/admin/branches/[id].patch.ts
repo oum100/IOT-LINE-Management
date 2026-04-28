@@ -5,7 +5,7 @@ import { assertAdminAccess } from '../../../utils/admin-auth'
 const schema = z.object({
   merchantAccountId: z.string().nullable().optional(),
   name: z.string().trim().min(1).max(120).optional(),
-  status: z.enum(['ACTIVE', 'INACTIVE', 'DISABLED']).optional(),
+  status: z.enum(['ACTIVE', 'SUSPENDED', 'DISABLED']).optional(),
   metadata: z.record(z.any()).optional()
 })
 

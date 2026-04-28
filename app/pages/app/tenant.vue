@@ -1,0 +1,2297 @@
+<script setup lang="ts">
+definePageMeta({
+  layout: 'tenant',
+  middleware: 'portal-auth'
+})
+
+type TenantDetailResponse = {
+  tenant?: { id: string; code: string; name: string } | null
+  selectedMerchantId: string
+  selectedBranchId: string
+  selectedAssetId: string
+  selectedAssetType: string
+  assetTypes: string[]
+  merchants: Array<{
+    id: string
+    code: string
+    name: string
+    status: string
+    environment?: string
+    orderCount: number
+    canDelete: boolean
+    updatedAt: string
+  }>
+  branches: Array<{
+    id: string
+    code: string
+    name: string
+    status: string
+    merchantAccountId: string | null
+    orderCount: number
+    canDelete: boolean
+    updatedAt: string
+  }>
+  assets: Array<{
+    id: string
+    code: string
+    name: string
+    status: string
+    kind: string
+    branchId: string
+    updatedAt: string
+  }>
+  devices: Array<{
+    id: string
+    deviceUid: string | null
+    macAddress: string
+    status: string
+    fwVersion: string | null
+    name: string | null
+    model: string | null
+    canDelete: boolean
+  }>
+  machineUnits: Array<{
+    id: string
+    serialNo: string
+    brand: string | null
+    model: string | null
+    status: string
+    canDelete: boolean
+  }>
+  products: Array<{
+    id: string
+    code: string
+    name: string
+    kind: string
+    amount: number | null
+    durationMinutes: number | null
+    active: boolean
+    locked: boolean
+    updatedAt: string
+  }>
+  machineKinds: Array<{
+    code: string
+    name: string
+    active: boolean
+    canDelete: boolean
+  }>
+  selectedAsset?: {
+    id: string
+    code: string
+    name: string
+    kind: string
+    status: string
+    updatedAt: string
+    branch: {
+      id: string
+      name: string
+      code: string
+      merchantAccount: {
+        id: string
+        name: string
+        code: string
+      } | null
+    } | null
+    prices: Array<{
+      id: string
+      amount: number
+      durationMinutes: number
+      sortOrder: number
+      active: boolean
+      orderCount: number
+      canUnbind: boolean
+      product: {
+        id: string
+        code: string
+        name: string
+        active: boolean
+        amount: number | null
+        durationMinutes: number | null
+      } | null
+    }>
+  } | null
+  activeBinding?: {
+    id: string
+    startedAt: string
+    reason: string | null
+    iotDevice: {
+      id: string
+      deviceUid: string | null
+      macAddress: string
+      name: string | null
+      model: string | null
+      status: string
+      fwVersion: string | null
+    } | null
+    machineUnit: {
+      id: string
+      serialNo: string
+      brand: string | null
+      model: string | null
+      status: string
+    } | null
+  } | null
+}
+
+type GovernanceResponse = {
+  users: Array<{
+    id: string
+    email: string
+    name: string | null
+    role: 'ADMIN' | 'USER'
+    isActive: boolean
+    merchantAccountId: string | null
+  }>
+  billers: Array<{
+    id: string
+    code: string
+    displayName: string
+    providerCode: 'SLIP2GO' | 'MAEMANEE' | 'KSHOP' | 'PROMPTPAY' | 'INTERNAL'
+    status: 'ACTIVE' | 'INACTIVE' | 'DISABLED'
+    priority: number
+    billerId: string | null
+    merchantBindingCount: number
+    branchBindingCount: number
+    linkedCount: number
+    canDelete: boolean
+  }>
+  paymentExpiryMinutes: number
+}
+
+const selectedMerchantId = ref('')
+const selectedBranchId = ref('')
+const selectedAssetType = ref('')
+const selectedAssetId = ref('')
+const merchantCreateOpen = ref(false)
+const merchantCreateName = ref('')
+const merchantCreateStatus = ref<'ACTIVE' | 'SUSPENDED' | 'DISABLED'>('ACTIVE')
+const merchantCreateSaving = ref(false)
+const merchantCreateError = ref('')
+const merchantDeleteSavingId = ref('')
+const merchantDeleteError = ref('')
+const branchCreateOpen = ref(false)
+const branchCreateName = ref('')
+const branchCreateMerchantId = ref('')
+const branchCreateStatus = ref<'ACTIVE' | 'SUSPENDED' | 'DISABLED'>('ACTIVE')
+const branchCreateSaving = ref(false)
+const branchCreateError = ref('')
+const branchDeleteSavingId = ref('')
+const branchDeleteError = ref('')
+const deviceCreateOpen = ref(false)
+const deviceCreateMacAddress = ref('')
+const deviceCreateFwVersion = ref('')
+const deviceCreateName = ref('')
+const deviceCreateModel = ref('')
+const deviceCreateSaving = ref(false)
+const deviceCreateError = ref('')
+const deviceDeleteSavingId = ref('')
+const deviceDeleteError = ref('')
+const machineCreateOpen = ref(false)
+const machineCreateSerialNo = ref('')
+const machineCreateBrand = ref('')
+const machineCreateModel = ref('')
+const machineCreateSaving = ref(false)
+const machineCreateError = ref('')
+const machineDeleteSavingId = ref('')
+const machineDeleteError = ref('')
+const machineKindFormOpen = ref(false)
+const machineKindEditCode = ref('')
+const machineKindCode = ref('')
+const machineKindName = ref('')
+const machineKindStatus = ref<'ACTIVE' | 'DISABLED'>('ACTIVE')
+const machineKindFormSaving = ref(false)
+const machineKindFormError = ref('')
+const machineKindDeleteSavingCode = ref('')
+const machineKindDeleteError = ref('')
+const merchantEditOpen = ref(false)
+const merchantEditId = ref('')
+const merchantEditName = ref('')
+const merchantEditStatus = ref<'ACTIVE' | 'SUSPENDED' | 'DISABLED'>('ACTIVE')
+const merchantEditEnvironment = ref<'TEST' | 'LIVE'>('TEST')
+const merchantEditSaving = ref(false)
+const merchantEditError = ref('')
+const branchEditOpen = ref(false)
+const branchEditId = ref('')
+const branchEditName = ref('')
+const branchEditStatus = ref<'ACTIVE' | 'SUSPENDED' | 'DISABLED'>('ACTIVE')
+const branchEditMerchantId = ref('')
+const branchEditSaving = ref(false)
+const branchEditError = ref('')
+const deleteConfirmOpen = ref(false)
+const deleteConfirmType = ref<'merchant' | 'branch'>('merchant')
+const deleteConfirmId = ref('')
+const deleteConfirmName = ref('')
+const deleteConfirmSaving = ref(false)
+const governanceUserSavingId = ref('')
+const governanceUserError = ref('')
+const governanceBillerSavingId = ref('')
+const governanceBillerError = ref('')
+const billerIdVisibleMap = ref<Record<string, boolean>>({})
+const billerFormOpen = ref(false)
+const billerFormEditId = ref('')
+const billerFormName = ref('')
+const billerFormProvider = ref<'SLIP2GO' | 'MAEMANEE' | 'KSHOP' | 'PROMPTPAY' | 'INTERNAL'>('INTERNAL')
+const billerFormStatus = ref<'ACTIVE' | 'INACTIVE' | 'DISABLED'>('ACTIVE')
+const billerFormPriority = ref<number>(100)
+const billerFormSaving = ref(false)
+const billerFormError = ref('')
+const paymentExpiryInput = ref<number>(15)
+const paymentExpirySaving = ref(false)
+const paymentExpiryError = ref('')
+
+const tenantEditOpen = ref(false)
+const tenantEditName = ref('')
+const tenantEditSaving = ref(false)
+const tenantEditError = ref('')
+const productCreateOpen = ref(false)
+const productCreateSaving = ref(false)
+const productCreateError = ref('')
+const productCreateName = ref('')
+const productCreateKind = ref('')
+const productCreateAmount = ref<number | null>(null)
+const productCreateDurationMinutes = ref<number | null>(null)
+const productCreateStatus = ref<'ACTIVE' | 'DISABLED'>('ACTIVE')
+const productEditId = ref('')
+const bindProductOpen = ref(false)
+const bindProductSaving = ref(false)
+const bindProductError = ref('')
+const bindProductId = ref('')
+const unbindProductSavingId = ref('')
+const unbindProductError = ref('')
+const bindDeviceOpen = ref(false)
+const bindDeviceSaving = ref(false)
+const bindDeviceError = ref('')
+const bindDeviceId = ref('')
+const availableIotDevices = ref<Array<{ id: string; deviceUid: string | null; macAddress: string; name: string | null; model: string | null }>>([])
+const bindMachineOpen = ref(false)
+const bindMachineSaving = ref(false)
+const bindMachineError = ref('')
+const bindMachineId = ref('')
+const availableMachineUnits = ref<Array<{ id: string; serialNo: string; brand: string | null; model: string | null }>>([])
+
+const queryParams = computed(() => ({
+  merchantAccountId: selectedMerchantId.value || undefined,
+  branchId: selectedBranchId.value || undefined,
+  assetType: selectedAssetType.value || undefined,
+  assetId: selectedAssetId.value || undefined
+}))
+
+const { data, pending, error, refresh } = await useFetch<TenantDetailResponse>('/api/app/tenant-detail', {
+  query: queryParams
+})
+const { data: governanceData, pending: governancePending, refresh: refreshGovernance } = await useFetch<GovernanceResponse>('/api/app/governance')
+
+const tenantName = computed(() => data.value?.tenant?.name || '-')
+const tenantCode = computed(() => data.value?.tenant?.code || '-')
+const merchants = computed(() => data.value?.merchants || [])
+const branches = computed(() => data.value?.branches || [])
+const assets = computed(() => data.value?.assets || [])
+const devices = computed(() => data.value?.devices || [])
+const machineUnits = computed(() => data.value?.machineUnits || [])
+const products = computed(() => data.value?.products || [])
+const machineKinds = computed(() => data.value?.machineKinds || [])
+const activeMachineKinds = computed(() => machineKinds.value.filter(item => item.active))
+const assetTypes = computed(() => data.value?.assetTypes || [])
+const selectedAsset = computed(() => data.value?.selectedAsset || null)
+const activeBinding = computed(() => data.value?.activeBinding || null)
+const governanceUsers = computed(() => governanceData.value?.users || [])
+const governanceBillers = computed(() => governanceData.value?.billers || [])
+const deviceCreateDeviceUid = computed(() => {
+  const normalized = String(deviceCreateMacAddress.value || '').trim().toUpperCase().replace(/[^0-9A-F]/g, '')
+  if (normalized.length !== 12) return '-'
+  const pairs = normalized.match(/.{1,2}/g) || []
+  return pairs.reverse().join('')
+})
+const isProductEditMode = computed(() => Boolean(productEditId.value))
+const editingProduct = computed(() => products.value.find(item => item.id === productEditId.value) || null)
+const isEditingProductLocked = computed(() => Boolean(editingProduct.value?.locked))
+const activeBoundProductIds = computed(() => {
+  if (!selectedAsset.value) return new Set<string>()
+  return new Set(
+    selectedAsset.value.prices
+      .filter(entry => entry.active && entry.product?.id)
+      .map(entry => entry.product!.id)
+  )
+})
+const bindableProducts = computed(() => {
+  const assetKind = selectedAsset.value?.kind || ''
+  if (!assetKind) return []
+  return products.value.filter(item => item.active && item.kind === assetKind && !activeBoundProductIds.value.has(item.id))
+})
+
+const selectedMerchant = computed(() => {
+  if (!merchants.value.length) return null
+  return merchants.value.find(item => item.id === selectedMerchantId.value) || merchants.value[0] || null
+})
+
+const selectedBranch = computed(() => {
+  if (!branches.value.length) return null
+  return branches.value.find(item => item.id === selectedBranchId.value) || branches.value[0] || null
+})
+
+const merchantRows = computed(() => {
+  if (!selectedMerchantId.value) return merchants.value
+  return merchants.value.filter(item => item.id === selectedMerchantId.value)
+})
+
+const branchRows = computed(() => {
+  let rows = branches.value
+  if (selectedMerchantId.value) {
+    rows = rows.filter(item => item.merchantAccountId === selectedMerchantId.value)
+  }
+  if (selectedBranchId.value) {
+    rows = rows.filter(item => item.id === selectedBranchId.value)
+  }
+  return rows
+})
+
+watch(() => governanceData.value?.paymentExpiryMinutes, (v) => {
+  if (typeof v === 'number' && Number.isFinite(v)) paymentExpiryInput.value = v
+}, { immediate: true })
+
+watch(() => data.value?.selectedMerchantId, (v) => {
+  if (v && !selectedMerchantId.value) selectedMerchantId.value = v
+}, { immediate: true })
+
+watch(() => data.value?.selectedBranchId, (v) => {
+  if (v && !selectedBranchId.value) selectedBranchId.value = v
+}, { immediate: true })
+
+watch(() => data.value?.selectedAssetType, (v) => {
+  if (v && !selectedAssetType.value) selectedAssetType.value = v
+}, { immediate: true })
+
+watch(() => data.value?.selectedAssetId, (v) => {
+  if (v && !selectedAssetId.value) selectedAssetId.value = v
+}, { immediate: true })
+
+watch(merchants, (rows) => {
+  if (selectedMerchantId.value && !rows.some(item => item.id === selectedMerchantId.value)) {
+    selectedMerchantId.value = ''
+  }
+}, { immediate: true })
+
+watch(branches, (rows) => {
+  if (selectedBranchId.value && !rows.some(item => item.id === selectedBranchId.value)) {
+    selectedBranchId.value = ''
+  }
+}, { immediate: true })
+
+watch(assets, (rows) => {
+  if (selectedAssetId.value && !rows.some(item => item.id === selectedAssetId.value)) {
+    selectedAssetId.value = ''
+  }
+}, { immediate: true })
+
+watch(machineKinds, (rows) => {
+  if (productCreateKind.value && !rows.some(item => item.code === productCreateKind.value)) {
+    productCreateKind.value = ''
+  }
+}, { immediate: true })
+
+function statusTextClass(status?: string | null) {
+  const s = String(status || '').toUpperCase()
+  if (s === 'ACTIVE' || s === 'VERIFIED' || s === 'IN_USE') return 'text-emerald-600 dark:text-emerald-400'
+  if (s === 'SUSPENDED' || s === 'MAINTENANCE' || s === 'SPARE') return 'text-amber-600 dark:text-amber-400'
+  if (s === 'DISABLED' || s === 'INACTIVE' || s === 'OFFLINE') return 'text-rose-600 dark:text-rose-400'
+  return 'text-slate-700 dark:text-slate-200'
+}
+
+function openTenantEdit() {
+  tenantEditName.value = tenantName.value === '-' ? '' : tenantName.value
+  tenantEditError.value = ''
+  tenantEditOpen.value = true
+}
+
+function closeTenantEdit() {
+  tenantEditOpen.value = false
+  tenantEditSaving.value = false
+  tenantEditError.value = ''
+}
+
+async function saveTenantName() {
+  tenantEditSaving.value = true
+  tenantEditError.value = ''
+  try {
+    const name = tenantEditName.value.trim()
+    if (!name) throw new Error('Tenant name is required.')
+
+    await $fetch('/api/app/tenant-detail', {
+      method: 'PATCH',
+      body: { name }
+    })
+
+    await refresh()
+    closeTenantEdit()
+  } catch (err) {
+    tenantEditError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to update tenant name'
+  } finally {
+    tenantEditSaving.value = false
+  }
+}
+
+function openCreateMerchant() {
+  merchantCreateError.value = ''
+  merchantCreateName.value = ''
+  merchantCreateStatus.value = 'ACTIVE'
+  merchantCreateOpen.value = true
+}
+
+function closeCreateMerchant() {
+  merchantCreateOpen.value = false
+  merchantCreateSaving.value = false
+  merchantCreateError.value = ''
+}
+
+async function submitCreateMerchant() {
+  merchantCreateSaving.value = true
+  merchantCreateError.value = ''
+  try {
+    const name = merchantCreateName.value.trim()
+    if (!name) throw new Error('Merchant name is required.')
+    await $fetch('/api/app/merchants', {
+      method: 'POST',
+      body: {
+        name,
+        status: merchantCreateStatus.value
+      }
+    })
+    await refresh()
+    closeCreateMerchant()
+  } catch (err) {
+    merchantCreateError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to create merchant'
+  } finally {
+    merchantCreateSaving.value = false
+  }
+}
+
+function openMerchantEdit(item: { id: string; name: string; status: string; environment?: string }) {
+  merchantEditError.value = ''
+  merchantEditId.value = item.id
+  merchantEditName.value = item.name
+  merchantEditStatus.value = (item.status as 'ACTIVE' | 'SUSPENDED' | 'DISABLED') || 'ACTIVE'
+  merchantEditEnvironment.value = (item.environment as 'TEST' | 'LIVE') || 'TEST'
+  merchantEditOpen.value = true
+}
+
+function closeMerchantEdit() {
+  merchantEditOpen.value = false
+  merchantEditSaving.value = false
+  merchantEditError.value = ''
+}
+
+async function submitMerchantEdit() {
+  merchantEditSaving.value = true
+  merchantEditError.value = ''
+  try {
+    const name = merchantEditName.value.trim()
+    if (!name) throw new Error('Merchant name is required.')
+    await $fetch(`/api/app/merchants/${merchantEditId.value}`, {
+      method: 'PATCH',
+      body: {
+        name,
+        status: merchantEditStatus.value,
+        environment: merchantEditEnvironment.value
+      }
+    })
+    await refresh()
+    closeMerchantEdit()
+  } catch (err) {
+    merchantEditError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to update merchant'
+  } finally {
+    merchantEditSaving.value = false
+  }
+}
+
+function askDeleteMerchant(item: { id: string; name: string; canDelete: boolean }) {
+  if (!item.canDelete) return
+  deleteConfirmType.value = 'merchant'
+  deleteConfirmId.value = item.id
+  deleteConfirmName.value = item.name
+  deleteConfirmOpen.value = true
+}
+
+function openCreateBranch() {
+  branchCreateError.value = ''
+  branchCreateName.value = ''
+  branchCreateMerchantId.value = selectedMerchantId.value || ''
+  branchCreateStatus.value = 'ACTIVE'
+  branchCreateOpen.value = true
+}
+
+function closeCreateBranch() {
+  branchCreateOpen.value = false
+  branchCreateSaving.value = false
+  branchCreateError.value = ''
+}
+
+async function submitCreateBranch() {
+  branchCreateSaving.value = true
+  branchCreateError.value = ''
+  try {
+    const name = branchCreateName.value.trim()
+    if (!name) throw new Error('Branch name is required.')
+    await $fetch('/api/app/branches', {
+      method: 'POST',
+      body: {
+        name,
+        merchantAccountId: branchCreateMerchantId.value || null,
+        status: branchCreateStatus.value
+      }
+    })
+    await refresh()
+    closeCreateBranch()
+  } catch (err) {
+    branchCreateError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to create branch'
+  } finally {
+    branchCreateSaving.value = false
+  }
+}
+
+function openBranchEdit(item: { id: string; name: string; status: string; merchantAccountId: string | null }) {
+  branchEditError.value = ''
+  branchEditId.value = item.id
+  branchEditName.value = item.name
+  branchEditStatus.value = (item.status as 'ACTIVE' | 'SUSPENDED' | 'DISABLED') || 'ACTIVE'
+  branchEditMerchantId.value = item.merchantAccountId || ''
+  branchEditOpen.value = true
+}
+
+function closeBranchEdit() {
+  branchEditOpen.value = false
+  branchEditSaving.value = false
+  branchEditError.value = ''
+}
+
+async function submitBranchEdit() {
+  branchEditSaving.value = true
+  branchEditError.value = ''
+  try {
+    const name = branchEditName.value.trim()
+    if (!name) throw new Error('Branch name is required.')
+    await $fetch(`/api/app/branches/${branchEditId.value}`, {
+      method: 'PATCH',
+      body: {
+        name,
+        status: branchEditStatus.value,
+        merchantAccountId: branchEditMerchantId.value || null
+      }
+    })
+    await refresh()
+    closeBranchEdit()
+  } catch (err) {
+    branchEditError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to update branch'
+  } finally {
+    branchEditSaving.value = false
+  }
+}
+
+function askDeleteBranch(item: { id: string; name: string; canDelete: boolean }) {
+  if (!item.canDelete) return
+  deleteConfirmType.value = 'branch'
+  deleteConfirmId.value = item.id
+  deleteConfirmName.value = item.name
+  deleteConfirmOpen.value = true
+}
+
+function closeDeleteConfirm() {
+  deleteConfirmOpen.value = false
+  deleteConfirmSaving.value = false
+}
+
+async function submitDeleteConfirm() {
+  if (!deleteConfirmId.value) return
+  deleteConfirmSaving.value = true
+  try {
+    if (deleteConfirmType.value === 'merchant') {
+      merchantDeleteSavingId.value = deleteConfirmId.value
+      merchantDeleteError.value = ''
+      await $fetch(`/api/app/merchants/${deleteConfirmId.value}`, { method: 'DELETE' })
+      if (selectedMerchantId.value === deleteConfirmId.value) selectedMerchantId.value = ''
+    } else {
+      branchDeleteSavingId.value = deleteConfirmId.value
+      branchDeleteError.value = ''
+      await $fetch(`/api/app/branches/${deleteConfirmId.value}`, { method: 'DELETE' })
+      if (selectedBranchId.value === deleteConfirmId.value) selectedBranchId.value = ''
+    }
+    await refresh()
+    closeDeleteConfirm()
+  } catch (err) {
+    const message = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Delete failed'
+    if (deleteConfirmType.value === 'merchant') merchantDeleteError.value = message
+    else branchDeleteError.value = message
+  } finally {
+    merchantDeleteSavingId.value = ''
+    branchDeleteSavingId.value = ''
+    deleteConfirmSaving.value = false
+  }
+}
+
+function openCreateDevice() {
+  deviceCreateError.value = ''
+  deviceCreateMacAddress.value = ''
+  deviceCreateFwVersion.value = ''
+  deviceCreateName.value = ''
+  deviceCreateModel.value = ''
+  deviceCreateOpen.value = true
+}
+
+function closeCreateDevice() {
+  deviceCreateOpen.value = false
+  deviceCreateSaving.value = false
+  deviceCreateError.value = ''
+}
+
+async function submitCreateDevice() {
+  deviceCreateSaving.value = true
+  deviceCreateError.value = ''
+  try {
+    const macAddress = deviceCreateMacAddress.value.trim()
+    const fwVersion = deviceCreateFwVersion.value.trim()
+    if (!macAddress) throw new Error('MAC address is required.')
+    if (!fwVersion) throw new Error('FW version is required.')
+
+    await $fetch('/api/app/devices', {
+      method: 'POST',
+      body: {
+        macAddress,
+        fwVersion,
+        name: deviceCreateName.value.trim() || null,
+        model: deviceCreateModel.value.trim() || null
+      }
+    })
+    await refresh()
+    closeCreateDevice()
+  } catch (err) {
+    deviceCreateError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to create device'
+  } finally {
+    deviceCreateSaving.value = false
+  }
+}
+
+async function deleteDevice(item: { id: string; canDelete: boolean }) {
+  if (!item.canDelete) return
+  const ok = globalThis.confirm?.('Delete this device?') ?? false
+  if (!ok) return
+  deviceDeleteSavingId.value = item.id
+  deviceDeleteError.value = ''
+  try {
+    await $fetch(`/api/app/devices/${item.id}`, { method: 'DELETE' })
+    await refresh()
+  } catch (err) {
+    deviceDeleteError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to delete device'
+  } finally {
+    deviceDeleteSavingId.value = ''
+  }
+}
+
+function openCreateMachine() {
+  machineCreateError.value = ''
+  machineCreateSerialNo.value = ''
+  machineCreateBrand.value = ''
+  machineCreateModel.value = ''
+  machineCreateOpen.value = true
+}
+
+function closeCreateMachine() {
+  machineCreateOpen.value = false
+  machineCreateSaving.value = false
+  machineCreateError.value = ''
+}
+
+async function submitCreateMachine() {
+  machineCreateSaving.value = true
+  machineCreateError.value = ''
+  try {
+    const serialNo = machineCreateSerialNo.value.trim()
+    if (!serialNo) throw new Error('Serial no is required.')
+    await $fetch('/api/app/machine-units', {
+      method: 'POST',
+      body: {
+        serialNo,
+        brand: machineCreateBrand.value.trim() || null,
+        model: machineCreateModel.value.trim() || null
+      }
+    })
+    await refresh()
+    closeCreateMachine()
+  } catch (err) {
+    machineCreateError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to create machine unit'
+  } finally {
+    machineCreateSaving.value = false
+  }
+}
+
+async function deleteMachine(item: { id: string; canDelete: boolean }) {
+  if (!item.canDelete) return
+  const ok = globalThis.confirm?.('Delete this machine unit?') ?? false
+  if (!ok) return
+  machineDeleteSavingId.value = item.id
+  machineDeleteError.value = ''
+  try {
+    await $fetch(`/api/app/machine-units/${item.id}`, { method: 'DELETE' })
+    await refresh()
+  } catch (err) {
+    machineDeleteError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to delete machine unit'
+  } finally {
+    machineDeleteSavingId.value = ''
+  }
+}
+
+function openCreateMachineKind() {
+  machineKindFormError.value = ''
+  machineKindEditCode.value = ''
+  machineKindCode.value = ''
+  machineKindName.value = ''
+  machineKindStatus.value = 'ACTIVE'
+  machineKindFormOpen.value = true
+}
+
+function openEditMachineKind(item: { code: string; name: string; active: boolean }) {
+  machineKindFormError.value = ''
+  machineKindEditCode.value = item.code
+  machineKindCode.value = item.code
+  machineKindName.value = item.name
+  machineKindStatus.value = item.active ? 'ACTIVE' : 'DISABLED'
+  machineKindFormOpen.value = true
+}
+
+function closeMachineKindForm() {
+  machineKindFormOpen.value = false
+  machineKindFormSaving.value = false
+  machineKindFormError.value = ''
+}
+
+async function submitMachineKindForm() {
+  machineKindFormSaving.value = true
+  machineKindFormError.value = ''
+  try {
+    const code = machineKindCode.value.trim()
+    const name = machineKindName.value.trim()
+    if (!code) throw new Error('Machine kind code is required.')
+    if (!name) throw new Error('Machine kind name is required.')
+
+    if (machineKindEditCode.value) {
+      await $fetch(`/api/app/machine-kinds/${encodeURIComponent(machineKindEditCode.value)}`, {
+        method: 'PATCH',
+        body: {
+          name,
+          status: machineKindStatus.value
+        }
+      })
+    } else {
+      await $fetch('/api/app/machine-kinds', {
+        method: 'POST',
+        body: {
+          code,
+          name,
+          status: machineKindStatus.value
+        }
+      })
+    }
+
+    await refresh()
+    closeMachineKindForm()
+  } catch (err) {
+    machineKindFormError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to save machine kind'
+  } finally {
+    machineKindFormSaving.value = false
+  }
+}
+
+async function deleteMachineKind(item: { code: string; canDelete: boolean }) {
+  if (!item.canDelete) return
+  const ok = globalThis.confirm?.(`Delete machine kind ${item.code}?`) ?? false
+  if (!ok) return
+  machineKindDeleteSavingCode.value = item.code
+  machineKindDeleteError.value = ''
+  try {
+    await $fetch(`/api/app/machine-kinds/${encodeURIComponent(item.code)}`, { method: 'DELETE' })
+    await refresh()
+  } catch (err) {
+    machineKindDeleteError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to delete machine kind'
+  } finally {
+    machineKindDeleteSavingCode.value = ''
+  }
+}
+
+async function updateGovernanceUser(item: { id: string; role: 'ADMIN' | 'USER'; isActive: boolean }, patch: { role?: 'ADMIN' | 'USER'; isActive?: boolean }) {
+  governanceUserSavingId.value = item.id
+  governanceUserError.value = ''
+  try {
+    await $fetch(`/api/app/users/${item.id}`, {
+      method: 'PATCH',
+      body: {
+        role: patch.role ?? item.role,
+        isActive: patch.isActive ?? item.isActive
+      }
+    })
+    await refreshGovernance()
+  } catch (err) {
+    governanceUserError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to update user'
+  } finally {
+    governanceUserSavingId.value = ''
+  }
+}
+
+function onGovernanceRoleChange(item: { id: string; role: 'ADMIN' | 'USER'; isActive: boolean }, event: Event) {
+  const value = String((event.target as HTMLSelectElement | null)?.value || item.role)
+  if (value === 'ADMIN' || value === 'USER') {
+    updateGovernanceUser(item, { role: value })
+  }
+}
+
+function openCreateBiller() {
+  billerFormEditId.value = ''
+  billerFormName.value = ''
+  billerFormProvider.value = 'INTERNAL'
+  billerFormStatus.value = 'ACTIVE'
+  billerFormPriority.value = 100
+  billerFormError.value = ''
+  billerFormOpen.value = true
+}
+
+function toggleBillerIdVisibility(id: string) {
+  billerIdVisibleMap.value = {
+    ...billerIdVisibleMap.value,
+    [id]: !billerIdVisibleMap.value[id]
+  }
+}
+
+function billerIdDisplay(rowId: string, billerId: string | null | undefined, fallbackId: string) {
+  const source = String(billerId || fallbackId || '')
+  if (!source) return '-'
+  if (billerIdVisibleMap.value[rowId]) return source
+  if (source.length <= 10) return `${source.slice(0, 3)}***${source.slice(-2)}`
+  return `${source.slice(0, 6)}***${source.slice(-4)}`
+}
+
+function openEditBiller(item: { id: string; displayName: string; providerCode: 'SLIP2GO' | 'MAEMANEE' | 'KSHOP' | 'PROMPTPAY' | 'INTERNAL'; status: 'ACTIVE' | 'INACTIVE' | 'DISABLED'; priority: number }) {
+  billerFormEditId.value = item.id
+  billerFormName.value = item.displayName
+  billerFormProvider.value = item.providerCode
+  billerFormStatus.value = item.status
+  billerFormPriority.value = item.priority
+  billerFormError.value = ''
+  billerFormOpen.value = true
+}
+
+function closeBillerForm() {
+  billerFormOpen.value = false
+  billerFormSaving.value = false
+  billerFormError.value = ''
+}
+
+async function submitBillerForm() {
+  billerFormSaving.value = true
+  billerFormError.value = ''
+  try {
+    const displayName = billerFormName.value.trim()
+    if (!displayName) throw new Error('Biller name is required.')
+    if (!billerFormEditId.value) throw new Error('Create biller is disabled.')
+    await $fetch(`/api/app/billers/${billerFormEditId.value}`, {
+      method: 'PATCH',
+      body: {
+        displayName,
+        priority: Number(billerFormPriority.value)
+      }
+    })
+    await refreshGovernance()
+    closeBillerForm()
+  } catch (err) {
+    billerFormError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to save biller'
+  } finally {
+    billerFormSaving.value = false
+  }
+}
+
+async function deleteBiller(item: { id: string; canDelete?: boolean }) {
+  if (item.canDelete === false) return
+  governanceBillerSavingId.value = item.id
+  governanceBillerError.value = ''
+  try {
+    await $fetch(`/api/app/billers/${item.id}`, { method: 'DELETE' })
+    await refreshGovernance()
+  } catch (err) {
+    governanceBillerError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to delete biller'
+  } finally {
+    governanceBillerSavingId.value = ''
+  }
+}
+
+async function savePaymentExpiry() {
+  paymentExpirySaving.value = true
+  paymentExpiryError.value = ''
+  try {
+    const minutes = Number(paymentExpiryInput.value)
+    if (!Number.isFinite(minutes) || minutes < 1 || minutes > 1440) {
+      throw new Error('Payment expiry must be 1-1440 minutes')
+    }
+    await $fetch('/api/app/settings/payment-expiry', {
+      method: 'POST',
+      body: { paymentExpiryMinutes: minutes }
+    })
+    await refreshGovernance()
+  } catch (err) {
+    paymentExpiryError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to save payment expiry'
+  } finally {
+    paymentExpirySaving.value = false
+  }
+}
+
+async function openCreateAsset() {
+  const tenantId = data.value?.tenant?.id || ''
+  if (!tenantId) return
+  const query = new URLSearchParams()
+  query.set('tenantId', tenantId)
+  if (selectedMerchantId.value) query.set('merchantAccountId', selectedMerchantId.value)
+  if (selectedBranchId.value) query.set('branchId', selectedBranchId.value)
+  await navigateTo(`/admin/assets?${query.toString()}`)
+}
+
+async function openBindDeviceModal() {
+  if (!selectedAssetId.value) return
+  bindDeviceSaving.value = true
+  bindDeviceError.value = ''
+  try {
+    const result = await $fetch<{ items: Array<{ id: string; deviceUid: string | null; macAddress: string; name: string | null; model: string | null }> }>(`/api/app/assets/${selectedAssetId.value}/available-iot-devices`)
+    availableIotDevices.value = result.items || []
+    bindDeviceId.value = availableIotDevices.value[0]?.id || ''
+    bindDeviceOpen.value = true
+  } catch (err) {
+    bindDeviceError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to load spare IoT devices'
+  } finally {
+    bindDeviceSaving.value = false
+  }
+}
+
+function closeBindDeviceModal() {
+  bindDeviceOpen.value = false
+  bindDeviceSaving.value = false
+  bindDeviceError.value = ''
+}
+
+async function submitBindDevice() {
+  if (!selectedAssetId.value || !bindDeviceId.value) return
+  bindDeviceSaving.value = true
+  bindDeviceError.value = ''
+  try {
+    await $fetch(`/api/app/assets/${selectedAssetId.value}/replace-device`, {
+      method: 'POST',
+      body: {
+        iotDeviceId: bindDeviceId.value,
+        reason: activeBinding.value?.iotDevice ? 'portal-replace-device' : 'portal-bind-device'
+      }
+    })
+    await refresh()
+    closeBindDeviceModal()
+  } catch (err) {
+    bindDeviceError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to bind IoT device'
+  } finally {
+    bindDeviceSaving.value = false
+  }
+}
+
+async function openBindMachineModal() {
+  if (!selectedAssetId.value) return
+  bindMachineSaving.value = true
+  bindMachineError.value = ''
+  try {
+    const result = await $fetch<{ items: Array<{ id: string; serialNo: string; brand: string | null; model: string | null }> }>(`/api/app/assets/${selectedAssetId.value}/available-machine-units`)
+    availableMachineUnits.value = result.items || []
+    bindMachineId.value = availableMachineUnits.value[0]?.id || ''
+    bindMachineOpen.value = true
+  } catch (err) {
+    bindMachineError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to load spare machine units'
+  } finally {
+    bindMachineSaving.value = false
+  }
+}
+
+function closeBindMachineModal() {
+  bindMachineOpen.value = false
+  bindMachineSaving.value = false
+  bindMachineError.value = ''
+}
+
+async function submitBindMachine() {
+  if (!selectedAssetId.value || !bindMachineId.value) return
+  bindMachineSaving.value = true
+  bindMachineError.value = ''
+  try {
+    await $fetch(`/api/app/assets/${selectedAssetId.value}/replace-machine`, {
+      method: 'POST',
+      body: {
+        machineUnitId: bindMachineId.value,
+        reason: activeBinding.value?.machineUnit ? 'portal-replace-machine' : 'portal-bind-machine'
+      }
+    })
+    await refresh()
+    closeBindMachineModal()
+  } catch (err) {
+    bindMachineError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to bind machine unit'
+  } finally {
+    bindMachineSaving.value = false
+  }
+}
+
+async function openAssetProductBinding() {
+  if (!selectedAssetId.value) return
+  bindProductError.value = ''
+  bindProductId.value = bindableProducts.value[0]?.id || ''
+  bindProductOpen.value = true
+}
+
+async function openCreateProduct() {
+  productEditId.value = ''
+  productCreateName.value = ''
+  productCreateKind.value = machineKinds.value[0]?.code || ''
+  productCreateAmount.value = null
+  productCreateDurationMinutes.value = null
+  productCreateStatus.value = 'ACTIVE'
+  productCreateError.value = ''
+  productCreateOpen.value = true
+}
+
+function openEditProduct(product: { id: string; name: string; kind: string; amount: number | null; durationMinutes: number | null; active: boolean }) {
+  productEditId.value = product.id
+  productCreateName.value = product.name
+  productCreateKind.value = product.kind
+  productCreateAmount.value = product.amount
+  productCreateDurationMinutes.value = product.durationMinutes
+  productCreateStatus.value = product.active ? 'ACTIVE' : 'DISABLED'
+  productCreateError.value = ''
+  productCreateOpen.value = true
+}
+
+function closeCreateProduct() {
+  productEditId.value = ''
+  productCreateOpen.value = false
+  productCreateSaving.value = false
+  productCreateError.value = ''
+}
+
+function closeBindProduct() {
+  bindProductOpen.value = false
+  bindProductSaving.value = false
+  bindProductError.value = ''
+}
+
+async function submitBindProduct() {
+  bindProductSaving.value = true
+  bindProductError.value = ''
+  try {
+    if (!selectedAssetId.value) throw new Error('Please select an asset first.')
+    if (!bindProductId.value) throw new Error('Please select a product.')
+    await $fetch(`/api/app/assets/${selectedAssetId.value}/products`, {
+      method: 'POST',
+      body: { productId: bindProductId.value }
+    })
+    await refresh()
+    closeBindProduct()
+  } catch (err) {
+    bindProductError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to bind product'
+  } finally {
+    bindProductSaving.value = false
+  }
+}
+
+async function unbindProduct(productId: string) {
+  if (!selectedAssetId.value || !productId) return
+  unbindProductSavingId.value = productId
+  unbindProductError.value = ''
+  try {
+    await $fetch(`/api/app/assets/${selectedAssetId.value}/products/${productId}`, {
+      method: 'DELETE'
+    })
+    await refresh()
+  } catch (err) {
+    unbindProductError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to unbind product'
+  } finally {
+    unbindProductSavingId.value = ''
+  }
+}
+
+async function rebindProduct(productId: string) {
+  if (!selectedAssetId.value || !productId) return
+  unbindProductSavingId.value = productId
+  unbindProductError.value = ''
+  try {
+    await $fetch(`/api/app/assets/${selectedAssetId.value}/products`, {
+      method: 'POST',
+      body: { productId }
+    })
+    await refresh()
+  } catch (err) {
+    unbindProductError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to rebind product'
+  } finally {
+    unbindProductSavingId.value = ''
+  }
+}
+
+async function submitCreateProduct() {
+  productCreateSaving.value = true
+  productCreateError.value = ''
+  try {
+    const name = productCreateName.value.trim()
+    const kind = productCreateKind.value.trim()
+    const amount = Number(productCreateAmount.value)
+    const durationMinutes = Number(productCreateDurationMinutes.value)
+    const status = productCreateStatus.value
+    if (!name) throw new Error('Product name is required.')
+    if (!kind) throw new Error('Product type is required.')
+    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Price is required.')
+    if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) throw new Error('Service time is required.')
+    if (isProductEditMode.value) {
+      if (isEditingProductLocked.value) {
+        throw new Error('This product is locked because completed orders reference it.')
+      }
+      await $fetch(`/api/app/products/${productEditId.value}`, {
+        method: 'PATCH',
+        body: { name, kind, amount, durationMinutes, status }
+      })
+    } else {
+      await $fetch('/api/app/products', {
+        method: 'POST',
+        body: {
+          name,
+          kind,
+          amount,
+          durationMinutes,
+          status
+        }
+      })
+    }
+
+    await refresh()
+    closeCreateProduct()
+  } catch (err) {
+    productCreateError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to create product'
+  } finally {
+    productCreateSaving.value = false
+  }
+}
+</script>
+
+<template>
+  <div class="space-y-6">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div class="space-y-1">
+        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">Tenant Workspace</h3>
+        <h2 class="text-2xl font-semibold text-slate-900 dark:text-white">{{ tenantName }}</h2>
+        <div class="flex items-center gap-2">
+          <p class="text-xs text-slate-500 dark:text-slate-400">Tenant: {{ tenantCode }} ({{ tenantName }})</p>
+          <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" size="xs" @click="openTenantEdit" />
+        </div>
+      </div>
+      <div class="flex flex-1 flex-wrap items-start justify-end gap-3">
+        <div class="flex w-full max-w-[260px] flex-col gap-1">
+          <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Merchant</label>
+          <select
+            v-model="selectedMerchantId"
+            class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+          >
+            <option value="">All merchants</option>
+            <option v-for="item in merchants" :key="item.id" :value="item.id">{{ item.name }}</option>
+          </select>
+        </div>
+
+        <div class="flex w-full max-w-[260px] flex-col gap-1">
+          <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Branch</label>
+          <select
+            v-model="selectedBranchId"
+            class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+          >
+            <option value="">All branches</option>
+            <option v-for="item in branches" :key="item.id" :value="item.id">{{ item.name }}</option>
+          </select>
+        </div>
+
+        <div class="flex w-full max-w-[220px] flex-col gap-1">
+          <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Asset Type</label>
+          <select
+            v-model="selectedAssetType"
+            class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+          >
+            <option value="">All types</option>
+            <option v-for="kind in assetTypes" :key="kind" :value="kind">{{ kind }}</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <UAlert
+      v-if="error"
+      color="error"
+      variant="soft"
+      icon="i-lucide-alert-triangle"
+      :title="error.message || 'Failed to load tenant detail data'"
+    />
+
+    <div class="grid gap-3 lg:grid-cols-6">
+      <div class="contents">
+        <UCard class="lg:col-span-3 lg:order-1" :ui="{ root: 'h-[240px] bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700', body: 'h-full p-3 flex flex-col' }">
+          <div class="mb-3 flex items-center justify-between">
+            <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Merchant List</p>
+            <div class="flex items-center gap-2">
+              <p class="text-xs text-slate-500 dark:text-slate-400">{{ merchantRows.length }} items</p>
+              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" @click="openCreateMerchant" />
+            </div>
+          </div>
+          <div v-if="merchantDeleteError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
+            {{ merchantDeleteError }}
+          </div>
+          <div v-if="pending" class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Loading...</div>
+          <div v-else-if="!merchantRows.length" class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">No merchant found.</div>
+          <div v-else class="flex h-full flex-col overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+            <div class="grid grid-cols-[140px_minmax(0,1fr)_120px_88px] items-center gap-2 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <span>Code</span>
+              <span>Name</span>
+              <span>Status</span>
+              <span class="text-center">Actions</span>
+            </div>
+            <div class="flex-1 min-h-0 overflow-auto">
+              <div
+                v-for="item in merchantRows"
+                :key="item.id"
+                class="grid grid-cols-[140px_minmax(0,1fr)_120px_88px] items-center gap-2 border-t border-slate-200 px-3 py-2 text-sm text-slate-800 dark:border-slate-700 dark:text-slate-100"
+              >
+                <span class="truncate font-medium">{{ item.code }}</span>
+                <span class="truncate font-medium">{{ item.name }}</span>
+                <span class="text-sm font-semibold" :class="statusTextClass(item.status)">{{ item.status }}</span>
+                <span class="flex items-center justify-center gap-1">
+                  <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" size="xs" @click="openMerchantEdit(item)" />
+                  <UButton
+                    icon="i-lucide-trash-2"
+                    color="error"
+                    variant="ghost"
+                    size="xs"
+                    :loading="merchantDeleteSavingId === item.id"
+                    :disabled="!item.canDelete"
+                    :title="item.canDelete ? 'Delete' : 'Cannot delete: order history exists'"
+                    @click="askDeleteMerchant(item)"
+                  />
+                </span>
+              </div>
+            </div>
+          </div>
+        </UCard>
+
+        <UCard class="lg:col-span-3 lg:order-3" :ui="{ root: 'h-[240px] bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700', body: 'h-full p-3 flex flex-col' }">
+          <div class="mb-3 flex items-center justify-between">
+            <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Device List</p>
+            <div class="flex items-center gap-2">
+              <p class="text-xs text-slate-500 dark:text-slate-400">{{ devices.length }} items</p>
+              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" @click="openCreateDevice" />
+            </div>
+          </div>
+          <div v-if="deviceDeleteError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
+            {{ deviceDeleteError }}
+          </div>
+          <div v-if="pending" class="py-4 text-center text-sm text-slate-500 dark:text-slate-400">Loading...</div>
+          <div v-else-if="!devices.length" class="py-4 text-center text-sm text-slate-500 dark:text-slate-400">No devices.</div>
+          <div v-else class="flex-1 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+            <table class="min-w-full text-sm">
+              <thead class="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <tr>
+                  <th class="px-3 py-2 text-left">Name</th>
+                  <th class="px-3 py-2 text-left">Device UID</th>
+                  <th class="px-3 py-2 text-left">MAC</th>
+                  <th class="px-3 py-2 text-left">FW</th>
+                  <th class="px-3 py-2 text-left">Status</th>
+                  <th class="px-3 py-2 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in devices" :key="item.id" class="border-t border-slate-200 dark:border-slate-700">
+                  <td class="px-3 py-2">{{ item.name || '-' }}</td>
+                  <td class="px-3 py-2">{{ item.deviceUid || '-' }}</td>
+                  <td class="px-3 py-2">{{ item.macAddress }}</td>
+                  <td class="px-3 py-2">{{ item.fwVersion || '-' }}</td>
+                  <td class="px-3 py-2"><span class="text-sm font-semibold" :class="statusTextClass(item.status)">{{ item.status }}</span></td>
+                  <td class="px-3 py-2 text-center">
+                    <UButton
+                      icon="i-lucide-trash-2"
+                      color="error"
+                      variant="ghost"
+                      size="xs"
+                      :loading="deviceDeleteSavingId === item.id"
+                      :disabled="!item.canDelete"
+                      :title="item.canDelete ? 'Delete' : 'Only SPARE and never-bound device can be deleted'"
+                      @click="deleteDevice(item)"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </UCard>
+
+      </div>
+
+      <div class="contents">
+        <UCard class="lg:col-span-3 lg:order-2" :ui="{ root: 'h-[240px] bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700', body: 'h-full p-3 flex flex-col' }">
+          <div class="mb-3 flex items-center justify-between">
+            <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Branch List</p>
+            <div class="flex items-center gap-2">
+              <p class="text-xs text-slate-500 dark:text-slate-400">{{ branchRows.length }} items</p>
+              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" @click="openCreateBranch" />
+            </div>
+          </div>
+          <div v-if="branchDeleteError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
+            {{ branchDeleteError }}
+          </div>
+          <div v-if="pending" class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Loading...</div>
+          <div v-else-if="!branchRows.length" class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">No branch found.</div>
+          <div v-else class="flex h-full flex-col overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+            <div class="grid grid-cols-[140px_minmax(0,1fr)_120px_88px] items-center gap-2 bg-slate-100 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <span>Code</span>
+              <span>Name</span>
+              <span>Status</span>
+              <span class="text-center">Actions</span>
+            </div>
+            <div class="flex-1 min-h-0 overflow-auto">
+              <div
+                v-for="item in branchRows"
+                :key="item.id"
+                class="grid grid-cols-[140px_minmax(0,1fr)_120px_88px] items-center gap-2 border-t border-slate-200 px-3 py-2 text-sm text-slate-800 dark:border-slate-700 dark:text-slate-100"
+              >
+                <span class="truncate font-medium">{{ item.code }}</span>
+                <span class="truncate font-medium">{{ item.name }}</span>
+                <span class="text-sm font-semibold" :class="statusTextClass(item.status)">{{ item.status }}</span>
+                <span class="flex items-center justify-center gap-1">
+                  <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" size="xs" @click="openBranchEdit(item)" />
+                  <UButton
+                    icon="i-lucide-trash-2"
+                    color="error"
+                    variant="ghost"
+                    size="xs"
+                    :loading="branchDeleteSavingId === item.id"
+                    :disabled="!item.canDelete"
+                    :title="item.canDelete ? 'Delete' : 'Cannot delete: order history exists'"
+                    @click="askDeleteBranch(item)"
+                  />
+                </span>
+              </div>
+            </div>
+          </div>
+        </UCard>
+
+        <UCard class="lg:col-span-3 lg:order-4" :ui="{ root: 'h-[240px] bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700', body: 'h-full p-3 flex flex-col' }">
+          <div class="mb-3 flex items-center justify-between">
+            <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Machine List</p>
+            <div class="flex items-center gap-2">
+              <p class="text-xs text-slate-500 dark:text-slate-400">{{ machineUnits.length }} items</p>
+              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" @click="openCreateMachine" />
+            </div>
+          </div>
+          <div v-if="machineDeleteError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
+            {{ machineDeleteError }}
+          </div>
+          <div v-if="pending" class="py-4 text-center text-sm text-slate-500 dark:text-slate-400">Loading...</div>
+          <div v-else-if="!machineUnits.length" class="py-4 text-center text-sm text-slate-500 dark:text-slate-400">No machines.</div>
+          <div v-else class="flex-1 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+            <table class="min-w-full text-sm">
+              <thead class="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <tr>
+                  <th class="px-3 py-2 text-left">Serial No</th>
+                  <th class="px-3 py-2 text-left">Model</th>
+                  <th class="px-3 py-2 text-left">Status</th>
+                  <th class="px-3 py-2 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="item in machineUnits" :key="item.id" class="border-t border-slate-200 dark:border-slate-700">
+                  <td class="px-3 py-2">{{ item.serialNo }}</td>
+                  <td class="px-3 py-2">{{ item.brand || '-' }} / {{ item.model || '-' }}</td>
+                  <td class="px-3 py-2"><span class="text-sm font-semibold" :class="statusTextClass(item.status)">{{ item.status }}</span></td>
+                  <td class="px-3 py-2 text-center">
+                    <UButton
+                      icon="i-lucide-trash-2"
+                      color="error"
+                      variant="ghost"
+                      size="xs"
+                      :loading="machineDeleteSavingId === item.id"
+                      :disabled="!item.canDelete"
+                      :title="item.canDelete ? 'Delete' : 'Only SPARE and never-bound machine unit can be deleted'"
+                      @click="deleteMachine(item)"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </UCard>
+
+        <UCard class="lg:col-span-3 lg:order-5" :ui="{ root: 'h-[240px] bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700', body: 'h-full p-3 flex flex-col' }">
+          <div class="mb-3 flex items-center justify-between">
+            <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Product List</p>
+            <div class="flex items-center gap-2">
+              <p class="text-xs text-slate-500 dark:text-slate-400">{{ products.length }} items</p>
+              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" @click="openCreateProduct" />
+            </div>
+          </div>
+          <div v-if="pending" class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Loading...</div>
+          <div v-else-if="!products.length" class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">No products.</div>
+          <div v-else class="flex-1 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+            <table class="min-w-full text-sm">
+              <thead class="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                <tr>
+                  <th class="px-3 py-2 text-left">Name</th>
+                  <th class="px-3 py-2 text-left">Code</th>
+                  <th class="px-3 py-2 text-left">Type</th>
+                  <th class="px-3 py-2 text-right">Price</th>
+                  <th class="px-3 py-2 text-right">Time</th>
+                  <th class="px-3 py-2 text-left">Status</th>
+                  <th class="px-3 py-2 text-left">Lock</th>
+                  <th class="px-3 py-2 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="item in products"
+                  :key="item.id"
+                  class="border-t border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                >
+                  <td class="px-3 py-2 font-medium">{{ item.name }}</td>
+                  <td class="px-3 py-2 text-sm">{{ item.code }}</td>
+                  <td class="px-3 py-2">{{ item.kind }}</td>
+                  <td class="px-3 py-2 text-right">{{ item.amount ?? '-' }}</td>
+                  <td class="px-3 py-2 text-right">{{ item.durationMinutes ?? '-' }}m</td>
+                  <td class="px-3 py-2"><span class="text-sm font-semibold" :class="statusTextClass(item.active ? 'ACTIVE' : 'DISABLED')">{{ item.active ? 'ACTIVE' : 'DISABLED' }}</span></td>
+                  <td class="px-3 py-2">
+                    <UBadge v-if="item.locked" color="warning" variant="soft" size="xs">LOCKED</UBadge>
+                    <span v-else class="text-sm text-slate-400 dark:text-slate-500">-</span>
+                  </td>
+                  <td class="px-3 py-2 text-center">
+                    <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" size="2xs" :disabled="item.locked" @click="openEditProduct(item)" />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </UCard>
+
+        <div class="lg:col-span-3 lg:order-6 grid h-[240px] grid-rows-1 gap-3">
+          <UCard :ui="{ root: 'h-full bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700', body: 'h-full p-3 flex flex-col' }">
+            <div class="mb-2 flex items-center justify-between">
+              <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Machine Kind</p>
+              <div class="flex items-center gap-2">
+                <p class="text-xs text-slate-500 dark:text-slate-400">{{ machineKinds.length }} total</p>
+                <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" @click="openCreateMachineKind" />
+              </div>
+            </div>
+            <div v-if="machineKindDeleteError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">{{ machineKindDeleteError }}</div>
+            <div class="flex-1 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+              <div v-if="!machineKinds.length" class="py-4 text-center text-xs text-slate-500 dark:text-slate-400">No data.</div>
+              <table v-else class="min-w-full text-sm">
+                <thead class="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                  <tr>
+                    <th class="px-3 py-2 text-left">Name</th>
+                    <th class="px-3 py-2 text-left">Code</th>
+                    <th class="px-3 py-2 text-left">Status</th>
+                    <th class="px-3 py-2 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in machineKinds" :key="item.code" class="border-t border-slate-200 dark:border-slate-700">
+                    <td class="px-3 py-2 text-sm font-medium text-slate-800 dark:text-slate-100">{{ item.name }}</td>
+                    <td class="px-3 py-2 text-sm text-slate-700 dark:text-slate-200">{{ item.code }}</td>
+                    <td class="px-3 py-2"><span class="text-sm font-semibold" :class="statusTextClass(item.active ? 'ACTIVE' : 'DISABLED')">{{ item.active ? 'ACTIVE' : 'DISABLED' }}</span></td>
+                    <td class="px-3 py-2 text-center">
+                      <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" size="xs" @click="openEditMachineKind(item)" />
+                      <UButton
+                        icon="i-lucide-trash-2"
+                        color="error"
+                        variant="ghost"
+                        size="xs"
+                        :loading="machineKindDeleteSavingCode === item.code"
+                        :disabled="!item.canDelete"
+                        :title="item.canDelete ? 'Delete' : 'Cannot delete: in use by assets/products/machines'"
+                        @click="deleteMachineKind(item)"
+                      />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </UCard>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="space-y-3">
+      <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700', body: 'p-3 flex flex-col' }">
+        <div class="mb-2">
+          <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Tenant Settings</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Payment expiry configuration</p>
+        </div>
+        <div v-if="paymentExpiryError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">{{ paymentExpiryError }}</div>
+        <UFormField :ui="{ label: 'text-slate-700 dark:text-slate-200 font-medium' }">
+          <template #label><span>Payment Expiry Minutes <span class="text-rose-500">*</span></span></template>
+          <UInput
+            v-model.number="paymentExpiryInput"
+            type="number"
+            min="1"
+            max="1440"
+            class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+            :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+          />
+        </UFormField>
+        <div class="mt-3">
+          <UButton color="primary" :loading="paymentExpirySaving" @click="savePaymentExpiry">Save Settings</UButton>
+        </div>
+      </UCard>
+
+      <UCard :ui="{ root: 'h-[280px] bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700', body: 'h-full p-3 flex flex-col' }">
+        <div class="mb-2 flex items-center justify-between">
+          <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Biller Profiles</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400">{{ governanceBillers.length }} items</p>
+        </div>
+        <div v-if="governanceBillerError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">{{ governanceBillerError }}</div>
+        <div v-if="governancePending" class="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Loading...</div>
+        <div v-else class="flex-1 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+          <table class="min-w-full text-sm">
+            <thead class="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <tr>
+                <th class="px-3 py-2 text-left">Name</th>
+                <th class="px-3 py-2 text-left">Provider</th>
+                <th class="px-3 py-2 text-left">Biller ID</th>
+                <th class="px-3 py-2 text-right">Priority</th>
+                <th class="px-3 py-2 text-left">Status</th>
+                <th class="px-3 py-2 text-right">Merchant Binding</th>
+                <th class="px-3 py-2 text-right">Branch Binding</th>
+                <th class="px-3 py-2 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in governanceBillers" :key="item.id" class="border-t border-slate-200 dark:border-slate-700">
+                <td class="px-3 py-2 text-sm">{{ item.displayName }}</td>
+                <td class="px-3 py-2 text-sm">{{ item.providerCode }}</td>
+                <td class="px-3 py-2 text-sm">
+                  <div class="flex items-center gap-1.5">
+                    <span class="font-mono text-slate-700 dark:text-slate-200">#{{ billerIdDisplay(item.id, item.billerId, item.id) }}</span>
+                    <UButton
+                      :icon="billerIdVisibleMap[item.id] ? 'i-lucide-eye-off' : 'i-lucide-eye'"
+                      color="neutral"
+                      variant="ghost"
+                      size="xs"
+                      @click="toggleBillerIdVisibility(item.id)"
+                    />
+                  </div>
+                </td>
+                <td class="px-3 py-2 text-right text-sm text-slate-700 dark:text-slate-200">{{ item.priority }}</td>
+                <td class="px-3 py-2"><span class="text-sm font-semibold" :class="statusTextClass(item.status)">{{ item.status }}</span></td>
+                <td class="px-3 py-2 text-right text-sm text-slate-700 dark:text-slate-200">{{ item.merchantBindingCount }}</td>
+                <td class="px-3 py-2 text-right text-sm text-slate-700 dark:text-slate-200">{{ item.branchBindingCount }}</td>
+                <td class="px-3 py-2 text-center">
+                  <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" size="xs" @click="openEditBiller(item)" />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </UCard>
+
+      <UCard :ui="{ root: 'h-[280px] bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700', body: 'h-full p-3 flex flex-col' }">
+        <div class="mb-2 flex items-center justify-between">
+          <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">User Access</p>
+          <p class="text-xs text-slate-500 dark:text-slate-400">{{ governanceUsers.length }} users</p>
+        </div>
+        <div v-if="governanceUserError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">{{ governanceUserError }}</div>
+        <div v-if="governancePending" class="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Loading...</div>
+        <div v-else class="flex-1 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
+          <table class="min-w-full text-sm">
+            <thead class="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              <tr>
+                <th class="px-3 py-2 text-left">Email</th>
+                <th class="px-3 py-2 text-left">Role</th>
+                <th class="px-3 py-2 text-left">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in governanceUsers" :key="item.id" class="border-t border-slate-200 dark:border-slate-700">
+                <td class="px-3 py-2 text-sm">{{ item.email }}</td>
+                <td class="px-3 py-2">
+                  <select class="h-8 rounded border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100" :value="item.role" @change="onGovernanceRoleChange(item, $event)">
+                    <option value="ADMIN">ADMIN</option>
+                    <option value="USER">USER</option>
+                  </select>
+                </td>
+                <td class="px-3 py-2">
+                  <UButton :label="item.isActive ? 'ACTIVE' : 'INACTIVE'" size="2xs" :loading="governanceUserSavingId === item.id" :color="item.isActive ? 'success' : 'neutral'" variant="soft" @click="updateGovernanceUser(item, { isActive: !item.isActive })" />
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </UCard>
+    </div>
+
+    <UModal v-model:open="tenantEditOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Edit Tenant Name</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeTenantEdit" />
+            </div>
+          </template>
+
+          <div class="space-y-3">
+            <UAlert v-if="tenantEditError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="tenantEditError" />
+            <UFormField>
+              <template #label>
+                <span>Tenant Name <span class="text-rose-500">*</span></span>
+              </template>
+              <UInput v-model="tenantEditName" placeholder="Enter tenant name" />
+            </UFormField>
+          </div>
+
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeTenantEdit">Cancel</UButton>
+              <UButton color="primary" :loading="tenantEditSaving" @click="saveTenantName">Save</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="merchantCreateOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Create Merchant</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeCreateMerchant" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="merchantCreateError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="merchantCreateError" />
+            <UFormField>
+              <template #label>
+                <span>Merchant Name <span class="text-rose-500">*</span></span>
+              </template>
+              <UInput
+                v-model="merchantCreateName"
+                placeholder="Enter merchant name"
+                class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+              />
+            </UFormField>
+            <UFormField>
+              <template #label>
+                <span>Status <span class="text-rose-500">*</span></span>
+              </template>
+              <select
+                v-model="merchantCreateStatus"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100 dark:[color-scheme:dark]"
+              >
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="SUSPENDED">SUSPENDED</option>
+                <option value="DISABLED">DISABLED</option>
+              </select>
+            </UFormField>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeCreateMerchant">Cancel</UButton>
+              <UButton color="primary" :loading="merchantCreateSaving" @click="submitCreateMerchant">Create Merchant</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="merchantEditOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Edit Merchant</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeMerchantEdit" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="merchantEditError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="merchantEditError" />
+            <UFormField><template #label><span>Merchant Name <span class="text-rose-500">*</span></span></template><UInput v-model="merchantEditName" /></UFormField>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <UFormField label="Status">
+                <select v-model="merchantEditStatus" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="SUSPENDED">SUSPENDED</option>
+                  <option value="DISABLED">DISABLED</option>
+                </select>
+              </UFormField>
+              <UFormField label="Environment">
+                <select v-model="merchantEditEnvironment" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
+                  <option value="TEST">TEST</option>
+                  <option value="LIVE">LIVE</option>
+                </select>
+              </UFormField>
+            </div>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeMerchantEdit">Cancel</UButton>
+              <UButton color="primary" :loading="merchantEditSaving" @click="submitMerchantEdit">Save</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="branchCreateOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Create Branch</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeCreateBranch" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="branchCreateError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="branchCreateError" />
+            <UFormField>
+              <template #label>
+                <span>Branch Name <span class="text-rose-500">*</span></span>
+              </template>
+              <UInput
+                v-model="branchCreateName"
+                placeholder="Enter branch name"
+                class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+              />
+            </UFormField>
+            <UFormField label="Merchant (optional)">
+              <select
+                v-model="branchCreateMerchantId"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100 dark:[color-scheme:dark]"
+              >
+                <option value="">No merchant</option>
+                <option v-for="item in merchants" :key="item.id" :value="item.id">{{ item.name }}</option>
+              </select>
+            </UFormField>
+            <UFormField>
+              <template #label>
+                <span>Status <span class="text-rose-500">*</span></span>
+              </template>
+              <select
+                v-model="branchCreateStatus"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100 dark:[color-scheme:dark]"
+              >
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="SUSPENDED">SUSPENDED</option>
+                <option value="DISABLED">DISABLED</option>
+              </select>
+            </UFormField>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeCreateBranch">Cancel</UButton>
+              <UButton color="primary" :loading="branchCreateSaving" @click="submitCreateBranch">Create Branch</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="branchEditOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Edit Branch</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeBranchEdit" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="branchEditError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="branchEditError" />
+            <UFormField><template #label><span>Branch Name <span class="text-rose-500">*</span></span></template><UInput v-model="branchEditName" /></UFormField>
+            <UFormField label="Merchant (optional)">
+              <select v-model="branchEditMerchantId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
+                <option value="">No merchant</option>
+                <option v-for="item in merchants" :key="item.id" :value="item.id">{{ item.name }}</option>
+              </select>
+            </UFormField>
+            <UFormField label="Status">
+              <select v-model="branchEditStatus" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="SUSPENDED">SUSPENDED</option>
+                <option value="DISABLED">DISABLED</option>
+              </select>
+            </UFormField>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeBranchEdit">Cancel</UButton>
+              <UButton color="primary" :loading="branchEditSaving" @click="submitBranchEdit">Save</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="deleteConfirmOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Confirm Delete</h3>
+          </template>
+          <p class="text-sm text-slate-700 dark:text-slate-200">
+            Delete {{ deleteConfirmType }} <span class="font-semibold">{{ deleteConfirmName }}</span>?
+          </p>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeDeleteConfirm">Cancel</UButton>
+              <UButton color="error" :loading="deleteConfirmSaving" @click="submitDeleteConfirm">Delete</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="billerFormOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Edit Biller</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeBillerForm" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="billerFormError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="billerFormError" />
+            <UFormField>
+              <template #label><span>Display Name <span class="text-rose-500">*</span></span></template>
+              <UInput
+                v-model="billerFormName"
+                class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+              />
+            </UFormField>
+            <UFormField>
+              <template #label><span>Priority <span class="text-rose-500">*</span></span></template>
+              <UInput
+                v-model.number="billerFormPriority"
+                type="number"
+                min="1"
+                max="999"
+                class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+              />
+            </UFormField>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeBillerForm">Cancel</UButton>
+              <UButton color="primary" :loading="billerFormSaving" @click="submitBillerForm">Save</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="deviceCreateOpen" :ui="{ content: 'sm:max-w-lg' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Create Device</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeCreateDevice" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="deviceCreateError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="deviceCreateError" />
+            <div class="grid gap-3 sm:grid-cols-2">
+              <UFormField>
+                <template #label>
+                  <span>MAC Address <span class="text-rose-500">*</span></span>
+                </template>
+                <UInput
+                  v-model="deviceCreateMacAddress"
+                  placeholder="e.g. 3C:33:54:AA:BB:CC"
+                  class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                  :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+                />
+              </UFormField>
+              <UFormField>
+                <template #label>
+                  <span>Device UID <span class="text-rose-500">*</span></span>
+                </template>
+                <UInput
+                  :model-value="deviceCreateDeviceUid"
+                  readonly
+                  class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                  :ui="{ base: 'bg-slate-100 ring-1 ring-slate-300 dark:bg-slate-800 dark:ring-slate-500' }"
+                />
+              </UFormField>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <UFormField>
+                <template #label>
+                  <span>FW Version <span class="text-rose-500">*</span></span>
+                </template>
+                <UInput
+                  v-model="deviceCreateFwVersion"
+                  placeholder="e.g. 1.0.0"
+                  class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                  :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+                />
+              </UFormField>
+              <UFormField label="Device Name (optional)">
+                <UInput
+                  v-model="deviceCreateName"
+                  placeholder="e.g. IOT-WASH-01"
+                  class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                  :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+                />
+              </UFormField>
+            </div>
+            <UFormField label="Device Model (optional)">
+              <UInput
+                v-model="deviceCreateModel"
+                placeholder="e.g. ESP32-D1Mini"
+                class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+              />
+            </UFormField>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeCreateDevice">Cancel</UButton>
+              <UButton color="primary" :loading="deviceCreateSaving" @click="submitCreateDevice">Create Device</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="machineCreateOpen" :ui="{ content: 'sm:max-w-lg' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Create Machine Unit</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeCreateMachine" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="machineCreateError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="machineCreateError" />
+            <div class="grid gap-3 sm:grid-cols-2">
+              <UFormField>
+                <template #label>
+                  <span>Serial No <span class="text-rose-500">*</span></span>
+                </template>
+                <UInput
+                  v-model="machineCreateSerialNo"
+                  placeholder="e.g. SN-02621165"
+                  class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                  :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+                />
+              </UFormField>
+              <UFormField label="Brand (optional)">
+                <UInput
+                  v-model="machineCreateBrand"
+                  placeholder="e.g. SpeedQueen"
+                  class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                  :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+                />
+              </UFormField>
+            </div>
+            <UFormField label="Model (optional)">
+              <UInput
+                v-model="machineCreateModel"
+                placeholder="e.g. WM-001"
+                class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+              />
+            </UFormField>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeCreateMachine">Cancel</UButton>
+              <UButton color="primary" :loading="machineCreateSaving" @click="submitCreateMachine">Create Machine</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="machineKindFormOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{{ machineKindEditCode ? 'Edit Machine Kind' : 'Create Machine Kind' }}</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeMachineKindForm" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="machineKindFormError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="machineKindFormError" />
+            <UFormField>
+              <template #label>
+                <span>Machine Kind Code <span class="text-rose-500">*</span></span>
+              </template>
+              <UInput
+                v-model="machineKindCode"
+                :readonly="Boolean(machineKindEditCode)"
+                placeholder="e.g. WASHER"
+                class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+              />
+            </UFormField>
+            <UFormField>
+              <template #label>
+                <span>Machine Kind Name <span class="text-rose-500">*</span></span>
+              </template>
+              <UInput
+                v-model="machineKindName"
+                placeholder="e.g. Washer"
+                class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+              />
+            </UFormField>
+            <UFormField>
+              <template #label>
+                <span>Status <span class="text-rose-500">*</span></span>
+              </template>
+              <select
+                v-model="machineKindStatus"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+              >
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="DISABLED">DISABLED</option>
+              </select>
+            </UFormField>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeMachineKindForm">Cancel</UButton>
+              <UButton color="primary" :loading="machineKindFormSaving" @click="submitMachineKindForm">Save</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="productCreateOpen" :ui="{ content: 'sm:max-w-lg' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{{ isProductEditMode ? 'Edit Product' : 'Create Product' }}</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeCreateProduct" />
+            </div>
+          </template>
+
+          <div class="space-y-3">
+            <UAlert v-if="productCreateError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="productCreateError" />
+            <UAlert
+              v-if="isProductEditMode && isEditingProductLocked"
+              color="warning"
+              variant="soft"
+              icon="i-lucide-lock"
+              title="This product is locked because completed orders reference it."
+            />
+            <UFormField>
+              <template #label>
+                <span>Product Name <span class="text-rose-500">*</span></span>
+              </template>
+              <UInput
+                v-model="productCreateName"
+                placeholder="Enter product name"
+                class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+              />
+            </UFormField>
+
+            <UFormField>
+              <template #label>
+                <span>Product Type <span class="text-rose-500">*</span></span>
+              </template>
+              <select
+                v-model="productCreateKind"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+              >
+                <option value="">Select type</option>
+                <option v-for="kind in activeMachineKinds" :key="kind.code" :value="kind.code">
+                  {{ kind.name }} ({{ kind.code }})
+                </option>
+              </select>
+            </UFormField>
+
+            <div class="grid gap-3 sm:grid-cols-2">
+              <UFormField>
+                <template #label>
+                  <span>Price (THB) <span class="text-rose-500">*</span></span>
+                </template>
+                <UInput
+                  v-model.number="productCreateAmount"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="e.g. 30"
+                  class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                  :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+                />
+              </UFormField>
+
+              <UFormField>
+                <template #label>
+                  <span>Service Time (minutes) <span class="text-rose-500">*</span></span>
+                </template>
+                <UInput
+                  v-model.number="productCreateDurationMinutes"
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="e.g. 35"
+                  class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
+                  :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
+                />
+              </UFormField>
+            </div>
+
+            <UFormField>
+              <template #label>
+                <span>Status <span class="text-rose-500">*</span></span>
+              </template>
+              <select
+                v-model="productCreateStatus"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+              >
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="DISABLED">DISABLED</option>
+              </select>
+            </UFormField>
+          </div>
+
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeCreateProduct">Cancel</UButton>
+              <UButton color="primary" :loading="productCreateSaving" :disabled="isProductEditMode && isEditingProductLocked" @click="submitCreateProduct">{{ isProductEditMode ? 'Save Product' : 'Create Product' }}</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="bindProductOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Bind Product to Asset</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeBindProduct" />
+            </div>
+          </template>
+
+          <div class="space-y-3">
+            <UAlert v-if="bindProductError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="bindProductError" />
+            <UFormField>
+              <template #label>
+                <span>Product <span class="text-rose-500">*</span></span>
+              </template>
+              <select
+                v-model="bindProductId"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+              >
+                <option value="">Select product</option>
+                <option v-for="item in bindableProducts" :key="item.id" :value="item.id">
+                  {{ item.name }} · {{ item.amount ?? '-' }} THB / {{ item.durationMinutes ?? '-' }}m
+                </option>
+              </select>
+            </UFormField>
+            <p v-if="!bindableProducts.length" class="text-xs text-slate-500 dark:text-slate-400">
+              No available active products for this asset type.
+            </p>
+          </div>
+
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeBindProduct">Cancel</UButton>
+              <UButton color="primary" :loading="bindProductSaving" :disabled="!bindProductId" @click="submitBindProduct">Bind Product</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="bindDeviceOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{{ activeBinding?.iotDevice ? 'Replace IoT Device' : 'Bind IoT Device' }}</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeBindDeviceModal" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="bindDeviceError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="bindDeviceError" />
+            <UFormField>
+              <template #label>
+                <span>Select Spare IoT Device <span class="text-rose-500">*</span></span>
+              </template>
+              <select
+                v-model="bindDeviceId"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+              >
+                <option value="">Select IoT device</option>
+                <option v-for="item in availableIotDevices" :key="item.id" :value="item.id">
+                  {{ item.name || item.deviceUid || item.macAddress }} · {{ item.macAddress }}
+                </option>
+              </select>
+            </UFormField>
+            <p v-if="!availableIotDevices.length" class="text-xs text-slate-500 dark:text-slate-400">No spare IoT devices available.</p>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeBindDeviceModal">Cancel</UButton>
+              <UButton color="primary" :loading="bindDeviceSaving" :disabled="!bindDeviceId" @click="submitBindDevice">{{ activeBinding?.iotDevice ? 'Replace' : 'Bind' }}</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="bindMachineOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{{ activeBinding?.machineUnit ? 'Replace Machine Unit' : 'Bind Machine Unit' }}</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeBindMachineModal" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="bindMachineError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="bindMachineError" />
+            <UFormField>
+              <template #label>
+                <span>Select Spare Machine Unit <span class="text-rose-500">*</span></span>
+              </template>
+              <select
+                v-model="bindMachineId"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+              >
+                <option value="">Select machine unit</option>
+                <option v-for="item in availableMachineUnits" :key="item.id" :value="item.id">
+                  {{ item.serialNo }}{{ item.brand || item.model ? ` · ${item.brand || '-'} / ${item.model || '-'}` : '' }}
+                </option>
+              </select>
+            </UFormField>
+            <p v-if="!availableMachineUnits.length" class="text-xs text-slate-500 dark:text-slate-400">No spare machine units available.</p>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeBindMachineModal">Cancel</UButton>
+              <UButton color="primary" :loading="bindMachineSaving" :disabled="!bindMachineId" @click="submitBindMachine">{{ activeBinding?.machineUnit ? 'Replace' : 'Bind' }}</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+  </div>
+</template>

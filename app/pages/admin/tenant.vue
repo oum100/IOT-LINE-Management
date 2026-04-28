@@ -22,6 +22,8 @@ type TenantSummary = {
   branchCount: number;
   assetCount: number;
   deviceCount: number;
+  machineCount: number;
+  productCount: number;
   paymentCount: number;
   billerCount: number;
   userCount: number;
@@ -61,6 +63,7 @@ const nameEditValue = ref("");
 const editingStatusId = ref("");
 const statusEditValue = ref<TenantStatus>("ACTIVE");
 const router = useRouter();
+const route = useRoute();
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
 const hasPrevPage = computed(() => page.value > 1);
 const hasNextPage = computed(() => page.value < totalPages.value);
@@ -75,8 +78,10 @@ function setMessage(text: string) {
 }
 
 function setError(err: unknown) {
+  const fetchErr = err as { data?: { statusMessage?: string }; message?: string } | undefined;
+  const statusMessage = fetchErr?.data?.statusMessage;
   message.value = "";
-  error.value = err instanceof Error ? err.message : "Request failed";
+  error.value = statusMessage || (err instanceof Error ? err.message : "Request failed");
 }
 
 async function run(task: () => Promise<void>) {
@@ -134,7 +139,7 @@ async function selectTenant(item: Tenant) {
 
 async function selectAllTenants() {
   selectedTenantId.value = ALL_TENANTS_ID;
-  selectedTenantName.value = "All Tenants";
+  selectedTenantName.value = "Tenant quick view";
   selectedTenantCode.value = "";
   await loadTenantSummary(ALL_TENANTS_ID);
 }
@@ -206,6 +211,32 @@ async function saveStatus(item: Tenant) {
   });
 }
 
+async function deleteTenant(item: Tenant) {
+  const expectedName = item.name.trim();
+  const typed = window.prompt(`Type tenant name to confirm delete:\n${expectedName}`, "");
+  if (typed === null) return;
+  if (typed.trim() !== expectedName) {
+    setError(new Error("Tenant name does not match. Delete cancelled."));
+    return;
+  }
+
+  await run(async () => {
+    await $fetch(`/api/admin/tenants/${item.id}`, {
+      method: "DELETE",
+      body: {
+        confirmText: "DELETE",
+        confirmName: expectedName,
+      },
+    });
+
+    setMessage(`Tenant deleted: ${item.code}`);
+    if (selectedTenantId.value === item.id) {
+      await selectAllTenants();
+    }
+    await loadTenants();
+  });
+}
+
 function formatDate(value?: string) {
   if (!value) return "-";
   return new Date(value).toLocaleString();
@@ -227,10 +258,17 @@ type TenantArea =
   | "branch"
   | "asset"
   | "device"
+  | "machine"
+  | "product"
   | "payment"
   | "biller"
   | "user"
   | "order";
+
+async function goToTenantDetail(tenantId: string) {
+  if (!tenantId) return;
+  await navigateTo(`/admin/tenant-detail/${tenantId}`);
+}
 
 async function goToTenantArea(area: TenantArea, tenantId = selectedTenantId.value) {
   const isAll = !tenantId || tenantId === ALL_TENANTS_ID;
@@ -248,6 +286,10 @@ async function goToTenantArea(area: TenantArea, tenantId = selectedTenantId.valu
   }
   if (area === "payment") {
     await navigateTo(isAll ? "/admin/ops" : `/admin/ops?tenantId=${tenantId}`);
+    return;
+  }
+  if (area === "machine" || area === "product") {
+    setMessage(`ส่วน ${area} จะทำหน้าใหม่ภายหลัง`);
     return;
   }
   if (area === "biller") {
@@ -374,6 +416,10 @@ async function saveMetadata() {
 onMounted(async () => {
   await selectAllTenants();
   await loadTenants();
+  if (String(route.query.create || "") === "1") {
+    await openCreateDialog();
+    await router.replace({ path: "/admin/tenant" });
+  }
 });
 </script>
 
@@ -452,11 +498,11 @@ onMounted(async () => {
       </div>
 
       <div v-else-if="tenantSummary" class="overflow-x-auto">
-        <div class="grid min-w-[980px] grid-cols-8 gap-1">
+        <div class="grid min-w-[1220px] grid-cols-10 gap-1">
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('merchant')">
             <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-store" class="size-4" />
-              <span>Merchant</span>
+              <span>Merchant (Brand)</span>
             </p>
             <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.merchantCount }}</p>
           </button>
@@ -480,6 +526,20 @@ onMounted(async () => {
               <span>Device</span>
             </p>
             <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.deviceCount }}</p>
+          </button>
+          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('machine')">
+            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+              <UIcon name="i-lucide-cog" class="size-4" />
+              <span>Machine</span>
+            </p>
+            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.machineCount }}</p>
+          </button>
+          <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('product')">
+            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+              <UIcon name="i-lucide-box" class="size-4" />
+              <span>Product</span>
+            </p>
+            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.productCount }}</p>
           </button>
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('order')">
             <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
@@ -580,9 +640,12 @@ onMounted(async () => {
               @click="selectTenant(item)"
             >
               <td class="px-3 py-2">
-                <span class="rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                  {{ item.code }}
-                </span>
+                <div class="flex items-center gap-2">
+                  <span class="rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                    {{ item.code }}
+                  </span>
+                  <CopyIconButton :value="item.code" aria-label="Copy tenant code" />
+                </div>
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-2">
@@ -659,12 +722,14 @@ onMounted(async () => {
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
-                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-store" @click.stop="goToTenantArea('merchant', item.id)" />
-                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-building-2" @click.stop="goToTenantArea('branch', item.id)" />
-                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-package" @click.stop="goToTenantArea('asset', item.id)" />
-                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-cpu" @click.stop="goToTenantArea('device', item.id)" />
-                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-users" @click.stop="goToTenantArea('user', item.id)" />
-                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-shopping-cart" @click.stop="goToTenantArea('order', item.id)" />
+                  <UButton title="Open tenant details" size="xs" color="primary" variant="soft" class="text-blue-700 dark:text-blue-200 ring-blue-300/70 dark:ring-blue-700/60 hover:bg-blue-100 dark:hover:bg-blue-900/30" icon="i-lucide-eye" @click.stop="goToTenantDetail(item.id)" />
+                  <UButton title="Open merchants" size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-store" @click.stop="goToTenantArea('merchant', item.id)" />
+                  <UButton title="Open branches" size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-building-2" @click.stop="goToTenantArea('branch', item.id)" />
+                  <UButton title="Open assets" size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-package" @click.stop="goToTenantArea('asset', item.id)" />
+                  <UButton title="Open devices" size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-cpu" @click.stop="goToTenantArea('device', item.id)" />
+                  <UButton title="Open users" size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-users" @click.stop="goToTenantArea('user', item.id)" />
+                  <UButton title="Open orders" size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-shopping-cart" @click.stop="goToTenantArea('order', item.id)" />
+                  <UButton title="Delete tenant" size="xs" color="error" variant="soft" class="text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:bg-rose-900/20 dark:hover:bg-rose-900/30" icon="i-lucide-trash-2" @click.stop="deleteTenant(item)" />
                 </div>
               </td>
             </tr>

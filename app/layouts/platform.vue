@@ -8,6 +8,10 @@ const items = computed(() => [
   { to: '/admin/merchants', label: t('common.merchants', 'Merchants') },
   { to: '/admin/branches', label: t('common.branches', 'Branches') },
   { to: '/admin/assets', label: t('common.assets', 'Assets') },
+  { to: '/admin/devices', label: t('common.devices', 'Devices') },
+  { to: '/admin/machine', label: t('common.machines', 'Machines') },
+  { to: '/admin/orders', label: t('common.orders', 'Orders') },
+  { to: '/admin/payment', label: t('common.payments', 'Payments') },
   { to: '/admin/settings', label: t('ตั้งค่า', 'Settings') }
 ])
 

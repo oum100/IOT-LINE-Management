@@ -16,16 +16,11 @@ export default defineEventHandler(async (event): Promise<SummaryResponse> => {
   await assertAdminAccess(event)
   const query = getQuery(event)
   const tenantId = String(query.tenantId || '').trim()
-
-  if (!tenantId) {
-    throw createError({ statusCode: 400, statusMessage: 'tenantId is required' })
-  }
-
   const merchantAccountId = String(query.merchantAccountId || '').trim()
   const branchId = String(query.branchId || '').trim()
 
   const baseWhere = {
-    tenantId,
+    ...(tenantId ? { tenantId } : {}),
     ...(merchantAccountId
       ? {
           branch: {

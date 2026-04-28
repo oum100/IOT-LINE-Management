@@ -6,7 +6,7 @@ definePageMeta({
   middleware: "portal-auth",
 })
 
-type BranchStatus = "ACTIVE" | "INACTIVE" | "DISABLED"
+type BranchStatus = "ACTIVE" | "SUSPENDED" | "DISABLED"
 type Tenant = {
   id: string
   code: string
@@ -114,8 +114,10 @@ function setMessage(text: string) {
 }
 
 function setError(err: unknown) {
+  const fetchErr = err as { data?: { statusMessage?: string }; message?: string } | undefined
+  const statusMessage = fetchErr?.data?.statusMessage
   message.value = ""
-  error.value = err instanceof Error ? err.message : "Request failed"
+  error.value = statusMessage || (err instanceof Error ? err.message : "Request failed")
 }
 
 async function run(task: () => Promise<void>) {
@@ -142,7 +144,7 @@ function formatMetadata(value: unknown) {
 
 function branchStatusClass(status: BranchStatus) {
   if (status === "ACTIVE") return "text-emerald-600 dark:text-emerald-400"
-  if (status === "INACTIVE") return "text-amber-600 dark:text-amber-400"
+  if (status === "SUSPENDED") return "text-amber-600 dark:text-amber-400"
   return "text-rose-600 dark:text-rose-400"
 }
 
@@ -257,6 +259,23 @@ async function onSearch() {
   await loadBranches()
 }
 
+async function suggestNextBranchCode(tenantId: string) {
+  const response = await $fetch<{ items: BranchRecord[] }>("/api/admin/branches", {
+    query: {
+      tenantId,
+      page: 1,
+      pageSize: 200,
+    },
+  })
+  const list = response.items || []
+  const maxCodeNumber = list.reduce((max, branch) => {
+    const match = branch.code?.match(/(\d+)$/)
+    if (!match) return max
+    return Math.max(max, Number(match[1]))
+  }, 0)
+  return `BR-${String(maxCodeNumber + 1).padStart(5, "0")}`
+}
+
 function refreshBranches() {
   void loadBranches()
   if (selectedBranchId.value) {
@@ -271,24 +290,35 @@ async function goToPage(target: number) {
   await loadBranches()
 }
 
-function openCreateDialog() {
-  if (!selectedTenantFilter.value) {
-    setError("Please select tenant first.")
-    return
-  }
+async function openCreateDialog() {
+  await run(async () => {
+    const tenantId = selectedTenantFilter.value || tenants.value[0]?.id || ""
+    if (!tenantId) throw new Error("No tenant available.")
 
-  createForm.value = {
-    tenantId: selectedTenantFilter.value,
-    merchantAccountId: selectedMerchantFilter.value,
-    code: "",
-    name: "",
-    status: "ACTIVE",
-  }
-  createOpen.value = true
+    const merchantId = selectedMerchantFilter.value || ""
+    await loadMerchantsByTenant(tenantId)
+
+    createForm.value = {
+      tenantId,
+      merchantAccountId: merchantId,
+      code: await suggestNextBranchCode(tenantId),
+      name: "",
+      status: "ACTIVE",
+    }
+    createOpen.value = true
+  })
 }
 
 function closeCreateDialog() {
   createOpen.value = false
+}
+
+function onCreateTenantChange() {
+  void (async () => {
+    createForm.value.merchantAccountId = ""
+    await loadMerchantsByTenant(createForm.value.tenantId)
+    createForm.value.code = await suggestNextBranchCode(createForm.value.tenantId)
+  })()
 }
 
 async function createBranch() {
@@ -315,6 +345,9 @@ async function createBranch() {
 
     setMessage(`Branch created: ${code}`)
     closeCreateDialog()
+    selectedTenantFilter.value = tenantId
+    selectedMerchantFilter.value = merchantAccountId
+    await loadMerchantsByTenant(selectedTenantFilter.value)
     await loadBranches()
   })
 }
@@ -566,7 +599,7 @@ watch(
               class="w-[280px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               @change="onTenantFilterChange"
             >
-              <option value="">Select tenant</option>
+              <option value="">All tenants</option>
               <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">
                 {{ tenant.name }}
               </option>
@@ -577,7 +610,7 @@ watch(
               class="w-[260px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               @change="onMerchantFilterChange"
             >
-              <option value="">All merchants</option>
+              <option value="">All merchant (brand)</option>
               <option v-for="merchant in merchants" :key="merchant.id" :value="merchant.id">
                 {{ merchant.name }}
               </option>
@@ -617,7 +650,7 @@ watch(
             <tr class="text-left">
               <th class="px-3 py-2">code</th>
               <th class="px-3 py-2">Name</th>
-              <th class="px-3 py-2">Merchant</th>
+              <th class="px-3 py-2">Merchant (Brand)</th>
               <th class="px-3 py-2">Status</th>
               <th class="px-3 py-2">Details</th>
               <th class="px-3 py-2">createdAt</th>
@@ -669,7 +702,7 @@ watch(
                       class="w-[140px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
                     >
                       <option value="ACTIVE">ACTIVE</option>
-                      <option value="INACTIVE">INACTIVE</option>
+                      <option value="SUSPENDED">SUSPENDED</option>
                       <option value="DISABLED">DISABLED</option>
                     </select>
                     <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="loading" @click="saveStatus(item)" />
@@ -791,6 +824,7 @@ watch(
               <select
                 v-model="createForm.tenantId"
                 class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                @change="onCreateTenantChange"
               >
                 <option value="">Select tenant</option>
                 <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">
@@ -799,12 +833,12 @@ watch(
               </select>
             </UFormField>
 
-            <UFormField label="Merchant">
+            <UFormField label="Merchant (Brand)">
               <select
                 v-model="createForm.merchantAccountId"
                 class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               >
-                <option value="">No merchant</option>
+                <option value="">No merchant (brand)</option>
                 <option v-for="merchant in merchants" :key="merchant.id" :value="merchant.id">
                   {{ merchant.name }}
                 </option>
@@ -833,7 +867,7 @@ watch(
                 class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
               >
                 <option value="ACTIVE">ACTIVE</option>
-                <option value="INACTIVE">INACTIVE</option>
+                <option value="SUSPENDED">SUSPENDED</option>
                 <option value="DISABLED">DISABLED</option>
               </select>
             </UFormField>

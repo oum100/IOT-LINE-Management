@@ -12,6 +12,19 @@ type TenantOption = {
   code: string
   name: string
 }
+type MerchantOption = {
+  id: string
+  code: string
+  name: string
+  tenantId: string
+}
+type BranchOption = {
+  id: string
+  code: string
+  name: string
+  tenantId: string
+  merchantId: string
+}
 
 type DashboardCard = {
   key: string
@@ -64,15 +77,17 @@ type DashboardCardsResponse = {
 }
 
 type PeriodPreset = '24h' | 'week' | 'month' | 'year' | 'custom'
-type ChartMode = 'top5' | 'top10' | 'custom'
+type ChartMode = 'all' | 'top5' | 'top10' | 'custom'
 
-const chartMode = ref<ChartMode>('top5')
+const chartMode = ref<ChartMode>('all')
 const period = ref<PeriodPreset>('month')
 const startDate = ref('')
 const endDate = ref('')
 const selectedMonth = ref(new Date().toISOString().slice(0, 7))
 const selectedWeekOfMonth = ref(1)
 const selectedTenantIds = ref<string[]>([])
+const selectedMerchantIds = ref<string[]>([])
+const selectedBranchIds = ref<string[]>([])
 
 const cardsTenantMode = ref<'all' | 'custom'>('all')
 const cardsPeriod = ref<PeriodPreset>('month')
@@ -94,6 +109,30 @@ function tx(th: string, en: string) {
 
 const { data: tenantListData } = await useFetch<{ items: TenantOption[] }>('/api/admin/tenants')
 const tenantOptions = computed(() => tenantListData.value?.items || [])
+const { data: merchantListData } = await useFetch<{ items: MerchantOption[] }>('/api/admin/merchants', {
+  query: { page: 1, pageSize: 200 }
+})
+const merchantOptions = computed(() => merchantListData.value?.items || [])
+const { data: branchListData } = await useFetch<{ items: BranchOption[] }>('/api/admin/branches', {
+  query: { page: 1, pageSize: 200 }
+})
+const branchOptions = computed(() => branchListData.value?.items || [])
+
+const filteredMerchantOptions = computed(() => {
+  if (!selectedTenantIds.value.length) return merchantOptions.value
+  const tenantSet = new Set(selectedTenantIds.value)
+  return merchantOptions.value.filter(item => tenantSet.has(item.tenantId))
+})
+
+const filteredBranchOptions = computed(() => {
+  const tenantSet = new Set(selectedTenantIds.value)
+  const merchantSet = new Set(selectedMerchantIds.value)
+  return branchOptions.value.filter((item) => {
+    const tenantOk = !tenantSet.size || tenantSet.has(item.tenantId)
+    const merchantOk = !merchantSet.size || merchantSet.has(item.merchantId)
+    return tenantOk && merchantOk
+  })
+})
 
 watch(
   tenantOptions,
@@ -108,6 +147,16 @@ watch(
   },
   { immediate: true }
 )
+
+watch(filteredMerchantOptions, (items) => {
+  const allowed = new Set(items.map(item => item.id))
+  selectedMerchantIds.value = selectedMerchantIds.value.filter(id => allowed.has(id))
+}, { immediate: true })
+
+watch(filteredBranchOptions, (items) => {
+  const allowed = new Set(items.map(item => item.id))
+  selectedBranchIds.value = selectedBranchIds.value.filter(id => allowed.has(id))
+}, { immediate: true })
 
 function monthStartEnd(monthValue: string) {
   const [yearRaw, monthRaw] = monthValue.split('-')
@@ -203,9 +252,13 @@ const queryParams = computed(() => ({
       ? 5
       : chartMode.value === 'top10'
         ? 10
-        : Math.max(selectedTenantIds.value.length, 1),
+        : chartMode.value === 'custom'
+          ? Math.max(selectedTenantIds.value.length, 1)
+          : Math.max(tenantOptions.value.length, 1),
   period: period.value,
-  tenantIds: chartMode.value === 'custom' ? selectedTenantIds.value.join(',') : undefined
+  tenantIds: chartMode.value === 'custom' ? selectedTenantIds.value.join(',') : undefined,
+  merchantIds: chartMode.value === 'custom' ? selectedMerchantIds.value.join(',') : undefined,
+  branchIds: chartMode.value === 'custom' ? selectedBranchIds.value.join(',') : undefined
 }))
 
 const cardQueryParams = computed(() => ({
@@ -214,7 +267,7 @@ const cardQueryParams = computed(() => ({
   tenantIds: cardsTenantMode.value === 'custom' ? cardsSelectedTenantIds.value.join(',') : undefined
 }))
 
-const { data, pending, error, refresh } = await useFetch<DashboardOverviewResponse>('/api/admin/dashboard/overview', {
+const { data, pending, error } = await useFetch<DashboardOverviewResponse>('/api/admin/dashboard/overview', {
   query: queryParams
 })
 
@@ -503,11 +556,16 @@ const row1Cards = computed(() =>
     .map(key => cardByKey.value.get(key))
     .filter((item): item is DashboardCard => Boolean(item))
 )
-const row2Cards = computed(() =>
-  ['assets', 'asset_types', 'devices']
+const topEntityCards = computed(() =>
+  ['tenants', 'merchants', 'branches']
     .map(key => cardByKey.value.get(key))
     .filter((item): item is DashboardCard => Boolean(item))
 )
+const assetCard = computed(() => cardByKey.value.get('assets') || null)
+const assetTypeCard = computed(() => cardByKey.value.get('asset_types') || null)
+const deviceCard = computed(() => cardByKey.value.get('devices') || null)
+const machineCard = computed(() => cardByKey.value.get('machines') || null)
+const productCard = computed(() => cardByKey.value.get('products') || null)
 const row3Cards = computed(() =>
   ['orders', 'payments']
     .map(key => cardByKey.value.get(key))
@@ -520,16 +578,158 @@ function cardChartType(card: DashboardCard): CardChartType {
   if (card.key === 'orders') return 'bar'
   if (card.key === 'payments') return 'donut'
   if (card.key === 'devices') return 'bar'
+  if (card.key === 'machines') return 'bar'
   if (card.key === 'asset_types') return 'bar'
+  if (card.key === 'products') return 'donut'
   return 'donut'
 }
 
 function cardChartHeight(card: DashboardCard) {
   if (card.key === 'orders') return 210
   if (card.key === 'devices') return 200
+  if (card.key === 'machines') return 200
   if (card.key === 'asset_types') return 220
+  if (card.key === 'products') return 190
   return 190
 }
+
+function findStatusCount(card: DashboardCard, label: string) {
+  return card.statuses.find(item => item.label === label)?.count || 0
+}
+
+const assetMixStatusLabels = ['ACTIVE', 'INACTIVE', 'MAINTENANCE']
+const assetMixTypeLabels = ['WASHER', 'DRYER', 'VENDING', 'WATER']
+const assetMixAllSeriesLabels = [...assetMixStatusLabels, ...assetMixTypeLabels]
+
+const assetMixChartSeries = computed(() => {
+  const statusMap = new Map((assetCard.value?.statuses || []).map(item => [item.label, item.count]))
+  const typeMap = new Map((assetTypeCard.value?.statuses || []).map(item => [item.label, item.count]))
+  return assetMixAllSeriesLabels.map(label => ({
+    name: label,
+    data: [
+      Number(statusMap.get(label) || 0),
+      Number(typeMap.get(label) || 0)
+    ]
+  }))
+})
+
+function assetMixColor(label: string) {
+  const normalized = label.toUpperCase()
+  if (normalized === 'ACTIVE') return '#22c55e'
+  if (normalized === 'INACTIVE') return '#f59e0b'
+  if (normalized === 'MAINTENANCE') return '#ef4444'
+  if (normalized === 'WASHER') return '#3b82f6'
+  if (normalized === 'DRYER') return '#8b5cf6'
+  if (normalized === 'VENDING') return '#06b6d4'
+  if (normalized === 'WATER') return '#14b8a6'
+  return '#94a3b8'
+}
+
+const assetMixChartOptions = computed<ApexOptions>(() => {
+  const isDark = colorMode.value === 'dark'
+  return {
+    chart: {
+      type: 'bar',
+      stacked: true,
+      toolbar: { show: false },
+      background: 'transparent',
+      foreColor: isDark ? '#cbd5e1' : '#475569'
+    },
+    plotOptions: {
+      bar: {
+        horizontal: true,
+        borderRadius: 4,
+        barHeight: '55%'
+      }
+    },
+    xaxis: {
+      categories: ['Asset Status', 'Asset Type'],
+      labels: {
+        formatter: (val) => `${Math.round(Number(val))}`
+      }
+    },
+    yaxis: {
+      labels: { show: true }
+    },
+    dataLabels: {
+      enabled: true,
+      formatter: (val) => `${Math.round(Number(val))}`
+    },
+    legend: {
+      position: 'bottom',
+      labels: {
+        colors: isDark ? '#cbd5e1' : '#475569'
+      }
+    },
+    colors: assetMixAllSeriesLabels.map(assetMixColor),
+    grid: {
+      borderColor: isDark ? '#334155' : '#e2e8f0'
+    },
+    tooltip: {
+      theme: isDark ? 'dark' : 'light'
+    }
+  }
+})
+
+const topEntityChartSeries = computed(() => [
+  {
+    name: 'ACTIVE',
+    data: topEntityCards.value.map(card => findStatusCount(card, 'ACTIVE'))
+  },
+  {
+    name: 'SUSPENDED',
+    data: topEntityCards.value.map(card => findStatusCount(card, 'SUSPENDED'))
+  },
+  {
+    name: 'DISABLED',
+    data: topEntityCards.value.map(card => findStatusCount(card, 'DISABLED'))
+  }
+])
+
+const topEntityChartOptions = computed<ApexOptions>(() => {
+  const isDark = colorMode.value === 'dark'
+  return {
+    chart: {
+      type: 'bar',
+      stacked: true,
+      toolbar: { show: false },
+      background: 'transparent',
+      foreColor: isDark ? '#cbd5e1' : '#475569'
+    },
+    plotOptions: {
+      bar: {
+        horizontal: false,
+        borderRadius: 4,
+        columnWidth: '52%'
+      }
+    },
+    xaxis: {
+      categories: topEntityCards.value.map(card => card.title)
+    },
+    yaxis: {
+      labels: {
+        formatter: (val) => `${Math.round(Number(val))}`
+      }
+    },
+    legend: {
+      position: 'top',
+      horizontalAlign: 'right',
+      labels: {
+        colors: isDark ? '#cbd5e1' : '#475569'
+      }
+    },
+    colors: ['#22c55e', '#f59e0b', '#94a3b8'],
+    dataLabels: {
+      enabled: true
+    },
+    grid: {
+      borderColor: isDark ? '#334155' : '#e2e8f0'
+    },
+    tooltip: {
+      theme: isDark ? 'dark' : 'light'
+    }
+  }
+})
 
 function statusColor(label: string, fallbackIndex = 0) {
   const normalized = String(label || '').toUpperCase()
@@ -602,7 +802,8 @@ function cardRenderKey(card: DashboardCard, chartType: CardChartType) {
 function tenantAxisLabel(item: { tenantName: string; tenantCode: string }) {
   const name = String(item.tenantName || '').trim()
   const code = String(item.tenantCode || '').trim()
-  return name || code || '-'
+  if (code && name && code !== name) return `${code} (${name})`
+  return code || name || '-'
 }
 
 function cardChartOptions(card: DashboardCard, chartType: CardChartType): ApexOptions {
@@ -747,83 +948,100 @@ function formatMoney(value: number) {
       <h2 class="text-2xl font-semibold text-slate-900 dark:text-white">Platform Sales & Status Overview</h2>
     </div>
 
+    <div class="flex flex-wrap items-start gap-3 lg:justify-end">
+      <div class="flex max-w-[150px] flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Mode</label>
+        <select v-model="chartMode" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+          <option value="all">All</option>
+          <option value="top5">Top 5</option>
+          <option value="top10">Top 10</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div v-if="chartMode === 'custom'" class="flex min-w-[220px] max-w-[280px] flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Custom Tenant</label>
+        <select
+          v-model="selectedTenantIds"
+          multiple
+          class="h-10 min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+        >
+          <option
+            v-for="tenant in tenantOptions"
+            :key="tenant.id"
+            :value="tenant.id"
+          >
+            {{ tenant.code }} ({{ tenant.name }})
+          </option>
+        </select>
+      </div>
+      <div v-if="chartMode === 'custom'" class="flex min-w-[220px] max-w-[280px] flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Custom Merchant</label>
+        <select
+          v-model="selectedMerchantIds"
+          multiple
+          class="h-10 min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+        >
+          <option
+            v-for="merchant in filteredMerchantOptions"
+            :key="merchant.id"
+            :value="merchant.id"
+          >
+            {{ merchant.code }} ({{ merchant.name }})
+          </option>
+        </select>
+      </div>
+      <div v-if="chartMode === 'custom'" class="flex min-w-[220px] max-w-[280px] flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Custom Branch</label>
+        <select
+          v-model="selectedBranchIds"
+          multiple
+          class="h-10 min-h-[40px] w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+        >
+          <option
+            v-for="branch in filteredBranchOptions"
+            :key="branch.id"
+            :value="branch.id"
+          >
+            {{ branch.code }} ({{ branch.name }})
+          </option>
+        </select>
+      </div>
+      <div class="flex max-w-[180px] flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Period</label>
+        <select v-model="period" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+          <option value="24h">24H</option>
+          <option value="week">Week</option>
+          <option value="month">Month</option>
+          <option value="year">Year</option>
+          <option value="custom">Date Range</option>
+        </select>
+      </div>
+      <div v-if="period === 'month' || period === 'week'" class="flex max-w-[140px] flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Month</label>
+        <input v-model="selectedMonth" type="month" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+      </div>
+      <div v-if="period === 'week'" class="flex max-w-[140px] flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Week</label>
+        <select v-model.number="selectedWeekOfMonth" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+          <option v-for="weekNo in weekOptions" :key="weekNo" :value="weekNo">Week {{ weekNo }}</option>
+        </select>
+      </div>
+      <div v-if="period === 'custom'" class="flex max-w-[220px] flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Start Date</label>
+        <input v-model="startDate" type="date" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+      </div>
+      <div v-if="period === 'custom'" class="flex max-w-[220px] flex-col gap-1">
+        <label class="text-xs font-medium text-slate-500 dark:text-slate-300">End Date</label>
+        <input v-model="endDate" type="date" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
+      </div>
+    </div>
+
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
-      <template #header>
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{{ tx('ยอดขายรวม (Multi-Tenant)', 'Total Sales (Multi-Tenant)') }}</h3>
-          <div class="flex flex-wrap items-center gap-2">
-            <select v-model="chartMode" class="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
-              <option value="top5">Top-5</option>
-              <option value="top10">Top-10</option>
-              <option value="custom">Custom</option>
-            </select>
-            <select v-model="period" class="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900">
-              <option value="24h">24h</option>
-              <option value="week">week</option>
-              <option value="month">Month</option>
-              <option value="year">Year</option>
-              <option value="custom">Date Range</option>
-            </select>
-            <input
-              v-if="period === 'month' || period === 'week'"
-              v-model="selectedMonth"
-              type="month"
-              class="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-            >
-            <select
-              v-if="period === 'week'"
-              v-model.number="selectedWeekOfMonth"
-              class="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-            >
-              <option v-for="weekNo in weekOptions" :key="weekNo" :value="weekNo">Week {{ weekNo }}</option>
-            </select>
-            <template v-if="period === 'custom'">
-              <input
-                v-model="startDate"
-                type="date"
-                class="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-              >
-              <input
-                v-model="endDate"
-                type="date"
-                class="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-              >
-            </template>
-            <UButton
-              color="primary"
-              variant="soft"
-              icon="i-lucide-refresh-cw"
-              :loading="pending"
-              @click="() => refresh()"
-            >
-              Refresh
-            </UButton>
-          </div>
-        </div>
-      </template>
-
-      <div class="grid gap-4" :class="chartMode === 'custom' ? 'lg:grid-cols-[260px_1fr]' : 'grid-cols-1'">
-        <div v-if="chartMode === 'custom'" class="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-          <label v-if="chartMode === 'custom'" class="block text-xs text-slate-500 dark:text-slate-400">
-            Tenants in Chart (Custom)
-            <select
-              v-model="selectedTenantIds"
-              multiple
-              size="12"
-              class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
-            >
-              <option v-for="item in tenantOptions" :key="item.id" :value="item.id">
-                {{ item.name }}
-              </option>
-            </select>
-          </label>
-          <p v-if="chartMode === 'custom'" class="text-xs text-slate-500 dark:text-slate-400">{{ tx('Tip: กด `Ctrl/Cmd` เพื่อเลือกหลาย tenant', 'Tip: Press `Ctrl/Cmd` to select multiple tenants') }}</p>
-        </div>
-
+      <div class="space-y-4">
         <div class="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
           <div class="mb-4 flex items-center justify-between gap-3">
             <div>
-              <p class="text-sm font-semibold text-slate-700 dark:text-slate-300">Total Sales</p>
+              <p class="text-sm font-semibold text-slate-700 dark:text-slate-300">Tenant Sales Overview</p>
               <p v-if="activeRangeLabel" class="text-xs text-slate-500 dark:text-slate-400">Data range: {{ activeRangeLabel }}</p>
             </div>
             <p class="text-2xl font-extrabold text-emerald-600 dark:text-emerald-400">{{ formatMoney(totalSales) }}</p>
@@ -840,12 +1058,12 @@ function formatMoney(value: number) {
           </div>
           <div v-else>
             <ClientOnly>
-            <ApexChart
-              type="bar"
-              :height="salesChartHeight"
-              :options="chartOptions"
-              :series="chartSeries"
-            />
+              <ApexChart
+                type="bar"
+                :height="salesChartHeight"
+                :options="chartOptions"
+                :series="chartSeries"
+              />
             </ClientOnly>
           </div>
         </div>
@@ -979,48 +1197,116 @@ function formatMoney(value: number) {
         Loading status cards...
       </div>
       <div v-else class="space-y-4">
-        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div class="grid gap-3 xl:grid-cols-2">
           <div
-            v-for="card in row1Cards"
-            :key="card.key"
+            v-if="topEntityCards.length"
             class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
           >
-            <div class="flex items-center justify-between">
-              <p class="text-sm font-semibold text-slate-700 dark:text-slate-300">{{ card.title }}</p>
-              <p class="text-2xl font-extrabold text-slate-900 dark:text-white">{{ card.total }}</p>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="text-sm font-semibold text-slate-700 dark:text-slate-300">Tenants / Merchants / Branches</p>
+              <div class="flex items-center gap-2">
+                <span
+                  v-for="card in topEntityCards"
+                  :key="`top-entity-total-${card.key}`"
+                  class="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                >
+                  {{ card.title }}: {{ card.total }}
+                </span>
+              </div>
             </div>
-            <div v-if="card.statuses.length" class="mt-3">
+            <div class="mt-3">
               <ClientOnly>
                 <ApexChart
-                  :key="cardRenderKey(card, cardChartType(card))"
-                  :type="cardChartType(card)"
-                  :height="cardChartHeight(card)"
-                  :options="cardChartOptions(card, cardChartType(card))"
-                  :series="cardSeries(card, cardChartType(card))"
+                  type="bar"
+                  height="280"
+                  :options="topEntityChartOptions"
+                  :series="topEntityChartSeries"
                 />
               </ClientOnly>
             </div>
+          </div>
+
+          <div
+            v-if="assetCard"
+            class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
+          >
+            <div class="mb-2 flex items-center justify-between">
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Asset Composition</p>
+              <div class="flex items-center gap-2 text-xs">
+                <span class="font-semibold text-slate-600 dark:text-slate-300">Status total: {{ assetCard.total }}</span>
+                <span v-if="assetTypeCard" class="font-semibold text-slate-600 dark:text-slate-300">Type total: {{ assetTypeCard.total }}</span>
+              </div>
+            </div>
+            <ClientOnly>
+              <ApexChart
+                type="bar"
+                height="300"
+                :options="assetMixChartOptions"
+                :series="assetMixChartSeries"
+              />
+            </ClientOnly>
           </div>
         </div>
 
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           <div
-            v-for="card in row2Cards"
-            :key="card.key"
+            v-if="deviceCard"
             class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
           >
             <div class="flex items-center justify-between">
-              <p class="text-sm font-semibold text-slate-700 dark:text-slate-300">{{ card.title }}</p>
-              <p class="text-2xl font-extrabold text-slate-900 dark:text-white">{{ card.total }}</p>
+              <p class="text-sm font-semibold text-slate-700 dark:text-slate-300">{{ deviceCard.title }}</p>
+              <p class="text-2xl font-extrabold text-slate-900 dark:text-white">{{ deviceCard.total }}</p>
             </div>
-            <div v-if="card.statuses.length" class="mt-3">
+            <div v-if="deviceCard.statuses.length" class="mt-3">
               <ClientOnly>
                 <ApexChart
-                  :key="cardRenderKey(card, cardChartType(card))"
-                  :type="cardChartType(card)"
-                  :height="cardChartHeight(card)"
-                  :options="cardChartOptions(card, cardChartType(card))"
-                  :series="cardSeries(card, cardChartType(card))"
+                  :key="cardRenderKey(deviceCard, cardChartType(deviceCard))"
+                  :type="cardChartType(deviceCard)"
+                  :height="cardChartHeight(deviceCard)"
+                  :options="cardChartOptions(deviceCard, cardChartType(deviceCard))"
+                  :series="cardSeries(deviceCard, cardChartType(deviceCard))"
+                />
+              </ClientOnly>
+            </div>
+          </div>
+
+          <div
+            v-if="machineCard"
+            class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
+          >
+            <div class="flex items-center justify-between">
+              <p class="text-sm font-semibold text-slate-700 dark:text-slate-300">{{ machineCard.title }}</p>
+              <p class="text-2xl font-extrabold text-slate-900 dark:text-white">{{ machineCard.total }}</p>
+            </div>
+            <div v-if="machineCard.statuses.length" class="mt-3">
+              <ClientOnly>
+                <ApexChart
+                  :key="cardRenderKey(machineCard, cardChartType(machineCard))"
+                  :type="cardChartType(machineCard)"
+                  :height="cardChartHeight(machineCard)"
+                  :options="cardChartOptions(machineCard, cardChartType(machineCard))"
+                  :series="cardSeries(machineCard, cardChartType(machineCard))"
+                />
+              </ClientOnly>
+            </div>
+          </div>
+
+          <div
+            v-if="productCard"
+            class="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900"
+          >
+            <div class="flex items-center justify-between">
+              <p class="text-sm font-semibold text-slate-700 dark:text-slate-300">{{ productCard.title }}</p>
+              <p class="text-2xl font-extrabold text-slate-900 dark:text-white">{{ productCard.total }}</p>
+            </div>
+            <div v-if="productCard.statuses.length" class="mt-3">
+              <ClientOnly>
+                <ApexChart
+                  :key="cardRenderKey(productCard, cardChartType(productCard))"
+                  :type="cardChartType(productCard)"
+                  :height="cardChartHeight(productCard)"
+                  :options="cardChartOptions(productCard, cardChartType(productCard))"
+                  :series="cardSeries(productCard, cardChartType(productCard))"
                 />
               </ClientOnly>
             </div>

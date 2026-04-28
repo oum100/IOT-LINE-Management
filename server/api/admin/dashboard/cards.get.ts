@@ -104,10 +104,12 @@ function withDefaultLabelCounts(
 
 const TENANT_STATUSES = ['ACTIVE', 'SUSPENDED', 'DISABLED']
 const MERCHANT_STATUSES = ['ACTIVE', 'SUSPENDED', 'DISABLED']
-const BRANCH_STATUSES = ['ACTIVE', 'INACTIVE', 'DISABLED']
+const BRANCH_STATUSES = ['ACTIVE', 'SUSPENDED', 'DISABLED']
 const ASSET_STATUSES = ['ACTIVE', 'INACTIVE', 'MAINTENANCE']
 const ASSET_TYPE_STATUSES = ['WASHER', 'DRYER', 'WATER', 'VENDING']
 const DEVICE_BINDING_STATUSES = ['BIND_ACTIVE', 'BIND_INACTIVE', 'UNBOUND']
+const MACHINE_STATUSES = ['SPARE', 'IN_USE', 'OFFLINE', 'DISABLED']
+const PRODUCT_STATUSES = ['ACTIVE', 'INACTIVE']
 const ORDER_STATUSES = ['PENDING_PAYMENT', 'SLIP_UPLOADED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
 const PAYMENT_STATUSES = ['PENDING', 'SLIP_UPLOADED', 'VERIFIED', 'REJECTED']
 
@@ -119,120 +121,155 @@ export default defineEventHandler(async (event) => {
   const tenantIdFilter = tenantIds.length ? { in: tenantIds } : undefined
   const range = getRange(query.period, query.start, query.end)
 
-  const tenantWhere = {
-    ...(tenantIdFilter ? { id: tenantIdFilter } : {}),
-    createdAt: { gte: range.start, lte: range.end }
-  }
-  const byTenantWhere = tenantIdFilter ? { tenantId: tenantIdFilter } : {}
-  const byTenantAndDateWhere = {
-    ...byTenantWhere,
-    createdAt: { gte: range.start, lte: range.end }
-  }
+  try {
+    const tenantWhere = {
+      ...(tenantIdFilter ? { id: tenantIdFilter } : {}),
+      createdAt: { gte: range.start, lte: range.end }
+    }
+    const byTenantWhere = tenantIdFilter ? { tenantId: tenantIdFilter } : {}
+    const byTenantAndDateWhere = {
+      ...byTenantWhere,
+      createdAt: { gte: range.start, lte: range.end }
+    }
 
-  const [
-    tenantTotal,
-    tenantStatus,
-    merchantTotal,
-    merchantStatus,
-    branchTotal,
-    branchStatus,
-    assetTotal,
-    assetStatus,
-    assetTypeGroup,
-    deviceTotal,
-    deviceBindingStatus,
-    unboundDeviceCount,
-    userTotal,
-    userActiveGroup,
-    userRoleGroup,
-    orderTotal,
-    orderStatus,
-    paymentTotal,
-    paymentStatus
-  ] = await Promise.all([
-    prisma.tenant.count({ where: tenantWhere }),
-    prisma.tenant.groupBy({
-      by: ['status'],
-      where: tenantWhere,
-      _count: { _all: true }
-    }),
-    prisma.merchantAccount.count({ where: byTenantAndDateWhere }),
-    prisma.merchantAccount.groupBy({
-      by: ['status'],
-      where: byTenantAndDateWhere,
-      _count: { _all: true }
-    }),
-    prisma.branch.count({ where: byTenantAndDateWhere }),
-    prisma.branch.groupBy({
-      by: ['status'],
-      where: byTenantAndDateWhere,
-      _count: { _all: true }
-    }),
-    prisma.asset.count({ where: byTenantAndDateWhere }),
-    prisma.asset.groupBy({
-      by: ['status'],
-      where: byTenantAndDateWhere,
-      _count: { _all: true }
-    }),
-    prisma.asset.groupBy({
-      by: ['kind'],
-      where: byTenantAndDateWhere,
-      _count: { _all: true }
-    }),
-    prisma.iotDevice.count({ where: byTenantAndDateWhere }),
-    prisma.assetBinding.groupBy({
-      by: ['status'],
-      where: {
-        ...(tenantIdFilter ? { tenantId: tenantIdFilter } : {}),
-        createdAt: { gte: range.start, lte: range.end },
-        iotDeviceId: { not: null }
-      },
-      _count: { _all: true }
-    }),
-    prisma.iotDevice.count({
-      where: {
-        ...byTenantAndDateWhere,
-        bindings: {
-          none: {
-            status: 'ACTIVE',
-            endedAt: null
+    const [
+      tenantTotal,
+      tenantStatus,
+      merchantTotal,
+      merchantStatus,
+      branchTotal,
+      branchStatus,
+      assetTotal,
+      assetStatus,
+      assetTypeGroup,
+      deviceTotal,
+      deviceBindingStatus,
+      unboundDeviceCount,
+      machineTotal,
+      machineInUseCount,
+      machineSpareCount,
+      productTotal,
+      productActiveGroup,
+      userTotal,
+      userActiveGroup,
+      userRoleGroup,
+      orderTotal,
+      orderStatus,
+      paymentTotal,
+      paymentStatus
+    ] = await Promise.all([
+      prisma.tenant.count({ where: tenantWhere }),
+      prisma.tenant.groupBy({
+        by: ['status'],
+        where: tenantWhere,
+        _count: { _all: true }
+      }),
+      prisma.merchantAccount.count({ where: byTenantAndDateWhere }),
+      prisma.merchantAccount.groupBy({
+        by: ['status'],
+        where: byTenantAndDateWhere,
+        _count: { _all: true }
+      }),
+      prisma.branch.count({ where: byTenantAndDateWhere }),
+      prisma.branch.groupBy({
+        by: ['status'],
+        where: byTenantAndDateWhere,
+        _count: { _all: true }
+      }),
+      prisma.asset.count({ where: byTenantAndDateWhere }),
+      prisma.asset.groupBy({
+        by: ['status'],
+        where: byTenantAndDateWhere,
+        _count: { _all: true }
+      }),
+      prisma.asset.groupBy({
+        by: ['kind'],
+        where: byTenantAndDateWhere,
+        _count: { _all: true }
+      }),
+      prisma.iotDevice.count({ where: byTenantAndDateWhere }),
+      prisma.assetBinding.groupBy({
+        by: ['status'],
+        where: {
+          ...(tenantIdFilter ? { tenantId: tenantIdFilter } : {}),
+          createdAt: { gte: range.start, lte: range.end },
+          iotDeviceId: { not: null }
+        },
+        _count: { _all: true }
+      }),
+      prisma.iotDevice.count({
+        where: {
+          ...byTenantAndDateWhere,
+          bindings: {
+            none: {
+              status: 'ACTIVE',
+              endedAt: null
+            }
           }
         }
-      }
-    }),
-    prisma.user.count({ where: byTenantAndDateWhere }),
-    prisma.user.groupBy({
-      by: ['isActive'],
-      where: byTenantAndDateWhere,
-      _count: { _all: true }
-    }),
-    prisma.user.groupBy({
-      by: ['role'],
-      where: byTenantAndDateWhere,
-      _count: { _all: true }
-    }),
-    prisma.order.count({ where: byTenantAndDateWhere }),
-    prisma.order.groupBy({
-      by: ['status'],
-      where: byTenantAndDateWhere,
-      _count: { _all: true }
-    }),
-    prisma.payment.count({ where: byTenantAndDateWhere }),
-    prisma.payment.groupBy({
-      by: ['status'],
-      where: byTenantAndDateWhere,
-      _count: { _all: true }
-    })
-  ])
+      }),
+      prisma.machineUnit.count({ where: byTenantAndDateWhere }),
+      prisma.machineUnit.count({
+        where: {
+          ...byTenantAndDateWhere,
+          bindings: {
+            some: {
+              status: 'ACTIVE',
+              endedAt: null
+            }
+          }
+        }
+      }),
+      prisma.machineUnit.count({
+        where: {
+          ...byTenantAndDateWhere,
+          bindings: {
+            none: {
+              status: 'ACTIVE',
+              endedAt: null
+            }
+          }
+        }
+      }),
+      prisma.product.count({ where: byTenantAndDateWhere }),
+      prisma.product.groupBy({
+        by: ['active'],
+        where: byTenantAndDateWhere,
+        _count: { _all: true }
+      }),
+      prisma.user.count({ where: byTenantAndDateWhere }),
+      prisma.user.groupBy({
+        by: ['isActive'],
+        where: byTenantAndDateWhere,
+        _count: { _all: true }
+      }),
+      prisma.user.groupBy({
+        by: ['role'],
+        where: byTenantAndDateWhere,
+        _count: { _all: true }
+      }),
+      prisma.order.count({ where: byTenantAndDateWhere }),
+      prisma.order.groupBy({
+        by: ['status'],
+        where: byTenantAndDateWhere,
+        _count: { _all: true }
+      }),
+      prisma.payment.count({ where: byTenantAndDateWhere }),
+      prisma.payment.groupBy({
+        by: ['status'],
+        where: byTenantAndDateWhere,
+        _count: { _all: true }
+      })
+    ])
 
-  return {
-    filters: {
-      period: query.period,
-      start: range.start.toISOString(),
-      end: range.end.toISOString(),
-      tenantIds
-    },
-    cards: [
+    return {
+      filters: {
+        period: query.period,
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+        tenantIds
+      },
+      cards: [
       {
         key: 'tenants',
         title: 'Tenants',
@@ -282,6 +319,32 @@ export default defineEventHandler(async (event) => {
         )
       },
       {
+        key: 'machines',
+        title: 'Machines',
+        total: machineTotal,
+        statuses: withDefaultLabelCounts(
+          [
+            { label: 'IN_USE', count: machineInUseCount },
+            { label: 'SPARE', count: machineSpareCount },
+            { label: 'OFFLINE', count: 0 },
+            { label: 'DISABLED', count: 0 }
+          ],
+          MACHINE_STATUSES
+        )
+      },
+      {
+        key: 'products',
+        title: 'Products',
+        total: productTotal,
+        statuses: withDefaultLabelCounts(
+          productActiveGroup.map(item => ({
+            label: item.active ? 'ACTIVE' : 'INACTIVE',
+            count: item._count._all
+          })),
+          PRODUCT_STATUSES
+        )
+      },
+      {
         key: 'users',
         title: 'Users',
         total: userTotal,
@@ -308,6 +371,18 @@ export default defineEventHandler(async (event) => {
         total: paymentTotal,
         statuses: withDefaultStatuses(paymentStatus.map(item => ({ status: item.status, _count: item._count })), PAYMENT_STATUSES)
       }
-    ]
+      ]
+    }
+  } catch (err) {
+    console.error('[dashboard/cards] failed:', err)
+    return {
+      filters: {
+        period: query.period,
+        start: range.start.toISOString(),
+        end: range.end.toISOString(),
+        tenantIds
+      },
+      cards: []
+    }
   }
 })

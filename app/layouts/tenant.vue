@@ -1,9 +1,11 @@
 <script setup lang="ts">
-const { t } = useI18n()
-
 const tenantMenus = computed(() => [
-  { to: '/app/dashboard', label: t('common.dashboard') },
-  { to: '/order', label: t('common.createOrder') }
+  { to: '/app/dashboard', label: 'Dashboard' },
+  { to: '/app/revenue', label: 'Revenue' },
+  { to: '/app/tenant', label: 'Tenant' },
+  { to: '/admin/merchants', label: 'Merchant' },
+  { to: '/admin/branchs', label: 'Branch' },
+  { to: '/app/asset', label: 'Assets' }
 ])
 </script>
 

@@ -1,57 +1,80 @@
-import { PrismaClient, ProviderCode } from "@prisma/client"
+import {
+  PrismaClient,
+  AssetStatus,
+  DeviceBindingStatus,
+  IotDeviceStatus,
+  MachineStatus,
+  MachineUnitStatus,
+  MerchantStatus,
+  TenantStatus,
+  EnvironmentMode,
+} from '@prisma/client'
+import { hashPassword } from '../server/utils/password'
 
 const prisma = new PrismaClient()
 
-const TENANT_CODES = ["Company-A", "Company-B", "Company-C", "Company-D", "Company-E"]
-const MERCHANT_BASE_NAMES = ["WashPoint", "WashCoin", "TrendyWash", "Wash Enjoy", "Wash Bear"]
-const BRANCH_NAME_POOL = [
-  "City Hub",
-  "Market Walk",
-  "Green Park",
-  "Sunset Lane",
-  "Riverfront",
-  "Downtown",
-  "North Point",
-  "East Gate",
-  "West End",
-  "South Station",
-  "The Corner",
-  "Metro Mall",
-  "Town Square",
-  "Palm View",
-  "Central Zone",
-]
-
-const WASH_PRICES = [20, 30, 40, 50]
-const DRY_PRICES = [40, 50, 60]
-const MACHINE_DISPLAY_TYPES = ["Washer", "Dryer", "Water", "Vending"]
-const MACHINE_KIND_CODES = ["WASHER", "DRYER", "WATER", "VENDING"]
-const TENANT_MERCHANT_BRANCH_PLAN: number[][] = [
-  [3],          // Company-A: M1, B3
-  [2, 2],       // Company-B: M2, B4
-  [4, 2],       // Company-C: M2, B6
-  [3, 2, 2],    // Company-D: M3, B7
-  [3, 3, 2, 2], // Company-E: M4, B10
-]
-
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)] as T
+type PriceSpec = {
+  amount: number
+  duration: number
 }
 
-function toMac(index: number) {
-  if (index === 0) return "3C:E9:0E:54:C5:54"
-  const b3 = (index >> 16) & 0xff
-  const b4 = (index >> 8) & 0xff
-  const b5 = index & 0xff
-  const toHex = (n: number) => n.toString(16).padStart(2, "0").toUpperCase()
-  return `3C:E9:0E:${toHex(b3)}:${toHex(b4)}:${toHex(b5)}`
+type TenantPlan = {
+  tenantCode: string
+  tenantName: string
+  merchantCode: string
+  merchantName: string
+  branchCode: string
+  branchName: string
+  washerAssets: number
+  dryerAssets: number
+  spareIotDevices: number
 }
 
-function toAssetUuid(index: number) {
-  if (index === 0) return "KYBTVVBC5J8F3EC"
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789"
-  let out = ""
-  let seed = index * 7919 + 11
+const WASHER_PRICES: PriceSpec[] = [
+  { amount: 30, duration: 35 },
+  { amount: 40, duration: 60 },
+  { amount: 50, duration: 90 },
+]
+
+const DRYER_PRICES: PriceSpec[] = [
+  { amount: 40, duration: 60 },
+  { amount: 50, duration: 75 },
+  { amount: 60, duration: 90 },
+]
+
+const PLANS: TenantPlan[] = [
+  {
+    tenantCode: 'EITC',
+    tenantName: 'E.I.T Consulting',
+    merchantCode: 'SKV',
+    merchantName: 'Skyview',
+    branchCode: 'Skv001',
+    branchName: 'Skyview',
+    washerAssets: 5,
+    dryerAssets: 5,
+    spareIotDevices: 1,
+  },
+  {
+    tenantCode: 'RGH18',
+    tenantName: 'RegentHome 18',
+    merchantCode: 'RGH',
+    merchantName: 'RegentHome 18',
+    branchCode: 'RGH001',
+    branchName: 'RegentHome 18',
+    washerAssets: 6,
+    dryerAssets: 6,
+    spareIotDevices: 0,
+  },
+]
+
+function pad(n: number, width = 3) {
+  return String(n).padStart(width, '0')
+}
+
+function assetUuidFrom(index: number) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789'
+  let seed = (index + 1) * 10007
+  let out = ''
   for (let i = 0; i < 15; i += 1) {
     seed = (seed * 48271) % 0x7fffffff
     out += chars[seed % chars.length]
@@ -59,391 +82,280 @@ function toAssetUuid(index: number) {
   return out
 }
 
-async function clearData() {
-  await prisma.deviceCommand.deleteMany()
-  await prisma.paymentSlip.deleteMany()
-  await prisma.payment.deleteMany()
-  await prisma.orderItem.deleteMany()
-  await prisma.order.deleteMany()
-  await prisma.machinePrice.deleteMany()
-  await prisma.machine.deleteMany()
-  await prisma.assetProductPrice.deleteMany()
-  await prisma.product.deleteMany()
-  await prisma.assetBinding.deleteMany()
-  await prisma.deviceApiKey.deleteMany()
-  await prisma.deviceRegistrationCode.deleteMany()
-  await prisma.machineUnit.deleteMany()
-  await prisma.iotDevice.deleteMany()
-  await prisma.branchBillerBinding.deleteMany()
-  await prisma.merchantBillerBinding.deleteMany()
-  await prisma.billerProfile.deleteMany()
-  await prisma.asset.deleteMany()
-  await prisma.branch.deleteMany()
-  await prisma.merchantAccount.deleteMany()
-  await prisma.tenant.deleteMany()
-  await prisma.machineKind.deleteMany()
+function macFrom(index: number) {
+  const b3 = (index >> 16) & 0xff
+  const b4 = (index >> 8) & 0xff
+  const b5 = index & 0xff
+  const toHex = (n: number) => n.toString(16).padStart(2, '0').toUpperCase()
+  return `3C:E9:0E:${toHex(b3)}:${toHex(b4)}:${toHex(b5)}`
 }
 
-async function main() {
-  await clearData()
-
-  for (let i = 0; i < MACHINE_KIND_CODES.length; i += 1) {
-    const code = MACHINE_KIND_CODES[i]!
-    await prisma.machineKind.create({
-      data: {
-        code,
-        name: code.charAt(0) + code.slice(1).toLowerCase(),
-        sortOrder: 10 + i,
-        active: true,
-      },
-    })
+async function clearAll() {
+  const safe = async (job: () => Promise<unknown>) => {
+    try {
+      await job()
+    } catch (error: any) {
+      if (error?.code === 'P2021') return
+      throw error
+    }
   }
 
-  const tenants = []
-  for (const code of TENANT_CODES) {
-    const tenant = await prisma.tenant.create({
-      data: {
-        code,
-        name: code,
-        status: "ACTIVE",
-      },
-    })
-    tenants.push(tenant)
-  }
+  await safe(() => prisma.deviceCommand.deleteMany())
+  await safe(() => prisma.paymentSlip.deleteMany())
+  await safe(() => prisma.payment.deleteMany())
+  await safe(() => prisma.orderItem.deleteMany())
+  await safe(() => prisma.order.deleteMany())
 
-  const merchants: Array<{ id: string; tenantId: string; code: string; name: string; status: string; environment: string; plannedBranches: number }> = []
-  for (let tIndex = 0; tIndex < tenants.length; tIndex += 1) {
-    const tenant = tenants[tIndex]!
-    const branchPlan = TENANT_MERCHANT_BRANCH_PLAN[tIndex] || [3]
-    for (let mIndex = 0; mIndex < branchPlan.length; mIndex += 1) {
-      const baseName = MERCHANT_BASE_NAMES[mIndex % MERCHANT_BASE_NAMES.length]!
-      const tenantSuffix = tenant.code.replace("Company-", "").trim()
-      const uniqueName = `${baseName} ${tenantSuffix}`
-      const code = `${baseName.replace(/\s+/g, "")}-${tenantSuffix}`.toUpperCase()
-      const merchant = await prisma.merchantAccount.create({
+  await safe(() => prisma.machinePrice.deleteMany())
+  await safe(() => prisma.machine.deleteMany())
+
+  await safe(() => prisma.assetProductOffer.deleteMany())
+  await safe(() => prisma.assetProductPrice.deleteMany())
+  await safe(() => prisma.product.deleteMany())
+
+  await safe(() => prisma.assetBinding.deleteMany())
+  await safe(() => prisma.deviceApiKey.deleteMany())
+  await safe(() => prisma.deviceRegistrationCode.deleteMany())
+  await safe(() => prisma.machineUnit.deleteMany())
+  await safe(() => prisma.iotDevice.deleteMany())
+
+  await safe(() => prisma.branchBillerBinding.deleteMany())
+  await safe(() => prisma.merchantBillerBinding.deleteMany())
+  await safe(() => prisma.billerProfile.deleteMany())
+
+  await safe(() => prisma.asset.deleteMany())
+  await safe(() => prisma.branch.deleteMany())
+  await safe(() => prisma.merchantAccount.deleteMany())
+  await safe(() => prisma.tenant.deleteMany())
+
+  await safe(() => prisma.session.deleteMany())
+  await safe(() => prisma.account.deleteMany())
+  await safe(() => prisma.user.deleteMany())
+  await safe(() => prisma.verificationToken.deleteMany())
+
+  await safe(() => prisma.machineKind.deleteMany())
+}
+
+async function seedMachineKinds() {
+  const kinds = [
+    { code: 'WASHER', name: 'Washer', sortOrder: 10 },
+    { code: 'DRYER', name: 'Dryer', sortOrder: 20 },
+    { code: 'WATER', name: 'Water', sortOrder: 30 },
+    { code: 'VENDING', name: 'Vending', sortOrder: 40 },
+  ]
+  for (const kind of kinds) {
+    await prisma.machineKind.create({ data: kind })
+  }
+}
+
+async function seedPlatformAdmin() {
+  const passwordHash = await hashPassword('P@ssw0rd')
+  await prisma.user.create({
+    data: {
+      email: 'l.teerin@gmail.com',
+      name: 'Platform Admin',
+      role: 'ADMIN',
+      passwordHash,
+      isActive: true,
+      emailVerified: new Date(),
+      tenantId: null,
+      merchantAccountId: null,
+    },
+  })
+}
+
+async function seedTenantBundle(plan: TenantPlan, seqOffset: number) {
+  const tenant = await prisma.tenant.create({
+    data: {
+      code: plan.tenantCode,
+      name: plan.tenantName,
+      status: TenantStatus.ACTIVE,
+    },
+  })
+
+  const merchant = await prisma.merchantAccount.create({
+    data: {
+      tenantId: tenant.id,
+      code: plan.merchantCode,
+      name: plan.merchantName,
+      status: MerchantStatus.ACTIVE,
+      environment: EnvironmentMode.LIVE,
+    },
+  })
+
+  const branch = await prisma.branch.create({
+    data: {
+      tenantId: tenant.id,
+      merchantAccountId: merchant.id,
+      code: plan.branchCode,
+      name: plan.branchName,
+      status: 'ACTIVE',
+    },
+  })
+
+  const washerProducts = await Promise.all(
+    WASHER_PRICES.map((price, idx) =>
+      prisma.product.create({
         data: {
           tenantId: tenant.id,
-          code,
-          name: uniqueName,
-          status: Math.random() < 0.88 ? "ACTIVE" : "SUSPENDED",
-          environment: Math.random() < 0.7 ? "LIVE" : "TEST",
+          code: `${plan.tenantCode}-WP-${idx + 1}`,
+          name: `Washer ${price.amount} THB / ${price.duration} min`,
+          kind: 'WASHER',
+          active: true,
         },
       })
-      merchants.push({
-        ...merchant,
-        plannedBranches: branchPlan[mIndex] || 2,
-      })
-    }
-  }
+    )
+  )
 
-  const billerProfiles = []
-  for (const tenant of tenants) {
-    for (let i = 0; i < 3; i += 1) {
-      const biller = await prisma.billerProfile.create({
+  const dryerProducts = await Promise.all(
+    DRYER_PRICES.map((price, idx) =>
+      prisma.product.create({
         data: {
           tenantId: tenant.id,
-          code: `BILL-${tenant.code}-${String(i + 1).padStart(2, "0")}`,
-          displayName: `${tenant.code} Biller ${i + 1}`,
-          providerCode: i % 2 === 0 ? ProviderCode.PROMPTPAY : ProviderCode.INTERNAL,
-          status: i === 2 ? "INACTIVE" : "ACTIVE",
-          priority: 100 + i,
+          code: `${plan.tenantCode}-DP-${idx + 1}`,
+          name: `Dryer ${price.amount} THB / ${price.duration} min`,
+          kind: 'DRYER',
+          active: true,
         },
       })
-      billerProfiles.push(biller)
-    }
-  }
+    )
+  )
 
-  for (const merchant of merchants) {
-    const tenantBillers = billerProfiles.filter((b) => b.tenantId === merchant.tenantId)
-    const target = tenantBillers[0]
-    if (!target) continue
-    await prisma.merchantBillerBinding.create({
+  const totalAssets = plan.washerAssets + plan.dryerAssets
+  let localIotSeq = 1
+  let localMachineSeq = 1
+
+  for (let index = 0; index < totalAssets; index += 1) {
+    const kind = index < plan.washerAssets ? 'WASHER' : 'DRYER'
+    const number = kind === 'WASHER' ? index + 1 : index - plan.washerAssets + 1
+
+    const asset = await prisma.asset.create({
       data: {
-        tenantId: merchant.tenantId,
-        merchantAccountId: merchant.id,
-        billerProfileId: target.id,
-        isDefault: true,
-        active: true,
-        priority: 100,
-      },
-    })
-  }
-
-  const branches = []
-  let branchSeq = 1
-  for (let tIndex = 0; tIndex < tenants.length; tIndex += 1) {
-    const tenant = tenants[tIndex]
-    const tenantMerchants = merchants.filter((m) => m.tenantId === tenant.id)
-    const washPoint = tenantMerchants[0]
-    const branchTemplates: Array<{ name: string; merchantCode: string }> = []
-    for (const merchant of tenantMerchants) {
-      for (let bIndex = 0; bIndex < merchant.plannedBranches; bIndex += 1) {
-        let branchName = pick(BRANCH_NAME_POOL)
-        if (tenant.code === "Company-A" && merchant.id === tenantMerchants[0]?.id && bIndex === 0) branchName = "Skyview"
-        if (tenant.code === "Company-A" && merchant.id === tenantMerchants[0]?.id && bIndex === 1) branchName = "RGH18"
-        branchTemplates.push({
-          name: branchName,
-          merchantCode: merchant.code,
-        })
-      }
-    }
-
-    for (let i = 0; i < branchTemplates.length; i += 1) {
-      const tpl = branchTemplates[i]!
-      const merchant = tenantMerchants.find((m) => m.code === tpl.merchantCode) || washPoint || tenantMerchants[0]
-      if (!merchant) continue
-
-      const branch = await prisma.branch.create({
-        data: {
-          tenantId: tenant.id,
-          merchantAccountId: merchant.id,
-          code: `BR-${String(branchSeq).padStart(4, "0")}`,
-          name: tpl.name,
-          status: Math.random() < 0.9 ? "ACTIVE" : "INACTIVE",
-        },
-      })
-      branchSeq += 1
-      branches.push(branch)
-
-      const tenantBillers = billerProfiles.filter((b) => b.tenantId === tenant.id)
-      const targetBiller = tenantBillers[i % Math.max(tenantBillers.length, 1)]
-      if (targetBiller) {
-        await prisma.branchBillerBinding.create({
-          data: {
-            tenantId: tenant.id,
-            branchId: branch.id,
-            billerProfileId: targetBiller.id,
-            isDefault: true,
-            active: true,
-            priority: 100,
-          },
-        })
-      }
-    }
-  }
-
-  const assets = []
-  const machineRefs: Array<{ id: string; assetId: string; tenantId: string; merchantAccountId: string | null; branchId: string }> = []
-  let wmSeq = 1
-  let dmSeq = 1
-  let machineSeq = 1
-  let assetSeq = 0
-
-  for (const branch of branches) {
-    for (let i = 0; i < 5; i += 1) {
-      const kind = Math.random() < 0.65 ? "WASHER" : "DRYER"
-      const assetName =
-        kind === "WASHER"
-          ? `WM-${String(wmSeq).padStart(3, "0")}`
-          : `DM-${String(dmSeq).padStart(3, "0")}`
-      if (kind === "WASHER") wmSeq += 1
-      else dmSeq += 1
-
-      const asset = await prisma.asset.create({
-        data: {
-          tenantId: branch.tenantId,
-          branchId: branch.id,
-          assetUuid: toAssetUuid(assetSeq),
-          code: `AS-${String(assetSeq + 1).padStart(4, "0")}`,
-          name: assetName,
-          kind,
-          status: Math.random() < 0.82 ? "ACTIVE" : Math.random() < 0.5 ? "INACTIVE" : "MAINTENANCE",
-        },
-      })
-      assetSeq += 1
-      assets.push(asset)
-
-      const displayType = pick(MACHINE_DISPLAY_TYPES)
-      const machineKind =
-        displayType === "Dryer" ? "DRYER" :
-        displayType === "Water" ? "WATER" :
-        displayType === "Vending" ? "VENDING" :
-        "WASHER"
-      const machineStatusRoll = Math.random()
-      const machineStatus =
-        machineStatusRoll < 0.68 ? "AVAILABLE" :
-        machineStatusRoll < 0.82 ? "RUNNING" :
-        machineStatusRoll < 0.94 ? "MAINTENANCE" :
-        "RESERVED"
-
-      const machine = await prisma.machine.create({
-        data: {
-          tenantId: branch.tenantId,
-          merchantAccountId: branch.merchantAccountId,
-          branchId: branch.id,
-          assetId: asset.id,
-          code: `SN-${String(machineSeq).padStart(8, "0")}`,
-          name: `${displayType}-${String(machineSeq).padStart(4, "0")}`,
-          kind: machineKind,
-          status: machineStatus,
-          locationLabel: branch.name,
-          topic: `iot/${branch.code}/${asset.code}`,
-          remainingMinutes: machineStatus === "RUNNING" ? 10 + Math.floor(Math.random() * 80) : null,
-        },
-      })
-      machineSeq += 1
-      machineRefs.push({
-        id: machine.id,
-        assetId: asset.id,
-        tenantId: branch.tenantId,
-        merchantAccountId: branch.merchantAccountId ?? null,
+        tenantId: tenant.id,
         branchId: branch.id,
-      })
-
-      const amount =
-        machineKind === "DRYER"
-          ? pick(DRY_PRICES)
-          : pick(WASH_PRICES)
-      await prisma.machinePrice.create({
-        data: {
-          machineId: machine.id,
-          label: machineKind === "DRYER" ? "Dry Program" : `${displayType} Program`,
-          amount,
-          durationMinutes: machineKind === "DRYER" ? 40 + Math.floor(Math.random() * 26) : 35 + Math.floor(Math.random() * 31),
-          sortOrder: 1,
-        },
-      })
-    }
-  }
-
-  const devices = []
-  for (let i = 0; i < 180; i += 1) {
-    const ref = i < assets.length ? assets[i] : null
-    const device = await prisma.iotDevice.create({
-      data: {
-        tenantId: ref?.tenantId || tenants[i % tenants.length]!.id,
-        macAddress: toMac(i),
-        deviceUid: `DEV-${String(i + 1).padStart(5, "0")}`,
-        fwVersion: `v1.${Math.floor(i / 30)}.${(i % 10) + 1}`,
-        metadata: i < 120
-          ? { mode: "ONLINE", stock: "ACTIVE" }
-          : i < 150
-            ? { mode: "OFFLINE", stock: "ACTIVE" }
-            : { mode: "OFFLINE", stock: "SPARE" },
+        assetUuid: assetUuidFrom(seqOffset + index),
+        code: `${plan.branchCode}-${pad(index + 1)}`,
+        name: `${kind === 'WASHER' ? 'WM' : 'DM'}-${pad(number)}`,
+        kind,
+        status: AssetStatus.ACTIVE,
       },
     })
-    devices.push(device)
-  }
 
-  for (let i = 0; i < assets.length; i += 1) {
-    const asset = assets[i]
-    const device = devices[i]
-    if (!asset || !device) continue
+    const iotDevice = await prisma.iotDevice.create({
+      data: {
+        tenantId: tenant.id,
+        macAddress: macFrom(seqOffset + index + 1),
+        deviceUid: `${plan.tenantCode}-IOT-${pad(localIotSeq, 4)}`,
+        status: IotDeviceStatus.IN_USE,
+        fwVersion: 'v1.0.0',
+        metadata: { source: 'seed' },
+      },
+    })
+    localIotSeq += 1
+
+    const machineUnit = await prisma.machineUnit.create({
+      data: {
+        tenantId: tenant.id,
+        serialNo: `${plan.tenantCode}-MU-${pad(localMachineSeq, 5)}`,
+        status: MachineUnitStatus.IN_USE,
+        brand: 'Washpoint',
+        model: kind,
+      },
+    })
+    localMachineSeq += 1
 
     await prisma.assetBinding.create({
       data: {
-        tenantId: asset.tenantId,
+        tenantId: tenant.id,
         assetId: asset.id,
-        iotDeviceId: device.id,
-        status: i < 135 ? "ACTIVE" : "INACTIVE",
-        startedAt: new Date(Date.now() - (i + 1) * 86400000),
-        endedAt: i < 135 ? null : new Date(Date.now() - (i % 20) * 86400000),
-        reason: i < 135 ? null : "offline-or-spare",
-        metadata: i < 135 ? { note: "bound" } : { note: "retired binding" },
+        machineUnitId: machineUnit.id,
+        iotDeviceId: iotDevice.id,
+        status: DeviceBindingStatus.ACTIVE,
+        startedAt: new Date(),
+      },
+    })
+
+    const machine = await prisma.machine.create({
+      data: {
+        tenantId: tenant.id,
+        merchantAccountId: merchant.id,
+        branchId: branch.id,
+        assetId: asset.id,
+        code: `${plan.tenantCode}-SN-${pad(localMachineSeq + 7000, 8)}`,
+        name: `${kind === 'WASHER' ? 'WM' : 'DM'}-${pad(number)}`,
+        kind,
+        status: MachineStatus.AVAILABLE,
+        locationLabel: branch.name,
+        topic: `iot/${plan.tenantCode}/${plan.branchCode}/${asset.code}`,
+      },
+    })
+
+    const pricing = kind === 'WASHER' ? WASHER_PRICES : DRYER_PRICES
+    const products = kind === 'WASHER' ? washerProducts : dryerProducts
+
+    for (let pIndex = 0; pIndex < pricing.length; pIndex += 1) {
+      const p = pricing[pIndex]!
+      const product = products[pIndex]!
+
+      await prisma.machinePrice.create({
+        data: {
+          machineId: machine.id,
+          label: `${kind === 'WASHER' ? 'Wash' : 'Dry'} ${p.duration} min`,
+          amount: p.amount,
+          durationMinutes: p.duration,
+          sortOrder: pIndex + 1,
+        },
+      })
+
+      await prisma.assetProductPrice.create({
+        data: {
+          tenantId: tenant.id,
+          assetId: asset.id,
+          productId: product.id,
+          amount: p.amount,
+          durationMinutes: p.duration,
+          sortOrder: pIndex + 1,
+          active: true,
+        },
+      })
+    }
+  }
+
+  for (let i = 0; i < plan.spareIotDevices; i += 1) {
+    await prisma.iotDevice.create({
+      data: {
+        tenantId: tenant.id,
+        macAddress: macFrom(seqOffset + totalAssets + i + 100),
+        deviceUid: `${plan.tenantCode}-IOT-SPARE-${pad(i + 1, 3)}`,
+        status: IotDeviceStatus.SPARE,
+        fwVersion: 'v1.0.0',
+        metadata: { source: 'seed', spare: true },
       },
     })
   }
 
-  const machinePriceMap = new Map<string, { id: string; amount: number; label: string; durationMinutes: number }>()
-  const prices = await prisma.machinePrice.findMany({
-    select: {
-      id: true,
-      machineId: true,
-      amount: true,
-      label: true,
-      durationMinutes: true,
-    },
-  })
-  for (const p of prices) {
-    machinePriceMap.set(p.machineId, p)
+  return {
+    tenant,
+    merchant,
+    branch,
+    assets: totalAssets,
+    iot: totalAssets + plan.spareIotDevices,
+    machineUnits: totalAssets,
   }
+}
 
-  let orderSeq = 1
-  for (const m of machineRefs) {
-    const price = machinePriceMap.get(m.id)
-    if (!price) continue
+async function main() {
+  await clearAll()
+  await seedMachineKinds()
+  await seedPlatformAdmin()
 
-    const orderRoll = Math.random()
-    const orderCountForMachine =
-      orderRoll < 0.16 ? 0 :
-      orderRoll < 0.38 ? 1 :
-      orderRoll < 0.60 ? 2 :
-      orderRoll < 0.76 ? 3 :
-      orderRoll < 0.88 ? 4 :
-      orderRoll < 0.95 ? 6 :
-      8
+  const first = await seedTenantBundle(PLANS[0]!, 0)
+  const second = await seedTenantBundle(PLANS[1]!, 1000)
 
-    for (let k = 0; k < orderCountForMachine; k += 1) {
-      const statusRoll = Math.random()
-      const orderStatus =
-        statusRoll < 0.6 ? "COMPLETED" :
-        statusRoll < 0.75 ? "IN_PROGRESS" :
-        statusRoll < 0.88 ? "CONFIRMED" :
-        statusRoll < 0.96 ? "PENDING_PAYMENT" :
-        "CANCELLED"
-      const itemStatus =
-        orderStatus === "COMPLETED" ? "COMPLETED" :
-        orderStatus === "IN_PROGRESS" ? "RUNNING" :
-        orderStatus === "CANCELLED" ? "FAILED" :
-        "PENDING"
-
-      await prisma.order.create({
-        data: {
-          tenantId: m.tenantId,
-          merchantAccountId: m.merchantAccountId,
-          branchId: m.branchId,
-          orderNumber: `ORD-MOCK-${String(orderSeq).padStart(6, "0")}`,
-          customerName: `Customer ${String(orderSeq).padStart(4, "0")}`,
-          lineUserId: `U${String(orderSeq).padStart(10, "0")}`,
-          note: "mock-seed",
-          totalAmount: price.amount,
-          status: orderStatus,
-          createdAt: new Date(Date.now() - (orderSeq % 60) * 3600000),
-          items: {
-            create: [
-              {
-                machineId: m.id,
-                assetId: m.assetId,
-                priceId: price.id,
-                priceLabel: price.label,
-                amount: price.amount,
-                durationMinutes: price.durationMinutes,
-                status: itemStatus,
-                startedAt: itemStatus === "RUNNING" || itemStatus === "COMPLETED" ? new Date(Date.now() - 1800000) : null,
-                completedAt: itemStatus === "COMPLETED" ? new Date(Date.now() - 300000) : null,
-              },
-            ],
-          },
-          payment: {
-            create: {
-              tenantId: m.tenantId,
-              merchantAccountId: m.merchantAccountId,
-              branchId: m.branchId,
-              amount: price.amount,
-              qrPayload: `MOCK-QR-${orderSeq}`,
-              status:
-                orderStatus === "COMPLETED" || orderStatus === "IN_PROGRESS" || orderStatus === "CONFIRMED"
-                  ? "VERIFIED"
-                  : "PENDING",
-              verifiedAt:
-                orderStatus === "COMPLETED" || orderStatus === "IN_PROGRESS" || orderStatus === "CONFIRMED"
-                  ? new Date()
-                  : null,
-            },
-          },
-        },
-      })
-      orderSeq += 1
-    }
-  }
-
-  console.log("Seed completed")
-  console.log(`Tenants: ${tenants.length}`)
-  console.log(`Merchants: ${merchants.length}`)
-  console.log(`Branches: ${branches.length}`)
-  console.log(`Assets: ${assets.length}`)
-  console.log(`Devices: ${devices.length}`)
-  console.log(`Orders: ${orderSeq - 1}`)
+  console.log('Seed reset completed.')
+  console.log(`Admin platform user: l.teerin@gmail.com / P@ssw0rd`)
+  console.log(`Tenant ${first.tenant.code}: assets=${first.assets}, iot=${first.iot}, machineUnits=${first.machineUnits}`)
+  console.log(`Tenant ${second.tenant.code}: assets=${second.assets}, iot=${second.iot}, machineUnits=${second.machineUnits}`)
 }
 
 main()

@@ -7,7 +7,7 @@ const schema = z.object({
   merchantAccountId: z.string().optional().nullable(),
   code: z.string().trim().min(1).max(60),
   name: z.string().trim().min(1).max(120),
-  status: z.enum(['ACTIVE', 'INACTIVE', 'DISABLED']).optional(),
+  status: z.enum(['ACTIVE', 'SUSPENDED', 'DISABLED']).optional(),
   metadata: z.record(z.any()).optional()
 })
 
@@ -15,14 +15,25 @@ export default defineEventHandler(async (event) => {
   await assertAdminAccess(event)
   const body = schema.parse(await readBody(event))
 
-  return prisma.branch.create({
-    data: {
-      tenantId: body.tenantId,
-      merchantAccountId: body.merchantAccountId || null,
-      code: body.code,
-      name: body.name,
-      status: body.status || 'ACTIVE',
-      metadata: body.metadata
+  try {
+    return await prisma.branch.create({
+      data: {
+        tenantId: body.tenantId,
+        merchantAccountId: body.merchantAccountId || null,
+        code: body.code,
+        name: body.name,
+        status: body.status || 'ACTIVE',
+        metadata: body.metadata
+      }
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (message.includes('Unique constraint failed')) {
+      throw createError({
+        statusCode: 409,
+        statusMessage: 'Branch code already exists in this tenant.'
+      })
     }
-  })
+    throw error
+  }
 })

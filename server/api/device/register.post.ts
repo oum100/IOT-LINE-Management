@@ -1,12 +1,19 @@
 import { z } from 'zod'
 import { prisma } from '../../utils/prisma'
-import { generateDeviceApiKey } from '../../utils/device-keys'
+import { generateDeviceApiKey, macToDeviceUid, normalizeMacAddress } from '../../utils/device-keys'
 import { assertMachineKindExists } from '../../utils/machine-kind'
+import {
+  lockAssetBindingRowsForUpdate,
+  lockAssetForUpdate,
+  lockDeviceForUpdate,
+  lockMachineUnitForUpdate,
+  refreshIotDeviceStatus,
+  refreshMachineUnitStatus
+} from '../../utils/asset-lifecycle'
 
 const schema = z.object({
   registrationCode: z.string().trim().min(6),
   macAddress: z.string().trim().min(5),
-  deviceUid: z.string().trim().min(4).optional(),
   fwVersion: z.string().trim().optional(),
   machineSerialNo: z.string().trim().min(3),
   machineName: z.string().trim().min(1),
@@ -41,14 +48,17 @@ export default defineEventHandler(async (event) => {
   }
 
   const machineCode = body.machineCode || `AUTO-${machineKind}-${body.machineSerialNo.replace(/[^a-zA-Z0-9]/g, '').slice(-8)}`
-  const deviceUid = body.deviceUid || `${registration.branch?.code || 'BR'}-${Date.now()}`
+  const macAddress = normalizeMacAddress(body.macAddress)
+  const deviceUid = macToDeviceUid(macAddress)
 
   const iotDevice = await prisma.iotDevice.upsert({
-    where: { macAddress: body.macAddress.toUpperCase() },
+    where: { macAddress },
     create: {
       tenantId: registration.tenantId,
-      macAddress: body.macAddress.toUpperCase(),
+      macAddress,
       deviceUid,
+      name: body.machineName,
+      model: machineKind,
       fwVersion: body.fwVersion || null,
       metadata: {
         source: 'device-register-api'
@@ -56,6 +66,8 @@ export default defineEventHandler(async (event) => {
     },
     update: {
       deviceUid,
+      name: body.machineName,
+      model: machineKind,
       fwVersion: body.fwVersion || undefined
     }
   })
@@ -88,36 +100,80 @@ export default defineEventHandler(async (event) => {
     }
   })
 
-  const activeBinding = await prisma.assetBinding.findFirst({
-    where: {
-      tenantId: registration.tenantId,
-      assetId: asset.id,
-      status: 'ACTIVE',
-      endedAt: null
-    }
-  })
+  await prisma.$transaction(async (tx) => {
+    await lockAssetForUpdate(tx, asset.id)
+    await lockDeviceForUpdate(tx, iotDevice.id)
+    await lockMachineUnitForUpdate(tx, machineUnit.id)
+    await lockAssetBindingRowsForUpdate(tx, asset.id, iotDevice.id, machineUnit.id)
 
-  if (!activeBinding || activeBinding.iotDeviceId !== iotDevice.id || activeBinding.machineUnitId !== machineUnit.id) {
-    if (activeBinding) {
-      await prisma.assetBinding.update({
-        where: { id: activeBinding.id },
-        data: {
-          status: 'INACTIVE',
-          endedAt: new Date(),
-          reason: 're-registered'
+    const [activeBinding, activeByDevice, activeByMachine] = await Promise.all([
+      tx.assetBinding.findFirst({
+        where: {
+          tenantId: registration.tenantId,
+          assetId: asset.id,
+          status: 'ACTIVE',
+          endedAt: null
+        },
+        orderBy: { startedAt: 'desc' }
+      }),
+      tx.assetBinding.findFirst({
+        where: {
+          tenantId: registration.tenantId,
+          iotDeviceId: iotDevice.id,
+          status: 'ACTIVE',
+          endedAt: null,
+          NOT: { assetId: asset.id }
+        }
+      }),
+      tx.assetBinding.findFirst({
+        where: {
+          tenantId: registration.tenantId,
+          machineUnitId: machineUnit.id,
+          status: 'ACTIVE',
+          endedAt: null,
+          NOT: { assetId: asset.id }
         }
       })
+    ])
+
+    if (activeByDevice || activeByMachine) {
+      throw createError({ statusCode: 409, statusMessage: 'Device or machine unit is already bound to another asset' })
     }
-    await prisma.assetBinding.create({
-      data: {
-        tenantId: registration.tenantId,
-        assetId: asset.id,
-        iotDeviceId: iotDevice.id,
-        machineUnitId: machineUnit.id,
-        reason: 'registered'
+
+    if (!activeBinding || activeBinding.iotDeviceId !== iotDevice.id || activeBinding.machineUnitId !== machineUnit.id) {
+      const oldIotDeviceId = activeBinding?.iotDeviceId || null
+      const oldMachineUnitId = activeBinding?.machineUnitId || null
+      if (activeBinding) {
+        await tx.assetBinding.update({
+          where: { id: activeBinding.id },
+          data: {
+            status: 'INACTIVE',
+            endedAt: new Date(),
+            reason: 're-registered'
+          }
+        })
       }
-    })
-  }
+      await tx.assetBinding.create({
+        data: {
+          tenantId: registration.tenantId,
+          assetId: asset.id,
+          iotDeviceId: iotDevice.id,
+          machineUnitId: machineUnit.id,
+          reason: 'registered'
+        }
+      })
+
+      if (oldIotDeviceId) {
+        await refreshIotDeviceStatus(tx, oldIotDeviceId)
+      }
+      if (oldMachineUnitId) {
+        await refreshMachineUnitStatus(tx, oldMachineUnitId)
+      }
+    }
+
+    await refreshIotDeviceStatus(tx, iotDevice.id)
+    await refreshMachineUnitStatus(tx, machineUnit.id)
+  })
 
   const machine = await prisma.machine.upsert({
     where: { code: machineCode },

@@ -3,10 +3,15 @@ const { t } = useI18n()
 
 const sidebarMenus = computed(() => [
   { to: '/platform/dashboard', label: t('common.dashboard') },
+  { to: '/platform/dashboard2', label: 'Dashboard v2' },
   { to: '/admin/tenant', label: t('common.tenants') },
   { to: '/admin/merchants', label: t('common.merchants') },
   { to: '/admin/branchs', label: t('common.branches') },
   { to: '/admin/assets', label: t('common.assets') },
+  { to: '/admin/devices', label: t('common.devices') },
+  { to: '/admin/machine', label: t('common.machines') },
+  { to: '/admin/orders', label: t('common.orders') },
+  { to: '/admin/payment', label: t('common.payments') },
   { to: '/admin/settings', label: t('common.settings') }
 ])
 </script>

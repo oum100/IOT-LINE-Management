@@ -6,12 +6,33 @@ import { withPaging } from '../../../utils/admin-crud'
 export default defineEventHandler(async (event) => {
   await assertAdminAccess(event)
   const query = getQuery(event)
-  const tenantId = String(query.tenantId || '')
-  if (!tenantId) throw createError({ statusCode: 400, statusMessage: 'tenantId is required' })
+  const tenantId = String(query.tenantId || '').trim()
+  const merchantAccountId = String(query.merchantAccountId || '').trim()
+  const branchId = String(query.branchId || '').trim()
 
   const { q, skip, take, page, pageSize } = withPaging(query)
   const where = {
-    tenantId,
+    ...(tenantId ? { tenantId } : {}),
+    ...(merchantAccountId || branchId
+      ? {
+          bindings: {
+            some: {
+              status: 'ACTIVE' as const,
+              endedAt: null,
+              asset: {
+                ...(merchantAccountId
+                  ? {
+                      branch: {
+                        merchantAccountId
+                      }
+                    }
+                  : {}),
+                ...(branchId ? { branchId } : {})
+              }
+            }
+          }
+        }
+      : {}),
     ...(q
       ? {
           OR: [
@@ -26,9 +47,26 @@ export default defineEventHandler(async (event) => {
     prisma.iotDevice.findMany({
       where,
       include: {
+        tenant: {
+          select: {
+            id: true,
+            code: true,
+            name: true
+          }
+        },
         bindings: {
           where: { status: 'ACTIVE', endedAt: null },
-          include: { asset: true }
+          include: {
+            asset: {
+              include: {
+                branch: {
+                  include: {
+                    merchantAccount: true
+                  }
+                }
+              }
+            }
+          }
         },
         keys: true
       },

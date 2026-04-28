@@ -21,7 +21,7 @@ type Branch = {
   id: string
   code: string
   name: string
-  status: "ACTIVE" | "INACTIVE" | "DISABLED"
+  status: "ACTIVE" | "SUSPENDED" | "DISABLED"
   createdAt: string
   updatedAt: string
   merchantAccount?: {
@@ -76,7 +76,7 @@ function resetPage() {
 
 function branchStatusClass(status: Branch["status"]) {
   if (status === "ACTIVE") return "text-emerald-600 dark:text-emerald-400"
-  if (status === "INACTIVE") return "text-rose-600 dark:text-rose-400"
+  if (status === "SUSPENDED") return "text-amber-600 dark:text-amber-400"
   return "text-slate-500 dark:text-slate-400"
 }
 
@@ -272,12 +272,12 @@ watch(() => route.query.tenantId, () => {
             />
           </div>
           <div class="flex flex-col gap-1">
-            <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Merchant</label>
+            <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Merchant (Brand)</label>
             <USelect
               v-model="filters.merchantAccountId"
               class="w-full"
-              placeholder="All merchants"
-              :options="[{ label: 'All merchants', value: '' }, ...merchants.map((merchant) => ({ label: `${merchant.code} ${merchant.name}`, value: merchant.id }))]"
+              placeholder="All merchant (brand)"
+              :options="[{ label: 'All merchant (brand)', value: '' }, ...merchants.map((merchant) => ({ label: `${merchant.code} ${merchant.name}`, value: merchant.id }))]"
               @update:modelValue="onMerchantChange"
             />
           </div>
@@ -319,7 +319,7 @@ watch(() => route.query.tenantId, () => {
             <tr class="text-left">
               <th class="px-3 py-2">Code</th>
               <th class="px-3 py-2">Name</th>
-              <th class="px-3 py-2">Merchant</th>
+              <th class="px-3 py-2">Merchant (Brand)</th>
               <th class="px-3 py-2">Status</th>
               <th class="px-3 py-2">Updated</th>
             </tr>

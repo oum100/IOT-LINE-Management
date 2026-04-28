@@ -220,6 +220,29 @@ const authHandler = NuxtAuthHandler({
         token.tenantId = appUser.tenantId || null;
         token.merchantAccountId = appUser.merchantAccountId || null;
       }
+
+      if (token.sub) {
+        const freshUser = await prisma.user.findUnique({
+          where: { id: token.sub },
+          select: {
+            role: true,
+            tenantId: true,
+            merchantAccountId: true,
+            isActive: true,
+          },
+        });
+
+        if (!freshUser || !freshUser.isActive) {
+          token.role = "USER";
+          token.tenantId = null;
+          token.merchantAccountId = null;
+        } else {
+          token.role = freshUser.role || "USER";
+          token.tenantId = freshUser.tenantId || null;
+          token.merchantAccountId = freshUser.merchantAccountId || null;
+        }
+      }
+
       if (account?.provider) {
         token.provider = account.provider;
       }
