@@ -10,6 +10,9 @@ type CartItem = {
   priceLabel: string
   durationMinutes: number
   amount: number
+  serviceMode?: 'TIME' | 'QUANTITY' | 'UNIT'
+  serviceUnit?: 'MINUTE' | 'SECOND' | 'LITER' | 'GRAM' | 'PIECE' | 'BOX' | 'SLOT'
+  quantity?: number | null
 }
 
 type MachineSelectionInput = {
@@ -41,7 +44,10 @@ export const useCartStore = defineStore(
           priceId: price.id,
           priceLabel: price.label,
           durationMinutes: price.durationMinutes,
-          amount: price.amount
+          amount: price.amount,
+          serviceMode: price.serviceMode,
+          serviceUnit: price.serviceUnit,
+          quantity: price.quantity
         })
       },
       replaceSelections(selections: MachineSelectionInput[]) {
@@ -59,7 +65,10 @@ export const useCartStore = defineStore(
             priceId: price.id,
             priceLabel: price.label,
             durationMinutes: price.durationMinutes,
-            amount: price.amount
+            amount: price.amount,
+            serviceMode: price.serviceMode,
+            serviceUnit: price.serviceUnit,
+            quantity: price.quantity
           }]
         })
       },

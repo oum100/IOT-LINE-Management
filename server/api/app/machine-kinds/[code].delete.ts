@@ -1,11 +1,12 @@
 import { getServerSession } from '#auth'
 import { prisma } from '../../../utils/prisma'
+import { assertPermission } from '../../../utils/rbac'
 
-type Role = 'PLATFORM_ADMIN' | 'TENANT_ADMIN' | 'TENANT_STAFF' | 'ADMIN' | 'USER'
+type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
 function isPlatformRole(role: Role | string | null | undefined) {
   const normalized = String(role || '').toUpperCase()
-  return normalized === 'PLATFORM_ADMIN' || normalized === 'ADMIN'
+  return normalized === 'ADMIN' || normalized === 'USER'
 }
 
 function normalizeCode(input: string) {
@@ -18,6 +19,7 @@ function normalizeCode(input: string) {
 }
 
 export default defineEventHandler(async (event) => {
+  await assertPermission(event, 'portal.asset.manage')
   const codeParam = getRouterParam(event, 'code')
   if (!codeParam) throw createError({ statusCode: 400, statusMessage: 'Missing machine kind code' })
   const code = normalizeCode(codeParam)
@@ -56,4 +58,3 @@ export default defineEventHandler(async (event) => {
   await prisma.machineKind.delete({ where: { code } })
   return { ok: true }
 })
-

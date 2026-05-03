@@ -11,7 +11,24 @@ const emit = defineEmits<{
   select: [priceId: string]
 }>()
 
-const washerDisplayLabels = ['Cold', 'Warm', 'Hot']
+function unitLabel(unit?: string) {
+  if (unit === 'MINUTE') return 'min'
+  if (unit === 'SECOND') return 'sec'
+  if (unit === 'LITER') return 'L'
+  if (unit === 'GRAM') return 'g'
+  if (unit === 'PIECE') return 'piece'
+  if (unit === 'BOX') return 'box'
+  if (unit === 'SLOT') return 'slot'
+  return ''
+}
+
+function serviceText(price: MachineWithPrices['prices'][number]) {
+  if (price.serviceMode === 'TIME') {
+    return `${price.durationMinutes} ${unitLabel(price.serviceUnit || 'MINUTE')}`
+  }
+  const qty = price.quantity == null ? 1 : Number(price.quantity)
+  return `${qty} ${unitLabel(price.serviceUnit)}`
+}
 </script>
 
 <template>
@@ -24,19 +41,17 @@ const washerDisplayLabels = ['Cold', 'Warm', 'Hot']
 
     <div class="mt-4 grid grid-cols-3 gap-3">
       <button
-        v-for="(price, index) in machine.prices"
+        v-for="price in machine.prices"
         :key="price.id"
         class="rounded-2xl border px-4 py-3 text-center transition hover:-translate-y-0.5"
         :class="price.id === selectedPriceId
-          ? 'border-teal-500 bg-teal-100/80 shadow-sm'
+          ? 'border-teal-700 bg-teal-100 ring-4 ring-teal-300 shadow-lg shadow-teal-200/70'
           : 'border-teal-100 bg-teal-50/60 hover:border-teal-300 hover:bg-white'"
         @click="emit('select', price.id)"
       >
         <div class="space-y-1">
-          <p class="font-medium text-slate-900">{{ price.durationMinutes }} นาที</p>
-          <p v-if="machine.kind === 'WASHER'" class="text-sm text-slate-600">
-            {{ washerDisplayLabels[index] || price.label }}
-          </p>
+          <p class="font-medium text-slate-900">{{ price.label }}</p>
+          <p class="text-sm text-slate-600">{{ serviceText(price) }}</p>
           <p class="text-xl font-semibold text-teal-700">{{ price.amount }}</p>
         </div>
       </button>

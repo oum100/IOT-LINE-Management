@@ -1,20 +1,22 @@
 import { getQuery } from 'h3'
 import { prisma } from '../../../utils/prisma'
-import { assertAdminAccess } from '../../../utils/admin-auth'
+import { assertPermission } from '../../../utils/rbac'
 import { withPaging } from '../../../utils/admin-crud'
 
 export default defineEventHandler(async (event) => {
-  await assertAdminAccess(event)
+  await assertPermission(event, 'platform.order.read')
   const query = getQuery(event)
   const tenantId = String(query.tenantId || '').trim()
   const merchantAccountId = String(query.merchantAccountId || '').trim()
   const branchId = String(query.branchId || '').trim()
+  const status = String(query.status || '').trim()
 
   const { q, skip, take, page, pageSize } = withPaging(query)
   const where = {
     ...(tenantId ? { tenantId } : {}),
     ...(merchantAccountId ? { merchantAccountId } : {}),
     ...(branchId ? { branchId } : {}),
+    ...(status ? { status: status as any } : {}),
     ...(q
       ? {
           OR: [
@@ -30,6 +32,24 @@ export default defineEventHandler(async (event) => {
     prisma.order.findMany({
       where,
       include: {
+        items: {
+          select: {
+            id: true,
+            priceLabel: true,
+            asset: {
+              select: {
+                code: true,
+                name: true
+              }
+            },
+            product: {
+              select: {
+                code: true,
+                name: true
+              }
+            }
+          }
+        },
         tenant: {
           select: { id: true, code: true, name: true }
         },

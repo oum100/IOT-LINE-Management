@@ -329,7 +329,7 @@ async function seedMockData() {
           tenantId: tenant.id,
           email: `user${userSeq}@mock.local`,
           name: `Mock User ${userSeq}`,
-          role: u === 0 ? AppUserRole.ADMIN : AppUserRole.USER,
+          role: u === 0 ? AppUserRole.OWNER : AppUserRole.STAFF,
           isActive: u % 5 !== 0
         }
       })

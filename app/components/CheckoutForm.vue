@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from '#app'
+import { useRoute } from '#imports'
 import { useCartStore } from '~~/stores/cart'
 import { useLineLiff } from '~~/composables/useLineLiff'
 
 const cart = useCartStore()
 const router = useRouter()
+const route = useRoute()
 const { profile } = useLineLiff()
 const pending = ref(false)
+const branchCode = computed(() => String(route.query.branchCode || '').trim())
 const form = reactive({
   customerName: 'คุณลูกค้า',
   lineUserId: '',
@@ -36,9 +39,10 @@ async function submitOrder() {
   pending.value = true
 
   try {
-    const response = await $fetch<{ orderId: string }>('/api/orders', {
+    const response = await $fetch<{ orderId: string; selfCancelToken?: string }>('/api/orders', {
       method: 'POST',
       body: {
+        branchCode: branchCode.value,
         customerName: form.customerName || 'คุณลูกค้า',
         lineUserId: form.lineUserId,
         note: form.note,
@@ -50,7 +54,8 @@ async function submitOrder() {
     })
 
     cart.clear()
-    await router.push(`/orders/${response.orderId}`)
+    const tokenQuery = response.selfCancelToken ? `?ct=${encodeURIComponent(response.selfCancelToken)}` : ''
+    await router.push(`/orders/${response.orderId}${tokenQuery}`)
   } finally {
     pending.value = false
   }

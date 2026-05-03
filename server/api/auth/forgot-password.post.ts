@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Resend } from "resend";
 import { prisma } from "../../utils/prisma";
 import { createPasswordResetToken } from "../../utils/password-reset";
+import { resolvePasswordResetExpiryMinutes } from "../../utils/system-config";
 
 const forgotPasswordSchema = z.object({
   email: z.string().email(),
@@ -25,7 +26,7 @@ export default defineEventHandler(async (event) => {
 
   const config = useRuntimeConfig();
   const authSecret = config.authSecret || "dev-auth-secret-change-me";
-  const expiresInMinutes = Number(config.passwordResetExpiresMinutes || 30);
+  const expiresInMinutes = await resolvePasswordResetExpiryMinutes(event);
   const token = createPasswordResetToken({
     email,
     secret: authSecret,

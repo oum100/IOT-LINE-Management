@@ -593,8 +593,7 @@ watch(
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">View linked IoT device, machine, products, orders and payments</p>
       </div>
       <div class="flex items-center gap-2">
-        <UInput v-model="assetSearch" placeholder="Search asset by name/code/UUID/ID" class="w-[320px]" :ui="{ base: 'bg-white dark:bg-slate-900' }" @keyup.enter="searchAssetAndOpen" />
-        <UButton color="primary" variant="soft" icon="i-lucide-search" :loading="saving" @click="searchAssetAndOpen">Search</UButton>
+        <SearchInput v-model="assetSearch" placeholder="Search asset by name/code/UUID/ID" class="w-[320px]" @enter="searchAssetAndOpen" />
         <UButton color="neutral" variant="soft" icon="i-lucide-arrow-left" @click="backToAssets">Back to Assets</UButton>
       </div>
     </div>
@@ -652,69 +651,83 @@ watch(
           </div>
         </div>
 
-        <div class="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-          <h3 class="text-base font-semibold text-slate-900 dark:text-white">IoT Device Binding</h3>
-          <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 md:grid-cols-5">
-            <div class="py-0.5">
-              <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Bound IoT</p>
-              <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.iotDevice?.macAddress || "Not bound" }}</p>
+        <div class="grid gap-3 lg:grid-cols-2">
+          <div class="h-full rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <h3 class="text-base font-semibold text-cyan-700 dark:text-cyan-300">IoT Device Binding</h3>
+            <div class="mt-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Current Binding</p>
+              <div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Bound IoT</p>
+                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.iotDevice?.macAddress || "Not bound" }}</p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Device UID</p>
+                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.iotDevice?.deviceUid || "-" }}</p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Binding At</p>
+                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ formatDate(details.activeBinding?.startedAt) }}</p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Status</p>
+                  <p class="mt-0.5 text-sm font-semibold" :class="bindingStatusClass(iotBindingStatus)">{{ iotBindingStatus }}</p>
+                </div>
+                <div class="col-span-2">
+                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Reason</p>
+                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.reason || "-" }}</p>
+                </div>
+              </div>
             </div>
-            <div class="py-0.5">
-              <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Device UID</p>
-              <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.iotDevice?.deviceUid || "-" }}</p>
-            </div>
-            <div class="py-0.5">
-              <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Binding At</p>
-              <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ formatDate(details.activeBinding?.startedAt) }}</p>
-            </div>
-            <div class="py-0.5">
-              <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Status</p>
-              <p class="mt-1 text-sm font-semibold" :class="bindingStatusClass(iotBindingStatus)">{{ iotBindingStatus }}</p>
-            </div>
-            <div class="py-0.5">
-              <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Reason</p>
-              <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.reason || "-" }}</p>
+
+            <div class="mt-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Bind / Replace</p>
+              <div class="mt-2 grid gap-2 md:grid-cols-2">
+                <USelect v-model="replaceDeviceForm.iotDeviceId" placeholder="Select spare IoT device" :items="deviceOptions" :ui="selectUi" class="min-w-0 w-full" />
+                <UInput v-model="replaceDeviceForm.reason" placeholder="Bind/replace reason (optional)" :ui="{ base: 'h-10 bg-white dark:bg-slate-900' }" class="min-w-0" />
+                <UButton color="primary" class="h-10 w-full justify-center text-white md:w-[132px]" :loading="saving" @click="replaceIotDevice">{{ hasBoundIot ? "Replace Now" : "Bind Now" }}</UButton>
+                <UButton color="neutral" variant="soft" class="h-10 w-full justify-center md:w-[132px]" icon="i-lucide-history" @click="openBindingHistory('iot')">History</UButton>
+              </div>
             </div>
           </div>
 
-          <div class="mt-2 grid gap-2 md:grid-cols-[360px_1fr_auto_auto]">
-            <USelect v-model="replaceDeviceForm.iotDeviceId" placeholder="Select spare IoT device" :items="deviceOptions" :ui="selectUi" class="w-full" />
-            <UInput v-model="replaceDeviceForm.reason" placeholder="Bind/replace reason (optional)" :ui="{ base: 'bg-white dark:bg-slate-900' }" />
-            <UButton color="primary" class="h-10 w-[132px] justify-center" :loading="saving" @click="replaceIotDevice">{{ hasBoundIot ? "Replace Now" : "Bind Now" }}</UButton>
-            <UButton color="neutral" variant="soft" class="h-10 w-[132px] justify-center" icon="i-lucide-history" @click="openBindingHistory('iot')">History</UButton>
-          </div>
-        </div>
+          <div class="h-full rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+            <h3 class="text-base font-semibold text-indigo-700 dark:text-indigo-300">Machine Binding</h3>
+            <div class="mt-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Current Binding</p>
+              <div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Bound Machine</p>
+                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.machineUnit?.serialNo || "Not bound" }}</p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Machine Unit ID</p>
+                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.machineUnit?.id || "-" }}</p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Binding At</p>
+                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ formatDate(details.activeBinding?.startedAt) }}</p>
+                </div>
+                <div>
+                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Status</p>
+                  <p class="mt-0.5 text-sm font-semibold" :class="bindingStatusClass(machineBindingStatus)">{{ machineBindingStatus }}</p>
+                </div>
+                <div class="col-span-2">
+                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Reason</p>
+                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.reason || "-" }}</p>
+                </div>
+              </div>
+            </div>
 
-        <div class="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-          <h3 class="text-base font-semibold text-slate-900 dark:text-white">Machine Binding</h3>
-          <div class="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 md:grid-cols-5">
-            <div class="py-0.5">
-              <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Bound Machine</p>
-              <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.machineUnit?.serialNo || "Not bound" }}</p>
+            <div class="mt-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
+              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Bind / Replace</p>
+              <div class="mt-2 grid gap-2 md:grid-cols-2">
+                <USelect v-model="replaceMachineForm.machineUnitId" placeholder="Select spare machine unit" :items="machineUnitOptions" :ui="selectUi" class="min-w-0 w-full" />
+                <UInput v-model="replaceMachineForm.reason" placeholder="Bind/replace reason (optional)" :ui="{ base: 'h-10 bg-white dark:bg-slate-900' }" class="min-w-0" />
+                <UButton color="primary" class="h-10 w-full justify-center text-white md:w-[132px]" :loading="saving" @click="replaceMachineUnit">{{ hasBoundMachine ? "Replace Now" : "Bind Now" }}</UButton>
+                <UButton color="neutral" variant="soft" class="h-10 w-full justify-center md:w-[132px]" icon="i-lucide-history" @click="openBindingHistory('machine')">History</UButton>
+              </div>
             </div>
-            <div class="py-0.5">
-              <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Machine Unit ID</p>
-              <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.machineUnit?.id || "-" }}</p>
-            </div>
-            <div class="py-0.5">
-              <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Binding At</p>
-              <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ formatDate(details.activeBinding?.startedAt) }}</p>
-            </div>
-            <div class="py-0.5">
-              <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Status</p>
-              <p class="mt-1 text-sm font-semibold" :class="bindingStatusClass(machineBindingStatus)">{{ machineBindingStatus }}</p>
-            </div>
-            <div class="py-0.5">
-              <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Reason</p>
-              <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.reason || "-" }}</p>
-            </div>
-          </div>
-
-          <div class="mt-2 grid gap-2 md:grid-cols-[360px_1fr_auto_auto]">
-            <USelect v-model="replaceMachineForm.machineUnitId" placeholder="Select spare machine unit" :items="machineUnitOptions" :ui="selectUi" class="w-full" />
-            <UInput v-model="replaceMachineForm.reason" placeholder="Bind/replace reason (optional)" :ui="{ base: 'bg-white dark:bg-slate-900' }" />
-            <UButton color="primary" class="h-10 w-[132px] justify-center" :loading="saving" @click="replaceMachineUnit">{{ hasBoundMachine ? "Replace Now" : "Bind Now" }}</UButton>
-            <UButton color="neutral" variant="soft" class="h-10 w-[132px] justify-center" icon="i-lucide-history" @click="openBindingHistory('machine')">History</UButton>
           </div>
         </div>
 
@@ -757,10 +770,9 @@ watch(
         <div class="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
           <h3 class="text-base font-semibold text-slate-900 dark:text-white">Order Info / Payment Info</h3>
           <div class="mt-2 flex flex-wrap items-end gap-2">
-            <UInput v-model="orderSearch" placeholder="Search order no./customer/order id" class="w-[280px]" :ui="{ base: 'bg-white dark:bg-slate-900' }" @keyup.enter="applyOrderFilters" />
-            <USelect v-model="orderStatusFilter" class="w-[220px]" :items="orderStatusOptions" :ui="selectUi" />
-            <USelect v-model="paymentStatusFilter" class="w-[220px]" :items="paymentStatusOptions" :ui="selectUi" />
-            <UButton color="primary" variant="soft" icon="i-lucide-search" :loading="orderListLoading" @click="applyOrderFilters">Apply</UButton>
+            <SearchInput v-model="orderSearch" placeholder="Search order no./customer/order id" class="w-[280px]" @input="applyOrderFilters" />
+            <USelect v-model="orderStatusFilter" class="w-[220px]" :items="orderStatusOptions" :ui="selectUi" @update:model-value="applyOrderFilters" />
+            <USelect v-model="paymentStatusFilter" class="w-[220px]" :items="paymentStatusOptions" :ui="selectUi" @update:model-value="applyOrderFilters" />
           </div>
 
           <div class="mt-2 grid gap-2 lg:grid-cols-[1.7fr_.7fr]">

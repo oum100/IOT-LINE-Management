@@ -2,8 +2,7 @@ import { getServerSession } from '#auth'
 import { getQuery } from 'h3'
 import { z } from 'zod'
 import { prisma } from '../../utils/prisma'
-
-type Role = 'PLATFORM_ADMIN' | 'TENANT_ADMIN' | 'TENANT_STAFF' | 'ADMIN' | 'USER'
+import { assertPermission, isPlatformRole, resolvePortalScopeContext } from '../../utils/rbac'
 
 const querySchema = z.object({
   mode: z.enum(['all', 'custom']).default('all'),
@@ -11,10 +10,7 @@ const querySchema = z.object({
   branchIds: z.string().optional()
 })
 
-function isPlatformRole(role: Role | string | null | undefined) {
-  const normalized = String(role || '').toUpperCase()
-  return normalized === 'PLATFORM_ADMIN' || normalized === 'ADMIN'
-}
+type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
 function parseIds(raw?: string) {
   if (!raw) return [] as string[]
@@ -34,6 +30,7 @@ function monthKey(date: Date) {
 }
 
 export default defineEventHandler(async (event) => {
+  await assertPermission(event, 'portal.revenue.read')
   const session = await getServerSession(event)
   const user = session?.user as {
     id?: string
@@ -47,13 +44,15 @@ export default defineEventHandler(async (event) => {
   }
 
   const query = querySchema.parse(getQuery(event))
-  const tenantScopeId = isPlatformRole(user.role) ? null : (user.tenantId || null)
-  const lockedMerchantId = isPlatformRole(user.role) ? null : (user.merchantAccountId || null)
+  const scope = await resolvePortalScopeContext(user)
+  const tenantScopeId = isPlatformRole(user.role) ? null : (scope.resolvedTenantId || null)
+  const lockedMerchantId = isPlatformRole(user.role) ? null : (scope.lockedMerchantId || null)
 
   const [merchants, branches] = await Promise.all([
     prisma.merchantAccount.findMany({
       where: {
         ...(tenantScopeId ? { tenantId: tenantScopeId } : {}),
+        ...(scope.allowedMerchantIds !== null ? { id: { in: scope.allowedMerchantIds } } : {}),
         ...(lockedMerchantId ? { id: lockedMerchantId } : {})
       },
       select: { id: true }
@@ -61,6 +60,8 @@ export default defineEventHandler(async (event) => {
     prisma.branch.findMany({
       where: {
         ...(tenantScopeId ? { tenantId: tenantScopeId } : {}),
+        ...(scope.allowedMerchantIds !== null ? { merchantAccountId: { in: scope.allowedMerchantIds } } : {}),
+        ...(scope.allowedBranchIds !== null ? { id: { in: scope.allowedBranchIds } } : {}),
         ...(lockedMerchantId ? { merchantAccountId: lockedMerchantId } : {})
       },
       select: { id: true, merchantAccountId: true }
@@ -90,16 +91,50 @@ export default defineEventHandler(async (event) => {
       : {})
   }
 
-  const orders = await prisma.order.findMany({
-    where: orderWhere,
-    select: {
-      createdAt: true,
-      totalAmount: true
+  const expenseWhere = {
+    occurredAt: { gte: monthlyStart, lte: now },
+    ...(tenantScopeId ? { tenantId: tenantScopeId } : {}),
+    ...(lockedMerchantId ? { merchantAccountId: lockedMerchantId } : {}),
+    ...(query.mode === 'custom' && !lockedMerchantId && requestedMerchantIds.length
+      ? { merchantAccountId: { in: requestedMerchantIds } }
+      : {}),
+    ...(query.mode === 'custom' && requestedBranchIds.length
+      ? { branchId: { in: requestedBranchIds } }
+      : {})
+  }
+
+  const expenseDelegate = (prisma as unknown as {
+    expense?: {
+      findMany: (args: {
+        where: typeof expenseWhere
+        select: { occurredAt: true; amount: true }
+      }) => Promise<Array<{ occurredAt: Date; amount: number }>>
     }
-  })
+  }).expense
+
+  const [orders, expenses] = await Promise.all([
+    prisma.order.findMany({
+      where: orderWhere,
+      select: {
+        createdAt: true,
+        totalAmount: true
+      }
+    }),
+    expenseDelegate
+      ? expenseDelegate.findMany({
+          where: expenseWhere,
+          select: {
+            occurredAt: true,
+            amount: true
+          }
+        })
+      : Promise.resolve([])
+  ])
 
   const dayMap = new Map<string, number>()
   const monthMap = new Map<string, number>()
+  const expenseDayMap = new Map<string, number>()
+  const expenseMonthMap = new Map<string, number>()
 
   for (const order of orders) {
     const createdAt = new Date(order.createdAt)
@@ -114,6 +149,19 @@ export default defineEventHandler(async (event) => {
     monthMap.set(mk, (monthMap.get(mk) || 0) + amount)
   }
 
+  for (const expense of expenses) {
+    const occurredAt = new Date(expense.occurredAt)
+    const day = startOfDay(occurredAt)
+    const dayKey = day.toISOString().slice(0, 10)
+    const mk = monthKey(occurredAt)
+    const amount = Number(expense.amount || 0)
+
+    if (day >= dailyStart) {
+      expenseDayMap.set(dayKey, (expenseDayMap.get(dayKey) || 0) + amount)
+    }
+    expenseMonthMap.set(mk, (expenseMonthMap.get(mk) || 0) + amount)
+  }
+
   const daily = Array.from({ length: 60 }, (_, index) => {
     const day = new Date(dailyStart)
     day.setDate(dailyStart.getDate() + index)
@@ -122,6 +170,17 @@ export default defineEventHandler(async (event) => {
       key,
       label: day.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }),
       amount: Number(dayMap.get(key) || 0)
+    }
+  })
+
+  const dailyExpense = Array.from({ length: 60 }, (_, index) => {
+    const day = new Date(dailyStart)
+    day.setDate(dailyStart.getDate() + index)
+    const key = day.toISOString().slice(0, 10)
+    return {
+      key,
+      label: day.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' }),
+      amount: Number(expenseDayMap.get(key) || 0)
     }
   })
 
@@ -136,6 +195,16 @@ export default defineEventHandler(async (event) => {
     }
   })
 
-  return { daily, monthly }
-})
+  const monthlyExpense = Array.from({ length: 24 }, (_, index) => {
+    const d = new Date(monthlyStart)
+    d.setMonth(monthlyStart.getMonth() + index)
+    const key = monthKey(d)
+    return {
+      key,
+      label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      amount: Number(expenseMonthMap.get(key) || 0)
+    }
+  })
 
+  return { daily, monthly, dailyExpense, monthlyExpense }
+})

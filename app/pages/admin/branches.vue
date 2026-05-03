@@ -282,17 +282,12 @@ watch(() => route.query.tenantId, () => {
             />
           </div>
           <div class="col-span-2 flex items-end gap-2">
-            <UInput
+            <SearchInput
               v-model="filters.q"
               placeholder="Search code/name..."
               class="w-full bg-white dark:bg-slate-950"
-              :ui="{
-                base: 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ring-1 ring-slate-300 dark:ring-slate-600',
-              }"
+              @enter="onSearch"
             />
-            <UButton color="primary" variant="soft" icon="i-lucide-search" class="text-blue-700 dark:text-blue-200 ring-blue-300/70 dark:ring-blue-700/60" :loading="loading" @click="onSearch">
-              Search
-            </UButton>
           </div>
           <div class="flex justify-end">
             <UButton

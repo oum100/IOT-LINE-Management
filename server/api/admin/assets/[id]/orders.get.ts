@@ -1,4 +1,5 @@
 import { createError, getQuery, getRouterParam } from 'h3'
+import { Prisma } from '@prisma/client'
 import { assertAdminAccess } from '../../../../utils/admin-auth'
 import { prisma } from '../../../../utils/prisma'
 
@@ -26,16 +27,16 @@ export default defineEventHandler(async (event) => {
   const page = Math.max(1, Number(query.page || 1) || 1)
   const pageSize = Math.min(50, Math.max(5, Number(query.pageSize || 10) || 10))
 
-  const where = {
+  const where: Prisma.OrderWhereInput = {
     tenantId: asset.tenantId,
     ...(orderStatus ? { status: orderStatus as any } : {}),
     ...(paymentStatus ? { payment: { is: { status: paymentStatus as any } } } : {}),
     ...(q
       ? {
           OR: [
-            { orderNumber: { contains: q, mode: 'insensitive' } },
-            { customerName: { contains: q, mode: 'insensitive' } },
-            { id: { contains: q, mode: 'insensitive' } }
+            { orderNumber: { contains: q, mode: Prisma.QueryMode.insensitive } },
+            { customerName: { contains: q, mode: Prisma.QueryMode.insensitive } },
+            { id: { contains: q, mode: Prisma.QueryMode.insensitive } }
           ]
         }
       : {}),

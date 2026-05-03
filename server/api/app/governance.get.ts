@@ -1,15 +1,12 @@
 import { getServerSession } from '#auth'
 import { prisma } from '../../utils/prisma'
 import { resolvePaymentExpiryMinutes } from '../../utils/payment-expiry'
+import { assertPermission, resolvePortalScopeContext } from '../../utils/rbac'
 
-type Role = 'PLATFORM_ADMIN' | 'TENANT_ADMIN' | 'TENANT_STAFF' | 'ADMIN' | 'USER'
-
-function isPlatformRole(role: Role | string | null | undefined) {
-  const normalized = String(role || '').toUpperCase()
-  return normalized === 'PLATFORM_ADMIN' || normalized === 'ADMIN'
-}
+type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
 export default defineEventHandler(async (event) => {
+  await assertPermission(event, 'portal.governance.read')
   const session = await getServerSession(event)
   const user = session?.user as {
     id?: string
@@ -19,19 +16,14 @@ export default defineEventHandler(async (event) => {
   } | undefined
   if (!user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
 
-  const resolvedTenantId = user.tenantId
-    || (user.merchantAccountId
-      ? (await prisma.merchantAccount.findUnique({
-          where: { id: user.merchantAccountId },
-          select: { tenantId: true }
-        }))?.tenantId
-      : null)
+  const scope = await resolvePortalScopeContext(user)
+  const resolvedTenantId = scope.resolvedTenantId
 
-  if (!isPlatformRole(user.role) && !resolvedTenantId) {
+  if (!resolvedTenantId) {
     throw createError({ statusCode: 403, statusMessage: 'Tenant scope is required' })
   }
-  if (!resolvedTenantId) throw createError({ statusCode: 400, statusMessage: 'Tenant not found in scope' })
 
+  const orm = prisma as any
   const [users, billers, paymentExpiryMinutes] = await Promise.all([
     prisma.user.findMany({
       where: { tenantId: resolvedTenantId },
@@ -43,10 +35,29 @@ export default defineEventHandler(async (event) => {
         name: true,
         role: true,
         isActive: true,
-        merchantAccountId: true
+        merchantAccountId: true,
+        emailVerified: true,
+        image: true,
+        createdAt: true,
+        updatedAt: true,
+        merchantAccount: {
+          select: {
+            id: true,
+            name: true,
+            code: true
+          }
+        },
+        scopeAssignments: {
+          where: { active: true },
+          select: {
+            scopeType: true,
+            merchantAccountId: true,
+            branchId: true
+          }
+        }
       }
     }),
-    prisma.billerProfile.findMany({
+    orm.billerProfile.findMany({
       where: { tenantId: resolvedTenantId },
       orderBy: [{ priority: 'asc' }, { createdAt: 'desc' }],
       take: 30,
@@ -55,12 +66,35 @@ export default defineEventHandler(async (event) => {
         code: true,
         displayName: true,
         providerCode: true,
+        integrationMode: true,
         status: true,
         priority: true,
         billerId: true,
+        providerConnectionId: true,
+        slipVerifyConnectionId: true,
+        config: true,
+        providerConnection: {
+          select: {
+            id: true,
+            code: true,
+            displayName: true,
+            providerCode: true,
+            status: true
+          }
+        },
+        slipVerifyConnection: {
+          select: {
+            id: true,
+            code: true,
+            displayName: true,
+            providerCode: true,
+            status: true
+          }
+        },
         _count: {
           select: {
             payments: true,
+            tenantBindings: true,
             merchantBindings: true,
             branchBindings: true
           }
@@ -70,16 +104,25 @@ export default defineEventHandler(async (event) => {
     resolvePaymentExpiryMinutes(event)
   ])
 
-  const billersWithDelete = billers.map((item) => {
-    const linkedCount = item._count.payments + item._count.merchantBindings + item._count.branchBindings
+  const billersWithDelete = billers.map((item: any) => {
+    const linkedCount = item._count.payments + item._count.tenantBindings + item._count.merchantBindings + item._count.branchBindings
+    const config = ((item.config as Record<string, unknown> | null) || {})
     return {
       id: item.id,
       code: item.code,
       displayName: item.displayName,
       providerCode: item.providerCode,
+      integrationMode: item.integrationMode,
       status: item.status,
       priority: item.priority,
       billerId: item.billerId,
+      providerConnectionId: item.providerConnectionId || null,
+      providerConnectionName: item.providerConnection?.displayName || null,
+      qrPaymentMode: typeof config.qrPaymentMode === 'string' ? config.qrPaymentMode : null,
+      maeManeeReferencePrefix: typeof config.maeManeeReferencePrefix === 'string' ? config.maeManeeReferencePrefix : null,
+      maeManeeShopId: typeof config.maeManeeShopId === 'string' ? config.maeManeeShopId : null,
+      slipVerifyConnectionId: item.slipVerifyConnectionId || null,
+      slipVerificationProvider: item.slipVerifyConnection?.displayName || item.slipVerifyConnection?.providerCode || (typeof config.slipVerificationProvider === 'string' ? config.slipVerificationProvider : null),
       merchantBindingCount: item._count.merchantBindings,
       branchBindingCount: item._count.branchBindings,
       linkedCount,

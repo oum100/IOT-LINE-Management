@@ -255,12 +255,12 @@ async function deleteDevice(item: DeviceItem) {
   createMessage.value = ""
   try {
     await $fetch(`/api/admin/devices/${item.id}`, {
-      method: "DELETE",
+      method: "delete",
       body: {
         confirmText: "DELETE",
         confirmName: expectedName,
       },
-    })
+    } as any)
     createMessage.value = `Device deleted: ${expectedName}`
     await loadData()
   } catch (err) {
@@ -333,14 +333,12 @@ onMounted(async () => {
               <option v-for="branch in branches" :key="branch.id" :value="branch.id">{{ branch.name }}</option>
             </select>
           </div>
-          <UInput
+          <SearchInput
             v-model="search"
             placeholder="Search device uid/mac/id..."
-            :ui="{ base: 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ring-1 ring-slate-300 dark:ring-slate-600' }"
-            @keyup.enter="applyFilters"
+            @enter="applyFilters"
           />
-          <UButton icon="i-lucide-search" color="neutral" variant="soft" @click="applyFilters">Search</UButton>
-          <UButton icon="i-lucide-plus" color="primary" :loading="creating" @click="openCreateDialog">Create</UButton>
+          <UButton icon="i-lucide-plus" color="primary" class="text-white" :loading="creating" @click="openCreateDialog">Create</UButton>
           <UButton icon="i-lucide-refresh-cw" color="neutral" variant="soft" @click="loadData">Refresh</UButton>
         </div>
       </template>
@@ -461,7 +459,7 @@ onMounted(async () => {
           <template #footer>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="closeCreateDialog">Cancel</UButton>
-              <UButton color="primary" :loading="creating" @click="createDevice">Create Device</UButton>
+              <UButton color="primary" class="text-white" :loading="creating" @click="createDevice">Create Device</UButton>
             </div>
           </template>
         </UCard>

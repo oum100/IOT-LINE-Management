@@ -29,6 +29,12 @@ type OrderItem = {
   merchantAccount?: { id: string; name: string } | null
   branch?: { id: string; name: string } | null
   payment?: { id: string; status: string; amount: number } | null
+  items?: Array<{
+    id: string
+    priceLabel: string
+    asset?: { code?: string | null; name?: string | null } | null
+    product?: { code?: string | null; name?: string | null } | null
+  }>
   createdAt: string
 }
 type RefundContext = {
@@ -94,7 +100,16 @@ const filters = ref({
   tenantId: "",
   merchantAccountId: "",
   branchId: "",
+  status: "",
 })
+const orderStatuses = [
+  "PENDING_PAYMENT",
+  "SLIP_UPLOADED",
+  "CONFIRMED",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "CANCELLED",
+] as const
 
 const tenants = ref<Tenant[]>([])
 const merchants = ref<Merchant[]>([])
@@ -122,12 +137,59 @@ const summary = ref<OrderSummary>({
   cancelledCount: 0,
 })
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
+const { data: authData } = useAuth()
+const roleKey = computed(() => String(authData.value?.user?.role || '').toUpperCase())
+const canManageOrder = computed(() => roleKey.value === 'ADMIN')
 const refundInputUi = {
   base: "bg-white text-slate-900 placeholder:text-slate-500 ring-1 ring-slate-300 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-400 dark:ring-slate-600"
 }
 
 function formatDate(date: string) {
   return new Date(date).toLocaleString()
+}
+
+function formatDateOnly(date: string) {
+  return new Date(date).toLocaleDateString()
+}
+
+function formatTimeOnly(date: string) {
+  return new Date(date).toLocaleTimeString()
+}
+
+function orderStatusClass(status: string) {
+  if (status === "COMPLETED") return "text-emerald-500"
+  if (status === "CANCELLED") return "text-rose-500"
+  if (status === "IN_PROGRESS") return "text-violet-500"
+  if (status === "CONFIRMED") return "text-blue-500"
+  if (status === "SLIP_UPLOADED") return "text-cyan-500"
+  return "text-amber-500"
+}
+
+function paymentStatusClass(status?: string) {
+  if (!status) return "text-slate-500 dark:text-slate-400"
+  if (status === "VERIFIED") return "text-emerald-500"
+  if (status === "FAILED" || status === "REJECTED") return "text-rose-500"
+  if (status === "PENDING") return "text-amber-500"
+  return "text-blue-500"
+}
+
+function itemSummary(item: OrderItem) {
+  const rows = item.items || []
+  if (!rows.length) {
+    return { assets: "-", products: "-" }
+  }
+  const assetSet = new Set<string>()
+  const productSet = new Set<string>()
+  for (const row of rows) {
+    const assetName = row.asset?.name || row.asset?.code
+    const productName = row.product?.name || row.product?.code || row.priceLabel
+    if (assetName) assetSet.add(assetName)
+    if (productName) productSet.add(productName)
+  }
+  return {
+    assets: Array.from(assetSet).join(", ") || "-",
+    products: Array.from(productSet).join(", ") || "-"
+  }
 }
 
 async function loadTenants() {
@@ -172,6 +234,7 @@ async function loadData() {
       ...(filters.value.tenantId ? { tenantId: filters.value.tenantId } : {}),
       ...(filters.value.merchantAccountId ? { merchantAccountId: filters.value.merchantAccountId } : {}),
       ...(filters.value.branchId ? { branchId: filters.value.branchId } : {}),
+      ...(filters.value.status ? { status: filters.value.status } : {}),
     }
     const [listRes, summaryRes] = await Promise.all([
       $fetch<PagingResponse<OrderItem>>("/api/admin/orders", {
@@ -217,6 +280,7 @@ function closeRefundDialog() {
 }
 
 async function openRefundDialog(item: OrderItem) {
+  if (!canManageOrder.value) return
   refundOpen.value = true
   refundLoading.value = true
   refundError.value = ""
@@ -273,6 +337,7 @@ function selectedRefundItems() {
 }
 
 async function submitRefund() {
+  if (!canManageOrder.value) return
   if (!refundData.value) return
   refundSubmitting.value = true
   refundError.value = ""
@@ -318,6 +383,7 @@ function allowedRefundActions(status: string): RefundTransitionAction[] {
 }
 
 async function runRefundAction(refundId: string, action: RefundTransitionAction) {
+  if (!canManageOrder.value) return
   if (!refundData.value) return
   refundTransitionBusy.value[refundId] = true
   refundError.value = ""
@@ -358,6 +424,20 @@ watch(
   },
 )
 
+watch(
+  () => filters.value.branchId,
+  () => {
+    applyFilters()
+  },
+)
+
+watch(
+  () => filters.value.status,
+  () => {
+    applyFilters()
+  },
+)
+
 onMounted(async () => {
   try {
     await loadTenants()
@@ -379,7 +459,7 @@ onMounted(async () => {
 
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <template #header>
-        <div class="grid gap-3 md:grid-cols-[220px_220px_220px_1fr_auto_auto] md:items-end">
+        <div class="grid gap-3 md:grid-cols-[220px_220px_220px_180px_1fr] md:items-end">
           <div class="flex flex-col gap-1">
             <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Tenant</label>
             <select v-model="filters.tenantId" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
@@ -401,14 +481,18 @@ onMounted(async () => {
               <option v-for="branch in branches" :key="branch.id" :value="branch.id">{{ branch.name }}</option>
             </select>
           </div>
-          <UInput
+          <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Status</label>
+            <select v-model="filters.status" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
+              <option value="">All status</option>
+              <option v-for="statusOption in orderStatuses" :key="statusOption" :value="statusOption">{{ statusOption }}</option>
+            </select>
+          </div>
+          <SearchInput
             v-model="search"
             placeholder="Search order no/customer/id..."
-            :ui="{ base: 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ring-1 ring-slate-300 dark:ring-slate-600' }"
-            @keyup.enter="applyFilters"
+            @enter="applyFilters"
           />
-          <UButton icon="i-lucide-search" color="primary" @click="applyFilters">Search</UButton>
-          <UButton icon="i-lucide-refresh-cw" color="neutral" variant="soft" @click="loadData">Refresh</UButton>
         </div>
       </template>
 
@@ -428,11 +512,11 @@ onMounted(async () => {
             <tr>
               <th class="px-3 py-2">Order</th>
               <th class="px-3 py-2">Customer</th>
-              <th class="px-3 py-2">Status</th>
-              <th class="px-3 py-2">Payment</th>
+              <th class="px-3 py-2 text-center">Status / Payment</th>
               <th class="px-3 py-2">Amount</th>
+              <th class="px-3 py-2">Asset / Product</th>
               <th class="px-3 py-2">Tenant</th>
-              <th class="px-3 py-2">Merchant (Brand)</th>
+              <th class="px-3 py-2">Machine</th>
               <th class="px-3 py-2">Branch</th>
               <th class="px-3 py-2">Created</th>
               <th class="px-3 py-2">Actions</th>
@@ -442,20 +526,41 @@ onMounted(async () => {
             <tr v-for="item in items" :key="item.id" class="border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/40">
               <td class="px-3 py-2 font-medium">{{ item.orderNumber }}</td>
               <td class="px-3 py-2">{{ item.customerName }}</td>
-              <td class="px-3 py-2">{{ item.status }}</td>
-              <td class="px-3 py-2">{{ item.payment?.status || "-" }}</td>
+              <td class="px-3 py-2 text-center">
+                <div class="space-y-0.5">
+                  <p :class="orderStatusClass(item.status)">{{ item.status }}</p>
+                  <p :class="['text-xs', paymentStatusClass(item.payment?.status)]">{{ item.payment?.status || "-" }}</p>
+                </div>
+              </td>
               <td class="px-3 py-2">{{ item.totalAmount }}</td>
+              <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
+                <div class="space-y-0.5">
+                  <p class="flex items-center gap-1.5">
+                    <span class="inline-flex h-4 min-w-4 items-center justify-center rounded-sm bg-slate-200 px-1 text-[10px] font-semibold leading-none text-slate-700 dark:bg-slate-700 dark:text-slate-100">A</span>
+                    <span>{{ itemSummary(item).assets }}</span>
+                  </p>
+                  <p class="flex items-center gap-1.5">
+                    <span class="inline-flex h-4 min-w-4 items-center justify-center rounded-sm bg-slate-200 px-1 text-[10px] font-semibold leading-none text-slate-700 dark:bg-slate-700 dark:text-slate-100">P</span>
+                    <span>{{ itemSummary(item).products }}</span>
+                  </p>
+                </div>
+              </td>
               <td class="px-3 py-2">{{ item.tenant?.name || "-" }}</td>
               <td class="px-3 py-2">{{ item.merchantAccount?.name || "-" }}</td>
               <td class="px-3 py-2">{{ item.branch?.name || "-" }}</td>
-              <td class="px-3 py-2">{{ formatDate(item.createdAt) }}</td>
+              <td class="px-3 py-2">
+                <div class="space-y-0.5">
+                  <p>{{ formatDateOnly(item.createdAt) }}</p>
+                  <p class="text-xs text-slate-500 dark:text-slate-400">{{ formatTimeOnly(item.createdAt) }}</p>
+                </div>
+              </td>
               <td class="px-3 py-2">
                 <UButton
                   icon="i-lucide-rotate-ccw"
                   size="xs"
                   color="warning"
                   variant="soft"
-                  :disabled="item.payment?.status !== 'VERIFIED'"
+                  :disabled="!canManageOrder || item.payment?.status !== 'VERIFIED'"
                   @click="openRefundDialog(item)"
                 >
                   Refund
@@ -593,6 +698,7 @@ onMounted(async () => {
                           color="warning"
                           variant="soft"
                           :loading="refundTransitionBusy[rf.id]"
+                          :disabled="!canManageOrder"
                           @click="runRefundAction(rf.id, action)"
                         >
                           {{ refundActionLabel(action) }}
@@ -617,7 +723,7 @@ onMounted(async () => {
           <template #footer>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="closeRefundDialog">Cancel</UButton>
-              <UButton color="warning" :loading="refundSubmitting" :disabled="refundLoading || !refundData" @click="submitRefund">Submit Refund</UButton>
+              <UButton color="warning" :loading="refundSubmitting" :disabled="!canManageOrder || refundLoading || !refundData" @click="submitRefund">Submit Refund</UButton>
             </div>
           </template>
         </UCard>

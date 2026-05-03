@@ -1,5 +1,7 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { getObjectSetting, getSystemSetting, getNumberSetting, setSystemSetting } from './system-settings'
+import { SYSTEM_SETTING_KEYS } from '../../shared/system-settings-catalog'
 
 type AdminSettingsStore = {
   paymentExpiryMinutes?: number
@@ -7,38 +9,62 @@ type AdminSettingsStore = {
 
 const STORE_PATH = join(process.cwd(), '.data', 'admin-settings.json')
 
-async function ensureStore() {
-  await mkdir(join(process.cwd(), '.data'), { recursive: true })
-}
+export async function getAdminSettings() {
+  const directValue = await getSystemSetting<number>(SYSTEM_SETTING_KEYS.paymentExpiryMinutes)
+  if (typeof directValue === 'number' && Number.isFinite(directValue)) {
+    return {
+      paymentExpiryMinutes: directValue
+    }
+  }
 
-async function readStore(): Promise<AdminSettingsStore> {
-  await ensureStore()
+  const saved = await getObjectSetting<AdminSettingsStore>('admin.settings', {})
+  if (saved) {
+    return saved
+  }
 
   try {
     const raw = await readFile(STORE_PATH, 'utf8')
-    return JSON.parse(raw) as AdminSettingsStore
+    const legacy = JSON.parse(raw) as AdminSettingsStore
+    if (legacy && typeof legacy === 'object') {
+      await setSystemSetting('admin.settings', legacy)
+      return legacy
+    }
   } catch {
-    return {}
+    // Ignore legacy file read errors and fall back to empty settings.
   }
-}
 
-async function writeStore(store: AdminSettingsStore) {
-  await ensureStore()
-  await writeFile(STORE_PATH, JSON.stringify(store, null, 2), 'utf8')
-}
-
-export async function getAdminSettings() {
-  return readStore()
+  return {}
 }
 
 export async function setPaymentExpiryMinutes(minutes: number) {
-  const store = await readStore()
+  const store = await getAdminSettings()
   const next: AdminSettingsStore = {
     ...store,
     paymentExpiryMinutes: minutes
   }
-  await writeStore(next)
+  await setSystemSetting(SYSTEM_SETTING_KEYS.paymentExpiryMinutes, minutes)
+  await setSystemSetting('admin.settings', next)
 
   return next
 }
 
+export async function getPaymentExpiryMinutesSetting(fallback = 15) {
+  const directValue = await getNumberSetting(SYSTEM_SETTING_KEYS.paymentExpiryMinutes, NaN)
+  if (Number.isFinite(directValue) && directValue >= 1 && directValue <= 1440) {
+    return directValue
+  }
+
+  const settings = await getAdminSettings()
+  const nestedValue = Number(settings.paymentExpiryMinutes)
+  if (Number.isFinite(nestedValue) && nestedValue >= 1 && nestedValue <= 1440) {
+    return nestedValue
+  }
+
+  const legacy = await getSystemSetting<AdminSettingsStore>('admin.settings')
+  const legacyValue = Number(legacy?.paymentExpiryMinutes)
+  if (Number.isFinite(legacyValue) && legacyValue >= 1 && legacyValue <= 1440) {
+    return legacyValue
+  }
+
+  return fallback
+}

@@ -4,13 +4,18 @@ export type MachineWithPrices = {
   name: string
   kind: 'WASHER' | 'DRYER'
   status: 'AVAILABLE' | 'RESERVED' | 'RUNNING' | 'MAINTENANCE'
+  assetStatus?: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE'
   locationLabel: string
   remainingMinutes?: number | null
   prices: Array<{
     id: string
+    machinePriceId?: string
     label: string
     amount: number
     durationMinutes: number
+    serviceMode?: 'TIME' | 'QUANTITY' | 'UNIT'
+    serviceUnit?: 'MINUTE' | 'SECOND' | 'LITER' | 'GRAM' | 'PIECE' | 'BOX' | 'SLOT'
+    quantity?: number | null
   }>
 }
 

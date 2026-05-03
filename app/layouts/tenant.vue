@@ -3,8 +3,7 @@ const tenantMenus = computed(() => [
   { to: '/app/dashboard', label: 'Dashboard' },
   { to: '/app/revenue', label: 'Revenue' },
   { to: '/app/tenant', label: 'Tenant' },
-  { to: '/admin/merchants', label: 'Merchant' },
-  { to: '/admin/branchs', label: 'Branch' },
+  { to: '/app/user', label: 'Users' },
   { to: '/app/asset', label: 'Assets' }
 ])
 </script>

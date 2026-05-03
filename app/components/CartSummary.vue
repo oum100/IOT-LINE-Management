@@ -16,6 +16,30 @@ const emit = defineEmits<{
 
 const cart = useCartStore()
 const total = computed(() => cart.totalAmount)
+
+function unitLabel(unit?: string) {
+  if (unit === 'MINUTE') return 'min'
+  if (unit === 'SECOND') return 'sec'
+  if (unit === 'LITER') return 'L'
+  if (unit === 'GRAM') return 'g'
+  if (unit === 'PIECE') return 'piece'
+  if (unit === 'BOX') return 'box'
+  if (unit === 'SLOT') return 'slot'
+  return ''
+}
+
+function serviceText(item: {
+  serviceMode?: string
+  durationMinutes: number
+  serviceUnit?: string
+  quantity?: number | null
+}) {
+  if (item.serviceMode === 'TIME' || !item.serviceMode) {
+    return `${item.durationMinutes} ${unitLabel(item.serviceUnit || 'MINUTE')}`
+  }
+  const qty = item.quantity == null ? 1 : Number(item.quantity)
+  return `${qty} ${unitLabel(item.serviceUnit)}`
+}
 </script>
 
 <template>
@@ -36,7 +60,7 @@ const total = computed(() => cart.totalAmount)
       >
         <div>
           <p class="font-medium text-slate-900">{{ item.machineName }}</p>
-          <p class="text-sm text-slate-600">{{ item.priceLabel }} • {{ item.durationMinutes }} นาที</p>
+          <p class="text-sm text-slate-600">{{ item.priceLabel }} • {{ serviceText(item) }}</p>
         </div>
         <div class="flex items-center gap-3">
           <p class="font-semibold text-slate-900">{{ item.amount }} บาท</p>

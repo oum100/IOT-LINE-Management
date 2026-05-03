@@ -11,8 +11,8 @@ if (route.path === '/portal') {
     await navigateTo('/login')
   } else {
     const role = String(user.role || '').toUpperCase()
-    const isPlatformAdmin = role === 'ADMIN' || role === 'PLATFORM_ADMIN'
-    if (isPlatformAdmin) {
+    const isPlatformUser = role === 'ADMIN' || role === 'USER'
+    if (isPlatformUser) {
       await navigateTo('/platform/dashboard')
     } else if (!user.tenantId) {
       await navigateTo('/portal/new-user')

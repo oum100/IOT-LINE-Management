@@ -1,6 +1,6 @@
 import { getQuery } from 'h3'
 import { prisma } from '../../../utils/prisma'
-import { assertAdminAccess } from '../../../utils/admin-auth'
+import { assertPermission } from '../../../utils/rbac'
 
 type OrderSummary = {
   totalCount: number
@@ -13,7 +13,7 @@ type OrderSummary = {
 }
 
 export default defineEventHandler(async (event): Promise<OrderSummary> => {
-  await assertAdminAccess(event)
+  await assertPermission(event, 'platform.order.read')
   const query = getQuery(event)
   const tenantId = String(query.tenantId || '').trim()
   const merchantAccountId = String(query.merchantAccountId || '').trim()

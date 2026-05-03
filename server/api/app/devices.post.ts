@@ -3,12 +3,13 @@ import { readBody } from 'h3'
 import { z } from 'zod'
 import { macToDeviceUid, normalizeMacAddress } from '../../utils/device-keys'
 import { prisma } from '../../utils/prisma'
+import { assertPermission } from '../../utils/rbac'
 
-type Role = 'PLATFORM_ADMIN' | 'TENANT_ADMIN' | 'TENANT_STAFF' | 'ADMIN' | 'USER'
+type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
 function isPlatformRole(role: Role | string | null | undefined) {
   const normalized = String(role || '').toUpperCase()
-  return normalized === 'PLATFORM_ADMIN' || normalized === 'ADMIN'
+  return normalized === 'ADMIN' || normalized === 'USER'
 }
 
 const bodySchema = z.object({
@@ -19,6 +20,7 @@ const bodySchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
+  await assertPermission(event, 'portal.asset.manage')
   const session = await getServerSession(event)
   const user = session?.user as {
     id?: string

@@ -2,12 +2,13 @@ import { getServerSession } from '#auth'
 import { getRouterParam, readBody } from 'h3'
 import { z } from 'zod'
 import { prisma } from '../../../../utils/prisma'
+import { assertPermission, resolvePortalScopeContext } from '../../../../utils/rbac'
 
-type Role = 'PLATFORM_ADMIN' | 'TENANT_ADMIN' | 'TENANT_STAFF' | 'ADMIN' | 'USER'
+type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
 function isPlatformRole(role: Role | string | null | undefined) {
   const normalized = String(role || '').toUpperCase()
-  return normalized === 'PLATFORM_ADMIN' || normalized === 'ADMIN'
+  return normalized === 'ADMIN' || normalized === 'USER'
 }
 
 const bodySchema = z.object({
@@ -15,6 +16,7 @@ const bodySchema = z.object({
 })
 
 export default defineEventHandler(async (event) => {
+  await assertPermission(event, 'portal.asset.manage')
   const assetId = getRouterParam(event, 'id')
   if (!assetId) {
     throw createError({ statusCode: 400, statusMessage: 'Missing asset id' })
@@ -34,13 +36,8 @@ export default defineEventHandler(async (event) => {
 
   const body = bodySchema.parse(await readBody(event))
 
-  const resolvedTenantId = user.tenantId
-    || (user.merchantAccountId
-      ? (await prisma.merchantAccount.findUnique({
-          where: { id: user.merchantAccountId },
-          select: { tenantId: true }
-        }))?.tenantId
-      : null)
+  const scope = await resolvePortalScopeContext(user)
+  const resolvedTenantId = scope.resolvedTenantId
 
   if (!isPlatformRole(user.role) && !resolvedTenantId) {
     throw createError({ statusCode: 403, statusMessage: 'Tenant scope is required' })
@@ -52,12 +49,27 @@ export default defineEventHandler(async (event) => {
 
   const [asset, product] = await Promise.all([
     prisma.asset.findFirst({
-      where: { id: assetId, tenantId: resolvedTenantId },
+      where: {
+        id: assetId,
+        tenantId: resolvedTenantId,
+        ...(scope.allowedBranchIds !== null ? { branchId: { in: scope.allowedBranchIds } } : {}),
+        ...(scope.allowedMerchantIds !== null ? { branch: { merchantAccountId: { in: scope.allowedMerchantIds } } } : {})
+      },
       select: { id: true, tenantId: true, kind: true }
     }),
     prisma.product.findFirst({
       where: { id: body.productId, tenantId: resolvedTenantId },
-      select: { id: true, tenantId: true, kind: true, amount: true, durationMinutes: true, active: true }
+      select: {
+        id: true,
+        tenantId: true,
+        kind: true,
+        amount: true,
+        durationMinutes: true,
+        serviceMode: true,
+        serviceUnit: true,
+        quantity: true,
+        active: true
+      }
     })
   ])
 
@@ -83,14 +95,26 @@ export default defineEventHandler(async (event) => {
     select: {
       id: true,
       amount: true,
-      durationMinutes: true
+      durationMinutes: true,
+      serviceMode: true,
+      serviceUnit: true,
+      quantity: true
     }
   })
 
   const bindAmount = product.amount ?? existingBinding?.amount ?? null
-  const bindDurationMinutes = product.durationMinutes ?? existingBinding?.durationMinutes ?? null
-  if (!bindAmount || !bindDurationMinutes) {
-    throw createError({ statusCode: 409, statusMessage: 'Product has no price/time to bind' })
+  const bindServiceMode = product.serviceMode ?? existingBinding?.serviceMode ?? 'TIME'
+  const bindServiceUnit = product.serviceUnit ?? existingBinding?.serviceUnit ?? 'MINUTE'
+  const bindQuantity = product.quantity ?? existingBinding?.quantity ?? (product.durationMinutes ?? existingBinding?.durationMinutes ?? null)
+  const bindDurationMinutes = product.durationMinutes
+    ?? existingBinding?.durationMinutes
+    ?? (bindQuantity ? Math.max(1, Math.round(Number(bindQuantity))) : null)
+
+  if (!bindAmount || !bindQuantity) {
+    throw createError({ statusCode: 409, statusMessage: 'Product has no price/quantity to bind' })
+  }
+  if (!bindDurationMinutes) {
+    throw createError({ statusCode: 409, statusMessage: 'Product has no duration fallback to bind' })
   }
 
   const bound = await prisma.assetProductPrice.upsert({
@@ -103,6 +127,9 @@ export default defineEventHandler(async (event) => {
     update: {
       amount: bindAmount,
       durationMinutes: bindDurationMinutes,
+      serviceMode: bindServiceMode,
+      serviceUnit: bindServiceUnit,
+      quantity: bindQuantity,
       active: true
     },
     create: {
@@ -111,6 +138,9 @@ export default defineEventHandler(async (event) => {
       productId: product.id,
       amount: bindAmount,
       durationMinutes: bindDurationMinutes,
+      serviceMode: bindServiceMode,
+      serviceUnit: bindServiceUnit,
+      quantity: bindQuantity,
       active: true
     },
     select: {
@@ -119,6 +149,9 @@ export default defineEventHandler(async (event) => {
       productId: true,
       amount: true,
       durationMinutes: true,
+      serviceMode: true,
+      serviceUnit: true,
+      quantity: true,
       active: true
     }
   })

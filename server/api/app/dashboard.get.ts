@@ -1,14 +1,11 @@
 import { getServerSession } from '#auth'
 import { prisma } from '../../utils/prisma'
+import { assertPermission, isPlatformRole, resolvePortalScopeContext } from '../../utils/rbac'
 
-type Role = 'PLATFORM_ADMIN' | 'TENANT_ADMIN' | 'TENANT_STAFF' | 'ADMIN' | 'USER'
-
-function isPlatformRole(role: Role | string | null | undefined) {
-  const normalized = String(role || '').toUpperCase()
-  return normalized === 'PLATFORM_ADMIN' || normalized === 'ADMIN'
-}
+type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
 export default defineEventHandler(async (event) => {
+  await assertPermission(event, 'portal.dashboard.read')
   const session = await getServerSession(event)
   const user = session?.user as {
     id?: string
@@ -22,13 +19,8 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
-    const resolvedTenantId = user.tenantId
-      || (user.merchantAccountId
-        ? (await prisma.merchantAccount.findUnique({
-            where: { id: user.merchantAccountId },
-            select: { tenantId: true }
-          }))?.tenantId
-        : null)
+    const scope = await resolvePortalScopeContext(user)
+    const resolvedTenantId = scope.resolvedTenantId
 
     if (!isPlatformRole(user.role) && !resolvedTenantId && !user.merchantAccountId) {
       throw createError({ statusCode: 403, statusMessage: 'Tenant scope is required' })
@@ -41,7 +33,9 @@ export default defineEventHandler(async (event) => {
       ? {}
       : {
           ...(resolvedTenantId ? { tenantId: resolvedTenantId } : {}),
-          ...(user.merchantAccountId ? { merchantAccountId: user.merchantAccountId } : {})
+          ...(user.merchantAccountId ? { merchantAccountId: user.merchantAccountId } : {}),
+          ...(scope.allowedMerchantIds !== null ? { merchantAccountId: { in: scope.allowedMerchantIds } } : {}),
+          ...(scope.allowedBranchIds !== null ? { branchId: { in: scope.allowedBranchIds } } : {})
         }
 
     const tenant = resolvedTenantId
@@ -57,14 +51,18 @@ export default defineEventHandler(async (event) => {
     const tenantWhere = tenantScope ? { tenantId: tenantScope } : {}
     const merchantWhere = {
       ...tenantWhere,
+      ...(scope.allowedMerchantIds !== null ? { id: { in: scope.allowedMerchantIds } } : {}),
       ...(merchantScope ? { id: merchantScope } : {})
     }
     const branchWhere = {
       ...tenantWhere,
+      ...(scope.allowedBranchIds !== null ? { id: { in: scope.allowedBranchIds } } : {}),
+      ...(scope.allowedMerchantIds !== null ? { merchantAccountId: { in: scope.allowedMerchantIds } } : {}),
       ...(merchantScope ? { merchantAccountId: merchantScope } : {})
     }
     const assetWhere = {
       ...tenantWhere,
+      ...(scope.allowedBranchIds !== null ? { branchId: { in: scope.allowedBranchIds } } : {}),
       ...(merchantScope ? { branch: { merchantAccountId: merchantScope } } : {})
     }
     const orderWhere = {
@@ -105,6 +103,7 @@ export default defineEventHandler(async (event) => {
       orderInProgress,
       orderCompleted,
       paymentTotal,
+      expenseTotal,
       topProductGroups,
       topAssetGroups
     ] = await Promise.all([
@@ -133,6 +132,14 @@ export default defineEventHandler(async (event) => {
       prisma.order.count({ where: { ...orderWhere, status: 'IN_PROGRESS' } }),
       prisma.order.count({ where: { ...orderWhere, status: 'COMPLETED' } }),
       prisma.payment.count({ where: paymentWhere }),
+      prisma.expense.aggregate({
+        where: {
+          ...(tenantScope ? { tenantId: tenantScope } : {}),
+          ...(merchantScope ? { merchantAccountId: merchantScope } : {}),
+          occurredAt: { gte: insightStart, lte: insightEnd }
+        },
+        _sum: { amount: true }
+      }),
       prisma.orderItem.groupBy({
         by: ['priceLabel'],
         where: {
@@ -176,6 +183,9 @@ export default defineEventHandler(async (event) => {
       },
       payment: {
         total: paymentTotal
+      },
+      expense: {
+        total: Number(expenseTotal._sum.amount || 0)
       },
       merchant: {
         total: merchantTotal,
@@ -239,6 +249,7 @@ export default defineEventHandler(async (event) => {
       tenant: null,
       order: { total: 0, pendingPayment: 0, inProgress: 0, completed: 0 },
       payment: { total: 0 },
+      expense: { total: 0 },
       merchant: { total: 0, active: 0, suspended: 0, disabled: 0 },
       branch: { total: 0, active: 0, suspended: 0, disabled: 0 },
       asset: { total: 0, active: 0, maintenance: 0, disabled: 0 },

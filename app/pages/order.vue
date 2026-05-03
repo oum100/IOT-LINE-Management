@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from '#app'
+import { useRoute } from '#imports'
 import type { MachineWithPrices } from '~~/shared/types'
 import { useCartStore } from '~~/stores/cart'
 import { useLineLiff } from '~~/composables/useLineLiff'
 
-const { data: machines, refresh: refreshMachines } = await useFetch<MachineWithPrices[]>('/api/machines')
+const route = useRoute()
+const branchCode = computed(() => String(route.query.branchCode || '').trim())
+const { data: machines, refresh: refreshMachines } = await useFetch<MachineWithPrices[]>('/api/machines', {
+  query: computed(() => branchCode.value ? { branchCode: branchCode.value } : {})
+})
 const cart = useCartStore()
 const { profile, init, login } = useLineLiff()
 const router = useRouter()
@@ -13,6 +18,7 @@ const pending = ref(false)
 let machineRefreshTimer: ReturnType<typeof setInterval> | null = null
 const profileDisplayName = computed(() => profile.value.displayName?.trim() || 'คุณลูกค้า')
 const profilePictureUrl = computed(() => profile.value.pictureUrl?.trim() || 'https://api.dicebear.com/9.x/glass/svg?seed=LaundryCustomer')
+const hasBranchCode = computed(() => Boolean(branchCode.value))
 
 const selectedMachineIds = ref<string[]>([])
 const selectedPrices = ref<Record<string, string>>({})
@@ -71,7 +77,7 @@ watch(
 )
 
 onMounted(() => {
-  init(true)
+  init(true, branchCode.value || undefined)
   machineRefreshTimer = setInterval(() => {
     refreshMachines()
   }, 5000)
@@ -86,7 +92,7 @@ const customerName = computed(() => profileDisplayName.value)
 const lineUserId = computed(() => profile.value.userId?.trim() || '')
 
 const canCheckout = computed(() => {
-  return cart.items.length > 0
+  return hasBranchCode.value && cart.items.length > 0
 })
 
 async function submitOrder() {
@@ -97,9 +103,10 @@ async function submitOrder() {
   pending.value = true
 
   try {
-    const response = await $fetch<{ orderId: string }>('/api/orders', {
+    const response = await $fetch<{ orderId: string; selfCancelToken?: string }>('/api/orders', {
       method: 'POST',
       body: {
+        branchCode: branchCode.value,
         customerName: customerName.value || 'คุณลูกค้า',
         lineUserId: lineUserId.value || '',
         note: null,
@@ -111,26 +118,21 @@ async function submitOrder() {
     })
 
     cart.clear()
-    await router.push(`/orders/${response.orderId}`)
+    const query = new URLSearchParams()
+    if (response.selfCancelToken) query.set('ct', response.selfCancelToken)
+    if (branchCode.value) query.set('branchCode', branchCode.value)
+    const queryString = query.toString()
+    await router.push(`/orders/${response.orderId}${queryString ? `?${queryString}` : ''}`)
   } finally {
     pending.value = false
   }
 }
 
 function statusLabel(machine: MachineWithPrices) {
-  if (machine.status === 'AVAILABLE') {
-    return 'Available'
-  }
-
-  if (machine.status === 'RUNNING') {
-    return 'Busy'
-  }
-
-  if (machine.status === 'RESERVED') {
-    return 'Reserve'
-  }
-
-  return machine.status === 'MAINTENANCE' ? 'Ofline' : ''
+  const status = machine.assetStatus || (machine.status === 'AVAILABLE' ? 'ACTIVE' : machine.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'INACTIVE')
+  if (status === 'ACTIVE') return 'ACTIVE'
+  if (status === 'MAINTENANCE') return 'MAINTENANCE'
+  return 'INACTIVE'
 }
 
 function statusMinutes(machine: MachineWithPrices) {
@@ -143,35 +145,25 @@ function statusMinutes(machine: MachineWithPrices) {
 }
 
 function statusClasses(machine: MachineWithPrices) {
-  if (machine.status === 'AVAILABLE') {
+  const status = machine.assetStatus || (machine.status === 'AVAILABLE' ? 'ACTIVE' : machine.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'INACTIVE')
+  if (status === 'ACTIVE') {
     return 'border-emerald-200 bg-emerald-50 text-emerald-800'
   }
-
-  if (machine.status === 'RUNNING') {
-    return 'border-rose-200 bg-rose-50 text-rose-700'
-  }
-
-  if (machine.status === 'RESERVED') {
+  if (status === 'MAINTENANCE') {
     return 'border-orange-200 bg-orange-50 text-orange-700'
   }
-
-  return 'border-slate-200 bg-slate-100 text-slate-500'
+  return 'border-rose-200 bg-rose-50 text-rose-700'
 }
 
 function statusDotClass(machine: MachineWithPrices) {
-  if (machine.status === 'AVAILABLE') {
+  const status = machine.assetStatus || (machine.status === 'AVAILABLE' ? 'ACTIVE' : machine.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'INACTIVE')
+  if (status === 'ACTIVE') {
     return 'bg-emerald-500'
   }
-
-  if (machine.status === 'RUNNING') {
-    return 'bg-rose-500'
-  }
-
-  if (machine.status === 'RESERVED') {
+  if (status === 'MAINTENANCE') {
     return 'bg-orange-400'
   }
-
-  return 'bg-slate-400'
+  return 'bg-rose-500'
 }
 </script>
 
@@ -191,6 +183,7 @@ function statusDotClass(machine: MachineWithPrices) {
             </h2>
             <p class="mt-2 text-sm text-slate-600">ใช้พร้อมกันหลายเครื่องได้</p>
             <p v-if="profile.loading" class="mt-1 text-xs text-slate-500">กำลังเชื่อมต่อ LINE LIFF...</p>
+            <p v-if="!hasBranchCode" class="mt-1 text-xs text-rose-600">ไม่พบ branch code ใน URL</p>
             <p v-else-if="profile.verified" class="mt-1 text-xs text-emerald-700">
               <UIcon name="i-lucide-badge-check" class="align-middle text-base" />
             </p>
@@ -250,7 +243,7 @@ function statusDotClass(machine: MachineWithPrices) {
               :class="[
                 statusClasses(machine!),
                 machine!.status === 'AVAILABLE' ? 'hover:-translate-y-0.5 hover:border-emerald-400' : 'cursor-not-allowed opacity-90',
-                selectedMachineIds.includes(machine!.id) ? '!border-teal-700 ring-2 ring-teal-200' : ''
+                selectedMachineIds.includes(machine!.id) ? '!border-teal-700 !bg-teal-100/80 ring-4 ring-teal-300 shadow-lg shadow-teal-200/70' : ''
               ]"
               :disabled="machine!.status !== 'AVAILABLE'"
               @click="toggleMachine(machine!)"

@@ -2,8 +2,9 @@ import { getServerSession } from '#auth'
 import { getQuery } from 'h3'
 import { z } from 'zod'
 import { prisma } from '../../utils/prisma'
+import { assertPermission, resolvePortalScopeContext } from '../../utils/rbac'
 
-type Role = 'PLATFORM_ADMIN' | 'TENANT_ADMIN' | 'TENANT_STAFF' | 'ADMIN' | 'USER'
+type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 type PeriodPreset = '24h' | 'week' | 'month' | 'year' | 'custom'
 type GroupBy = 'merchant' | 'branch'
 type Metric = 'revenue' | 'orders' | 'payments'
@@ -22,7 +23,7 @@ const querySchema = z.object({
 
 function isPlatformRole(role: Role | string | null | undefined) {
   const normalized = String(role || '').toUpperCase()
-  return normalized === 'PLATFORM_ADMIN' || normalized === 'ADMIN'
+  return normalized === 'ADMIN' || normalized === 'USER'
 }
 
 function parseIds(raw?: string) {
@@ -89,6 +90,7 @@ function startOfDay(date: Date) {
 }
 
 export default defineEventHandler(async (event) => {
+  await assertPermission(event, 'portal.revenue.read')
   const session = await getServerSession(event)
   const user = session?.user as {
     id?: string
@@ -104,8 +106,9 @@ export default defineEventHandler(async (event) => {
   const query = querySchema.parse(getQuery(event))
   const range = getRange(query.period, query.start, query.end)
 
-  const tenantScopeId = isPlatformRole(user.role) ? null : (user.tenantId || null)
-  const lockedMerchantId = isPlatformRole(user.role) ? null : (user.merchantAccountId || null)
+  const scope = await resolvePortalScopeContext(user)
+  const tenantScopeId = isPlatformRole(user.role) ? null : (scope.resolvedTenantId || null)
+  const lockedMerchantId = isPlatformRole(user.role) ? null : (scope.lockedMerchantId || null)
 
   const [tenant, merchants, branches, assetTotal, assetStatusGroup, recentOrders] = await Promise.all([
     tenantScopeId
@@ -117,6 +120,7 @@ export default defineEventHandler(async (event) => {
     prisma.merchantAccount.findMany({
       where: {
         ...(tenantScopeId ? { tenantId: tenantScopeId } : {}),
+        ...(scope.allowedMerchantIds !== null ? { id: { in: scope.allowedMerchantIds } } : {}),
         ...(lockedMerchantId ? { id: lockedMerchantId } : {})
       },
       select: { id: true, code: true, name: true },
@@ -125,6 +129,8 @@ export default defineEventHandler(async (event) => {
     prisma.branch.findMany({
       where: {
         ...(tenantScopeId ? { tenantId: tenantScopeId } : {}),
+        ...(scope.allowedMerchantIds !== null ? { merchantAccountId: { in: scope.allowedMerchantIds } } : {}),
+        ...(scope.allowedBranchIds !== null ? { id: { in: scope.allowedBranchIds } } : {}),
         ...(lockedMerchantId ? { merchantAccountId: lockedMerchantId } : {})
       },
       select: { id: true, code: true, name: true, merchantAccountId: true },
@@ -133,14 +139,16 @@ export default defineEventHandler(async (event) => {
     prisma.asset.count({
       where: {
         ...(tenantScopeId ? { tenantId: tenantScopeId } : {}),
-        ...(lockedMerchantId ? { merchantAccountId: lockedMerchantId } : {})
+        ...(lockedMerchantId ? { merchantAccountId: lockedMerchantId } : {}),
+        ...(scope.allowedBranchIds !== null ? { branchId: { in: scope.allowedBranchIds } } : {})
       }
     }),
     prisma.asset.groupBy({
       by: ['status'],
       where: {
         ...(tenantScopeId ? { tenantId: tenantScopeId } : {}),
-        ...(lockedMerchantId ? { merchantAccountId: lockedMerchantId } : {})
+        ...(lockedMerchantId ? { merchantAccountId: lockedMerchantId } : {}),
+        ...(scope.allowedBranchIds !== null ? { branchId: { in: scope.allowedBranchIds } } : {})
       },
       _count: { _all: true }
     }),
@@ -241,7 +249,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const branch = branchMap.get(id)
-    const merchant = branch ? merchantMap.get(branch.merchantAccountId) : null
+    const merchant = branch?.merchantAccountId ? merchantMap.get(branch.merchantAccountId) : null
     return {
       id,
       label: branch ? `${branch.code} (${branch.name})` : id,

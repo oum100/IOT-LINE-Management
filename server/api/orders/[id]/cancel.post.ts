@@ -3,12 +3,16 @@ import { createError, getRouterParam, readBody } from 'h3'
 import { z } from 'zod'
 import { updateMockOrder } from '../../../utils/mock-orders'
 import { prisma } from '../../../utils/prisma'
+import { assertAnyPermission } from '../../../utils/rbac'
+import { assertOrderBranchScope } from '../../../utils/order-branch-scope'
 
 const schema = z.object({
+  branchCode: z.string().optional(),
   reason: z.string().optional().nullable()
 })
 
 export default defineEventHandler(async (event) => {
+  await assertAnyPermission(event, ['platform.order.manage', 'portal.order.manage'])
   const orderId = getRouterParam(event, 'id')
 
   if (!orderId) {
@@ -30,6 +34,7 @@ export default defineEventHandler(async (event) => {
     if (!order || !order.payment) {
       throw createError({ statusCode: 404, statusMessage: 'Order not found' })
     }
+    await assertOrderBranchScope(order.branchId, body.branchCode)
 
     if (order.status === OrderStatus.COMPLETED) {
       throw createError({ statusCode: 409, statusMessage: 'Cannot cancel a completed order' })

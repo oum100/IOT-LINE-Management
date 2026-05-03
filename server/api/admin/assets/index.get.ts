@@ -39,6 +39,14 @@ export default defineEventHandler(async (event) => {
       where,
       include: {
         branch: true,
+        machines: {
+          select: {
+            id: true,
+            name: true
+          },
+          orderBy: { updatedAt: 'desc' },
+          take: 1
+        },
         bindings: {
           where: {
             status: 'ACTIVE',
@@ -46,7 +54,22 @@ export default defineEventHandler(async (event) => {
           },
           select: {
             iotDeviceId: true,
-            machineUnitId: true
+            machineUnitId: true,
+            iotDevice: {
+              select: {
+                id: true,
+                deviceUid: true,
+                macAddress: true,
+                name: true
+              }
+            },
+            machineUnit: {
+              select: {
+                id: true,
+                serialNo: true,
+                model: true
+              }
+            }
           },
           orderBy: { startedAt: 'desc' },
           take: 1
@@ -66,7 +89,27 @@ export default defineEventHandler(async (event) => {
       assignmentStatus: resolveAssignmentStatus({
         hasIotDevice: Boolean(active?.iotDeviceId),
         hasMachineUnit: Boolean(active?.machineUnitId)
-      })
+      }),
+      iot: active?.iotDevice
+        ? {
+            id: active.iotDevice.id,
+            name: active.iotDevice.name || null,
+            deviceUid: active.iotDevice.deviceUid || null,
+            macAddress: active.iotDevice.macAddress || null
+          }
+        : null,
+      machine: item.machines[0]
+        ? {
+            id: item.machines[0].id,
+            name: item.machines[0].name
+          }
+        : active?.machineUnit
+        ? {
+            id: active.machineUnit.id,
+            serialNo: active.machineUnit.serialNo,
+            model: active.machineUnit.model || null
+          }
+        : null
     }
   })
 

@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../../../../utils/prisma'
 import { assertAdminAccess } from '../../../../utils/admin-auth'
@@ -7,7 +8,10 @@ const schema = z.object({
   productId: z.string().min(1),
   pricingType: z.enum(['STANDARD', 'PROMOTION', 'SPECIAL']).default('STANDARD'),
   amount: z.number().int().min(0),
-  durationMinutes: z.number().int().min(1).max(1440),
+  durationMinutes: z.number().int().min(1).max(1440).optional(),
+  serviceMode: z.enum(['TIME', 'QUANTITY']).optional(),
+  serviceUnit: z.enum(['MINUTE', 'GRAM', 'LITER', 'PIECE', 'SLOT', 'UNIT']).optional(),
+  quantity: z.coerce.number().positive().optional(),
   priority: z.number().int().min(1).max(999).default(100),
   effectiveFrom: z.string().datetime(),
   effectiveTo: z.string().datetime().optional().nullable(),
@@ -25,6 +29,19 @@ export default defineEventHandler(async (event) => {
 
   const from = new Date(body.effectiveFrom)
   const to = body.effectiveTo ? new Date(body.effectiveTo) : null
+  const serviceMode = body.serviceMode ?? 'TIME'
+  const serviceUnit = body.serviceUnit ?? (serviceMode === 'TIME' ? 'MINUTE' : 'UNIT')
+  const quantity = body.quantity ?? (body.durationMinutes ?? null)
+  const durationMinutes = body.durationMinutes
+    ?? (quantity ? Math.max(1, Math.round(quantity)) : null)
+
+  if (!quantity) {
+    throw createError({ statusCode: 400, statusMessage: 'Quantity is required' })
+  }
+  if (!durationMinutes) {
+    throw createError({ statusCode: 400, statusMessage: 'Duration fallback is required' })
+  }
+
   if (to && to <= from) {
     throw createError({ statusCode: 400, statusMessage: 'effectiveTo must be greater than effectiveFrom' })
   }
@@ -97,12 +114,15 @@ export default defineEventHandler(async (event) => {
         productId: product.id,
         pricingType: body.pricingType,
         amount: body.amount,
-        durationMinutes: body.durationMinutes,
+        durationMinutes,
+        serviceMode,
+        serviceUnit,
+        quantity,
         priority: body.priority,
         effectiveFrom: from,
         effectiveTo: to,
         reason: body.reason || null,
-        metadata: body.metadata || null
+        metadata: body.metadata || Prisma.JsonNull
       }
     })
 
@@ -112,4 +132,3 @@ export default defineEventHandler(async (event) => {
     }
   })
 })
-

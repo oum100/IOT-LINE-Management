@@ -182,7 +182,6 @@ const insightRangeLabel = computed(() => {
       <div>
         <p class="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">Dashboard</p>
         <div class="mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h2 class="text-2xl font-semibold text-slate-900 dark:text-white">Overview</h2>
           <h2 class="text-2xl font-semibold text-slate-900 dark:text-white">{{ tenantName }}</h2>
         </div>
         <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">{{ rangeLabel }}</p>

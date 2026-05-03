@@ -1,4 +1,5 @@
 import { getServerSession } from '#auth'
+import { RefundStatus } from '@prisma/client'
 import { readBody } from 'h3'
 import { z } from 'zod'
 import { prisma } from '../../../utils/prisma'
@@ -16,12 +17,7 @@ const bodySchema = z.object({
   })).min(1)
 })
 
-const countableStatuses = [
-  'REQUESTED',
-  'APPROVED',
-  'PROCESSING',
-  'REFUNDED'
-]
+const countableStatuses: RefundStatus[] = ['REQUESTED', 'APPROVED', 'PROCESSING', 'REFUNDED']
 
 export default defineEventHandler(async (event) => {
   await assertAdminAccess(event)

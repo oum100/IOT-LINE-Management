@@ -125,6 +125,8 @@ async function clearAll() {
 
   await safe(() => prisma.asset.deleteMany())
   await safe(() => prisma.branch.deleteMany())
+  await safe(() => prisma.expense.deleteMany())
+  await safe(() => prisma.expenseType.deleteMany())
   await safe(() => prisma.merchantAccount.deleteMany())
   await safe(() => prisma.tenant.deleteMany())
 
@@ -192,6 +194,13 @@ async function seedTenantBundle(plan: TenantPlan, seqOffset: number) {
       status: 'ACTIVE',
     },
   })
+
+  const expenseTypes = await Promise.all([
+    prisma.expenseType.create({ data: { tenantId: tenant.id, code: 'ELEC', name: 'Electricity', sortOrder: 10 } }),
+    prisma.expenseType.create({ data: { tenantId: tenant.id, code: 'WATER', name: 'Water', sortOrder: 20 } }),
+    prisma.expenseType.create({ data: { tenantId: tenant.id, code: 'RENT', name: 'Space Rent', sortOrder: 30 } }),
+    prisma.expenseType.create({ data: { tenantId: tenant.id, code: 'STAFF', name: 'Staff Salary', sortOrder: 40 } })
+  ])
 
   const washerProducts = await Promise.all(
     WASHER_PRICES.map((price, idx) =>
@@ -334,6 +343,31 @@ async function seedTenantBundle(plan: TenantPlan, seqOffset: number) {
     })
   }
 
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+  const expenseRows = [
+    { code: 'ELEC', amount: 3200, offsetDay: 2, note: 'Monthly electricity bill' },
+    { code: 'WATER', amount: 900, offsetDay: 3, note: 'Monthly water bill' },
+    { code: 'RENT', amount: 8500, offsetDay: 1, note: 'Branch rent' },
+    { code: 'STAFF', amount: 12000, offsetDay: 5, note: 'Staff payout' }
+  ]
+
+  for (const row of expenseRows) {
+    const type = expenseTypes.find(item => item.code === row.code)
+    if (!type) continue
+    await prisma.expense.create({
+      data: {
+        tenantId: tenant.id,
+        merchantAccountId: merchant.id,
+        branchId: branch.id,
+        expenseTypeId: type.id,
+        amount: row.amount,
+        occurredAt: new Date(monthStart.getFullYear(), monthStart.getMonth(), row.offsetDay),
+        note: row.note
+      }
+    })
+  }
+
   return {
     tenant,
     merchant,
@@ -341,6 +375,7 @@ async function seedTenantBundle(plan: TenantPlan, seqOffset: number) {
     assets: totalAssets,
     iot: totalAssets + plan.spareIotDevices,
     machineUnits: totalAssets,
+    expenses: expenseRows.length
   }
 }
 
@@ -354,8 +389,8 @@ async function main() {
 
   console.log('Seed reset completed.')
   console.log(`Admin platform user: l.teerin@gmail.com / P@ssw0rd`)
-  console.log(`Tenant ${first.tenant.code}: assets=${first.assets}, iot=${first.iot}, machineUnits=${first.machineUnits}`)
-  console.log(`Tenant ${second.tenant.code}: assets=${second.assets}, iot=${second.iot}, machineUnits=${second.machineUnits}`)
+  console.log(`Tenant ${first.tenant.code}: assets=${first.assets}, iot=${first.iot}, machineUnits=${first.machineUnits}, expenses=${first.expenses}`)
+  console.log(`Tenant ${second.tenant.code}: assets=${second.assets}, iot=${second.iot}, machineUnits=${second.machineUnits}, expenses=${second.expenses}`)
 }
 
 main()

@@ -212,11 +212,11 @@ const authHandler = NuxtAuthHandler({
     async jwt({ token, user, account }) {
       if (user) {
         const appUser = user as typeof user & {
-          role?: "ADMIN" | "USER";
+          role?: "ADMIN" | "USER" | "OWNER" | "MANAGER" | "STAFF";
           tenantId?: string | null;
           merchantAccountId?: string | null;
         };
-        token.role = appUser.role || "USER";
+        token.role = appUser.role || "STAFF";
         token.tenantId = appUser.tenantId || null;
         token.merchantAccountId = appUser.merchantAccountId || null;
       }
@@ -233,11 +233,11 @@ const authHandler = NuxtAuthHandler({
         });
 
         if (!freshUser || !freshUser.isActive) {
-          token.role = "USER";
+          token.role = "STAFF";
           token.tenantId = null;
           token.merchantAccountId = null;
         } else {
-          token.role = freshUser.role || "USER";
+          token.role = freshUser.role || "STAFF";
           token.tenantId = freshUser.tenantId || null;
           token.merchantAccountId = freshUser.merchantAccountId || null;
         }
@@ -252,9 +252,12 @@ const authHandler = NuxtAuthHandler({
       session.user = {
         ...session.user,
         id: (token.sub as string | undefined) || session.user?.id,
-        role: ((token.role as "ADMIN" | "USER" | undefined) || "USER") as
+        role: ((token.role as "ADMIN" | "USER" | "OWNER" | "MANAGER" | "STAFF" | undefined) || "STAFF") as
           | "ADMIN"
-          | "USER",
+          | "USER"
+          | "OWNER"
+          | "MANAGER"
+          | "STAFF",
         tenantId: (token.tenantId as string | null | undefined) || null,
         merchantAccountId:
           (token.merchantAccountId as string | null | undefined) || null,

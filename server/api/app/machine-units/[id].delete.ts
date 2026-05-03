@@ -1,14 +1,16 @@
 import { getServerSession } from '#auth'
 import { prisma } from '../../../utils/prisma'
+import { assertPermission } from '../../../utils/rbac'
 
-type Role = 'PLATFORM_ADMIN' | 'TENANT_ADMIN' | 'TENANT_STAFF' | 'ADMIN' | 'USER'
+type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
 function isPlatformRole(role: Role | string | null | undefined) {
   const normalized = String(role || '').toUpperCase()
-  return normalized === 'PLATFORM_ADMIN' || normalized === 'ADMIN'
+  return normalized === 'ADMIN' || normalized === 'USER'
 }
 
 export default defineEventHandler(async (event) => {
+  await assertPermission(event, 'portal.asset.manage')
   const id = getRouterParam(event, 'id')
   if (!id) throw createError({ statusCode: 400, statusMessage: 'Missing machine unit id' })
 

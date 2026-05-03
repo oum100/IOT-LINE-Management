@@ -1,12 +1,15 @@
-import { createError, getRouterParam } from 'h3'
+import { createError, getQuery, getRouterParam } from 'h3'
 import { getMockOrder } from '../../utils/mock-orders'
 import { getPaymentWindowState, isPaymentExpired, resolvePaymentExpiryMinutes } from '../../utils/payment-expiry'
 import { prisma } from '../../utils/prisma'
 import { updateMockOrder } from '../../utils/mock-orders'
 import { MachineStatus, OrderItemStatus, OrderStatus, PaymentStatus } from '@prisma/client'
+import { assertOrderBranchScope } from '../../utils/order-branch-scope'
 
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
+  const query = getQuery(event)
+  const branchCode = typeof query.branchCode === 'string' ? query.branchCode : ''
   const expiryMinutes = await resolvePaymentExpiryMinutes(event)
 
   if (!id) {
@@ -35,6 +38,7 @@ export default defineEventHandler(async (event) => {
     if (!order || !order.payment) {
       throw createError({ statusCode: 404, statusMessage: 'Order not found' })
     }
+    await assertOrderBranchScope(order.branchId, branchCode)
 
     const currentOrder = order
     const currentPayment = order.payment
@@ -109,6 +113,7 @@ export default defineEventHandler(async (event) => {
       if (!order || !order.payment) {
         throw createError({ statusCode: 404, statusMessage: 'Order not found after expiry update' })
       }
+      await assertOrderBranchScope(order.branchId, branchCode)
     }
 
     return {

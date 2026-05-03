@@ -243,7 +243,7 @@ watch(tenantId, () => {
           <template #header>
             <div class="flex items-center justify-between gap-2">
               <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Merchant (Brand) List</h2>
-              <UInput v-model="merchantSearch" placeholder="Search merchant..." class="w-[260px]" />
+              <SearchInput v-model="merchantSearch" placeholder="Search merchant..." class="w-[260px]" />
             </div>
           </template>
           <div class="overflow-auto rounded-lg border border-slate-200 dark:border-slate-800">
@@ -273,7 +273,7 @@ watch(tenantId, () => {
           <template #header>
             <div class="flex items-center justify-between gap-2">
               <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Branch List</h2>
-              <UInput v-model="branchSearch" placeholder="Search branch..." class="w-[260px]" />
+              <SearchInput v-model="branchSearch" placeholder="Search branch..." class="w-[260px]" />
             </div>
           </template>
           <div class="overflow-auto rounded-lg border border-slate-200 dark:border-slate-800">

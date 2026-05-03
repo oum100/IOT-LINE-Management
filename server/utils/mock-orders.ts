@@ -6,6 +6,7 @@ import type { MachineWithPrices, OrderDetails } from '~~/shared/types'
 type MockOrderRecord = OrderDetails & {
   createdAt: string
   updatedAt: string
+  selfCancelTokenHash?: string | null
 }
 
 type MockOrderStore = {
@@ -38,6 +39,7 @@ export async function createMockOrder(input: {
   customerName: string
   lineUserId?: string | null
   note?: string | null
+  selfCancelTokenHash?: string | null
   paymentExpiryMinutes?: number
   selections: Array<{
     machine: MachineWithPrices
@@ -81,6 +83,7 @@ export async function createMockOrder(input: {
     totalAmount,
     status: 'PENDING_PAYMENT',
     note: input.note || null,
+    selfCancelTokenHash: input.selfCancelTokenHash || null,
     paymentExpiryMinutes: expiryMinutes,
     paymentDeadlineAt,
     paymentSecondsLeft: expiryMinutes * 60,

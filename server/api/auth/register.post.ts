@@ -3,6 +3,7 @@ import { Resend } from 'resend'
 import { hashPassword } from '../../utils/password'
 import { prisma } from '../../utils/prisma'
 import { createEmailVerificationToken } from '../../utils/email-verification'
+import { resolveEmailVerificationExpiryMinutes } from '../../utils/system-config'
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -57,7 +58,7 @@ export default defineEventHandler(async (event) => {
       email,
       name: body.name?.trim() || null,
       passwordHash,
-      role: 'USER',
+      role: 'STAFF',
       tenantId,
       merchantAccountId
     },
@@ -70,7 +71,7 @@ export default defineEventHandler(async (event) => {
 
   const config = useRuntimeConfig()
   const authSecret = config.authSecret || 'dev-auth-secret-change-me'
-  const expiresInMinutes = Number(config.emailVerificationExpiresMinutes || 60)
+  const expiresInMinutes = await resolveEmailVerificationExpiryMinutes(event)
   const token = createEmailVerificationToken({
     email,
     secret: authSecret,

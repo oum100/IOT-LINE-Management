@@ -29,6 +29,9 @@ type AssetWorkspaceResponse = {
     kind: string
     amount: number | null
     durationMinutes: number | null
+    serviceMode?: 'TIME' | 'QUANTITY'
+    serviceUnit?: 'MINUTE' | 'GRAM' | 'LITER' | 'PIECE' | 'SLOT' | 'UNIT'
+    quantity?: number | null
     active: boolean
   }>
   selectedAsset?: {
@@ -41,6 +44,9 @@ type AssetWorkspaceResponse = {
       id: string
       amount: number
       durationMinutes: number
+      serviceMode?: 'TIME' | 'QUANTITY'
+      serviceUnit?: 'MINUTE' | 'GRAM' | 'LITER' | 'PIECE' | 'SLOT' | 'UNIT'
+      quantity?: number | null
       active: boolean
       orderCount: number
       canUnbind: boolean
@@ -51,6 +57,9 @@ type AssetWorkspaceResponse = {
         active: boolean
         amount: number | null
         durationMinutes: number | null
+        serviceMode?: 'TIME' | 'QUANTITY'
+        serviceUnit?: 'MINUTE' | 'GRAM' | 'LITER' | 'PIECE' | 'SLOT' | 'UNIT'
+        quantity?: number | null
       } | null
     }>
   } | null
@@ -95,6 +104,16 @@ const bindMachineSaving = ref(false)
 const bindMachineError = ref('')
 const bindMachineId = ref('')
 const availableMachineUnits = ref<Array<{ id: string; serialNo: string; brand: string | null; model: string | null }>>([])
+const { data: authData } = useAuth()
+
+type AppPermission = 'portal.asset.manage'
+const rolePermissionMap: Record<string, AppPermission[]> = {
+  OWNER: ['portal.asset.manage'],
+  MANAGER: ['portal.asset.manage'],
+  STAFF: ['portal.asset.manage']
+}
+const roleKey = computed(() => String(authData.value?.user?.role || '').toUpperCase())
+const canManageAsset = computed(() => (rolePermissionMap[roleKey.value] || []).includes('portal.asset.manage'))
 
 const queryParams = computed(() => ({
   merchantAccountId: selectedMerchantId.value || undefined,
@@ -103,7 +122,7 @@ const queryParams = computed(() => ({
   assetId: selectedAssetId.value || undefined
 }))
 
-const { data, pending, error, refresh } = await useFetch<AssetWorkspaceResponse>('/api/app/tenant-detail', {
+const { data, pending, error, refresh } = await useFetch<AssetWorkspaceResponse>('/api/app/tenant', {
   query: queryParams
 })
 
@@ -114,6 +133,37 @@ const products = computed(() => data.value?.products || [])
 const assetTypes = computed(() => data.value?.assetTypes || [])
 const selectedAsset = computed(() => data.value?.selectedAsset || null)
 const activeBinding = computed(() => data.value?.activeBinding || null)
+const assetColumns = [
+  { accessorKey: 'name', header: 'Name' },
+  { accessorKey: 'code', header: 'Code' },
+  { accessorKey: 'kind', header: 'Type' },
+  { accessorKey: 'status', header: 'Status' }
+]
+const assetPriceColumns = [
+  { accessorKey: 'productName', header: 'Product' },
+  { accessorKey: 'serviceLabel', header: 'Service' },
+  { accessorKey: 'orderCount', header: 'Orders' },
+  { accessorKey: 'bindingLabel', header: 'Binding' },
+  { accessorKey: 'productStatusLabel', header: 'Product' },
+  { accessorKey: 'actions', header: 'Action' }
+]
+
+function serviceUnitLabel(unit?: string | null) {
+  const normalized = String(unit || '').toUpperCase()
+  if (normalized === 'MINUTE') return 'min'
+  if (normalized === 'GRAM') return 'g'
+  if (normalized === 'LITER') return 'L'
+  if (normalized === 'PIECE') return 'piece'
+  if (normalized === 'SLOT') return 'slot'
+  return 'unit'
+}
+
+function productServiceText(item: { amount?: number | null; durationMinutes?: number | null; quantity?: number | null; serviceMode?: string | null; serviceUnit?: string | null }) {
+  const price = item.amount ?? '-'
+  const qty = item.quantity ?? item.durationMinutes ?? null
+  const unit = serviceUnitLabel(item.serviceUnit || (item.serviceMode === 'TIME' ? 'MINUTE' : 'UNIT'))
+  return `${price} THB / ${qty ?? '-'} ${unit}`
+}
 
 const activeBoundProductIds = computed(() => {
   if (!selectedAsset.value) return new Set<string>()
@@ -128,6 +178,21 @@ const bindableProducts = computed(() => {
   const assetKind = selectedAsset.value?.kind || ''
   if (!assetKind) return []
   return products.value.filter(item => item.active && item.kind === assetKind && !activeBoundProductIds.value.has(item.id))
+})
+const assetPriceRows = computed(() => {
+  return (selectedAsset.value?.prices || []).map((price) => ({
+    ...price,
+    productName: price.product?.name || '-',
+    serviceLabel: productServiceText({
+      amount: price.product?.amount ?? price.amount,
+      durationMinutes: price.product?.durationMinutes ?? price.durationMinutes,
+      quantity: price.product?.quantity ?? price.quantity ?? null,
+      serviceMode: price.product?.serviceMode ?? price.serviceMode ?? null,
+      serviceUnit: price.product?.serviceUnit ?? price.serviceUnit ?? null
+    }),
+    bindingLabel: price.active ? 'BOUND' : 'INACTIVE',
+    productStatusLabel: price.product?.active ? 'ACTIVE' : 'DISABLED'
+  }))
 })
 
 watch(() => data.value?.selectedMerchantId, (v) => {
@@ -173,6 +238,7 @@ function statusTextClass(status?: string | null) {
 }
 
 async function openCreateAsset() {
+  if (!canManageAsset.value) return
   const tenantId = data.value?.tenant?.id || ''
   if (!tenantId) return
   const query = new URLSearchParams()
@@ -182,6 +248,7 @@ async function openCreateAsset() {
 }
 
 async function openBindDeviceModal() {
+  if (!canManageAsset.value) return
   if (!selectedAssetId.value) return
   bindDeviceSaving.value = true
   bindDeviceError.value = ''
@@ -204,6 +271,7 @@ function closeBindDeviceModal() {
 }
 
 async function submitBindDevice() {
+  if (!canManageAsset.value) return
   if (!selectedAssetId.value || !bindDeviceId.value) return
   bindDeviceSaving.value = true
   bindDeviceError.value = ''
@@ -225,6 +293,7 @@ async function submitBindDevice() {
 }
 
 async function openBindMachineModal() {
+  if (!canManageAsset.value) return
   if (!selectedAssetId.value) return
   bindMachineSaving.value = true
   bindMachineError.value = ''
@@ -247,6 +316,7 @@ function closeBindMachineModal() {
 }
 
 async function submitBindMachine() {
+  if (!canManageAsset.value) return
   if (!selectedAssetId.value || !bindMachineId.value) return
   bindMachineSaving.value = true
   bindMachineError.value = ''
@@ -268,6 +338,7 @@ async function submitBindMachine() {
 }
 
 function openAssetProductBinding() {
+  if (!canManageAsset.value) return
   if (!selectedAssetId.value) return
   bindProductError.value = ''
   bindProductId.value = bindableProducts.value[0]?.id || ''
@@ -281,6 +352,7 @@ function closeBindProduct() {
 }
 
 async function submitBindProduct() {
+  if (!canManageAsset.value) return
   bindProductSaving.value = true
   bindProductError.value = ''
   try {
@@ -300,6 +372,7 @@ async function submitBindProduct() {
 }
 
 async function unbindProduct(productId: string) {
+  if (!canManageAsset.value) return
   if (!selectedAssetId.value || !productId) return
   unbindProductSavingId.value = productId
   unbindProductError.value = ''
@@ -316,6 +389,7 @@ async function unbindProduct(productId: string) {
 }
 
 async function rebindProduct(productId: string) {
+  if (!canManageAsset.value) return
   if (!selectedAssetId.value || !productId) return
   unbindProductSavingId.value = productId
   unbindProductError.value = ''
@@ -346,7 +420,7 @@ async function rebindProduct(productId: string) {
 
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div class="space-y-1">
-        <h3 class="text-sm font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">Asset Workspace</h3>
+        <h3 class="text-sm font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">Asset Workspace</h3>
         <h2 class="text-2xl font-semibold text-slate-900 dark:text-white">{{ selectedAsset?.name || 'Assets' }}</h2>
         <p class="text-xs text-slate-500 dark:text-slate-400">
           {{ selectedAsset ? `Selected asset: ${selectedAsset.name} (${selectedAsset.code})` : 'Select an asset from the list to start managing details and bindings.' }}
@@ -395,40 +469,31 @@ async function rebindProduct(productId: string) {
           <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Asset List</p>
           <div class="flex items-center gap-2">
             <p class="text-xs text-slate-500 dark:text-slate-400">{{ assets.length }} items</p>
-            <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" @click="openCreateAsset" />
+            <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" :disabled="!canManageAsset" @click="openCreateAsset" />
           </div>
         </div>
         <div v-if="pending" class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Loading...</div>
         <div v-else-if="!assets.length" class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">No assets.</div>
-        <div v-else class="flex-1 overflow-auto rounded-lg border border-slate-200 dark:border-slate-700">
-          <table class="min-w-full text-sm">
-            <thead class="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              <tr>
-                <th class="px-3 py-2 text-left">Name</th>
-                <th class="px-3 py-2 text-left">Code</th>
-                <th class="px-3 py-2 text-left">Type</th>
-                <th class="px-3 py-2 text-left">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="item in assets"
-                :key="item.id"
-                class="cursor-pointer border-t border-slate-200 text-slate-700 transition dark:border-slate-700 dark:text-slate-200"
-                :class="selectedAssetId === item.id ? 'bg-blue-50 dark:bg-blue-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'"
-                @click="selectedAssetId = item.id"
-              >
-                <td class="px-3 py-2 font-medium">{{ item.name }}</td>
-                <td class="px-3 py-2 text-xs">{{ item.code }}</td>
-                <td class="px-3 py-2">{{ item.kind }}</td>
-                <td class="px-3 py-2">
-                  <UBadge :color="item.status === 'ACTIVE' ? 'success' : (item.status === 'MAINTENANCE' ? 'warning' : 'error')" variant="soft" size="sm">
-                    {{ item.status }}
-                  </UBadge>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <div v-else class="flex-1 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
+          <UTable
+            :data="assets"
+            :columns="assetColumns"
+            sticky="header"
+            class="asset-utable h-full overflow-auto min-w-full text-sm"
+            @select="(_e, row) => { selectedAssetId = row.original.id }"
+          >
+            <template #name-cell="{ row }">
+              <span class="font-medium">{{ row.original.name }}</span>
+            </template>
+            <template #code-cell="{ row }">
+              <span class="text-xs">{{ row.original.code }}</span>
+            </template>
+            <template #status-cell="{ row }">
+              <UBadge :color="row.original.status === 'ACTIVE' ? 'success' : (row.original.status === 'MAINTENANCE' ? 'warning' : 'error')" variant="soft" size="sm">
+                {{ row.original.status }}
+              </UBadge>
+            </template>
+          </UTable>
         </div>
       </UCard>
 
@@ -465,8 +530,8 @@ async function rebindProduct(productId: string) {
                     icon="i-lucide-link"
                     color="primary"
                     variant="soft"
-                    size="2xs"
-                    :disabled="!selectedAssetId"
+                    size="xs"
+                    :disabled="!canManageAsset || !selectedAssetId"
                     @click="openAssetProductBinding"
                   >
                     Bind Product
@@ -474,60 +539,48 @@ async function rebindProduct(productId: string) {
                 </div>
               </div>
               <div v-if="!selectedAsset.prices.length" class="text-sm text-slate-500 dark:text-slate-400">No products linked.</div>
-              <div v-else class="overflow-auto rounded-md border border-slate-200 dark:border-slate-700">
+              <div v-else class="overflow-hidden rounded-md border border-slate-200 dark:border-slate-700">
                 <div v-if="unbindProductError" class="border-b border-slate-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-slate-700 dark:bg-rose-950/40 dark:text-rose-300">
                   {{ unbindProductError }}
                 </div>
-                <table class="min-w-full text-sm">
-                  <thead class="sticky top-0 z-10 bg-slate-100 text-xs uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    <tr>
-                      <th class="px-3 py-2 text-left">Product</th>
-                      <th class="px-3 py-2 text-right">Price</th>
-                      <th class="px-3 py-2 text-right">Time</th>
-                      <th class="px-3 py-2 text-right">Orders</th>
-                      <th class="px-3 py-2 text-left">Binding</th>
-                      <th class="px-3 py-2 text-left">Product</th>
-                      <th class="px-3 py-2 text-center">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="price in selectedAsset.prices"
-                      :key="price.id"
-                      class="border-t border-slate-200 text-slate-700 dark:border-slate-700 dark:text-slate-200"
-                    >
-                      <td class="px-3 py-2 font-medium">{{ price.product?.name || '-' }}</td>
-                      <td class="px-3 py-2 text-right">{{ price.product?.amount ?? price.amount }}</td>
-                      <td class="px-3 py-2 text-right">{{ price.product?.durationMinutes ?? price.durationMinutes }}m</td>
-                      <td class="px-3 py-2 text-right">{{ price.orderCount }}</td>
-                      <td class="px-3 py-2">
-                        <UBadge :color="price.active ? 'success' : 'warning'" variant="soft" size="sm" class="font-semibold">
-                          {{ price.active ? 'BOUND' : 'INACTIVE' }}
-                        </UBadge>
-                      </td>
-                      <td class="px-3 py-2">
-                        <UBadge :color="price.product?.active ? 'success' : 'error'" variant="soft" size="sm" class="font-semibold">
-                          {{ price.product?.active ? 'ACTIVE' : 'DISABLED' }}
-                        </UBadge>
-                      </td>
-                      <td class="px-3 py-2 text-center">
-                        <UButton
-                          :icon="price.active ? 'i-lucide-unlink-2' : 'i-lucide-link-2'"
-                          :color="price.active ? 'error' : 'primary'"
-                          variant="ghost"
-                          size="sm"
-                          class="h-8 w-8"
-                          :loading="unbindProductSavingId === (price.product?.id || '')"
-                          :disabled="price.active ? (!price.product?.id || !price.canUnbind) : (!price.product?.id || !price.product?.active)"
-                          :title="price.active
-                            ? (price.canUnbind ? 'Unbind' : 'Cannot unbind: used in orders')
-                            : (price.product?.active ? 'Rebind' : 'Cannot rebind: product is disabled')"
-                          @click="price.product?.id ? (price.active ? unbindProduct(price.product.id) : rebindProduct(price.product.id)) : null"
-                        />
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
+                <UTable :data="assetPriceRows" :columns="assetPriceColumns" sticky="header" class="asset-utable h-full overflow-auto min-w-full text-sm">
+                  <template #productName-cell="{ row }">
+                    <span class="font-medium">{{ row.original.productName }}</span>
+                  </template>
+                  <template #serviceLabel-cell="{ row }">
+                    <div>{{ row.original.serviceLabel }}</div>
+                  </template>
+                  <template #orderCount-cell="{ row }">
+                    <div class="text-right">{{ row.original.orderCount }}</div>
+                  </template>
+                  <template #bindingLabel-cell="{ row }">
+                    <UBadge :color="row.original.active ? 'success' : 'warning'" variant="soft" size="sm" class="font-semibold">
+                      {{ row.original.bindingLabel }}
+                    </UBadge>
+                  </template>
+                  <template #productStatusLabel-cell="{ row }">
+                    <UBadge :color="row.original.product?.active ? 'success' : 'error'" variant="soft" size="sm" class="font-semibold">
+                      {{ row.original.productStatusLabel }}
+                    </UBadge>
+                  </template>
+                  <template #actions-cell="{ row }">
+                    <div class="text-center">
+                      <UButton
+                        :icon="row.original.active ? 'i-lucide-unlink-2' : 'i-lucide-link-2'"
+                        :color="row.original.active ? 'error' : 'primary'"
+                        variant="ghost"
+                        size="sm"
+                        class="h-8 w-8"
+                        :loading="unbindProductSavingId === (row.original.product?.id || '')"
+                        :disabled="!canManageAsset || (row.original.active ? (!row.original.product?.id || !row.original.canUnbind) : (!row.original.product?.id || !row.original.product?.active))"
+                        :title="row.original.active
+                          ? (row.original.canUnbind ? 'Unbind' : 'Cannot unbind: used in orders')
+                          : (row.original.product?.active ? 'Rebind' : 'Cannot rebind: product is disabled')"
+                        @click="row.original.product?.id ? (row.original.active ? unbindProduct(row.original.product.id) : rebindProduct(row.original.product.id)) : null"
+                      />
+                    </div>
+                  </template>
+                </UTable>
               </div>
             </div>
           </div>
@@ -543,7 +596,7 @@ async function rebindProduct(productId: string) {
                 variant="soft"
                 size="xs"
                 :title="activeBinding?.iotDevice ? 'Replace Device' : 'Bind Device'"
-                :disabled="!selectedAssetId"
+                :disabled="!canManageAsset || !selectedAssetId"
                 @click="openBindDeviceModal"
               />
             </div>
@@ -576,7 +629,7 @@ async function rebindProduct(productId: string) {
                 variant="soft"
                 size="xs"
                 :title="activeBinding?.machineUnit ? 'Replace Machine' : 'Bind Machine'"
-                :disabled="!selectedAssetId"
+                :disabled="!canManageAsset || !selectedAssetId"
                 @click="openBindMachineModal"
               />
             </div>
@@ -625,7 +678,7 @@ async function rebindProduct(productId: string) {
               >
                 <option value="">Select product</option>
                 <option v-for="item in bindableProducts" :key="item.id" :value="item.id">
-                  {{ item.name }} · {{ item.amount ?? '-' }} THB / {{ item.durationMinutes ?? '-' }}m
+                  {{ item.name }} · {{ productServiceText(item) }}
                 </option>
               </select>
             </UFormField>
@@ -637,7 +690,7 @@ async function rebindProduct(productId: string) {
           <template #footer>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="closeBindProduct">Cancel</UButton>
-              <UButton color="primary" :loading="bindProductSaving" :disabled="!bindProductId" @click="submitBindProduct">Bind Product</UButton>
+              <UButton color="primary" :loading="bindProductSaving" :disabled="!canManageAsset || !bindProductId" @click="submitBindProduct">Bind Product</UButton>
             </div>
           </template>
         </UCard>
@@ -674,7 +727,7 @@ async function rebindProduct(productId: string) {
           <template #footer>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="closeBindDeviceModal">Cancel</UButton>
-              <UButton color="primary" :loading="bindDeviceSaving" :disabled="!bindDeviceId" @click="submitBindDevice">{{ activeBinding?.iotDevice ? 'Replace' : 'Bind' }}</UButton>
+              <UButton color="primary" :loading="bindDeviceSaving" :disabled="!canManageAsset || !bindDeviceId" @click="submitBindDevice">{{ activeBinding?.iotDevice ? 'Replace' : 'Bind' }}</UButton>
             </div>
           </template>
         </UCard>
@@ -711,7 +764,7 @@ async function rebindProduct(productId: string) {
           <template #footer>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="closeBindMachineModal">Cancel</UButton>
-              <UButton color="primary" :loading="bindMachineSaving" :disabled="!bindMachineId" @click="submitBindMachine">{{ activeBinding?.machineUnit ? 'Replace' : 'Bind' }}</UButton>
+              <UButton color="primary" :loading="bindMachineSaving" :disabled="!canManageAsset || !bindMachineId" @click="submitBindMachine">{{ activeBinding?.machineUnit ? 'Replace' : 'Bind' }}</UButton>
             </div>
           </template>
         </UCard>
@@ -719,3 +772,31 @@ async function rebindProduct(productId: string) {
     </UModal>
   </div>
 </template>
+
+<style scoped>
+:deep(.asset-utable thead) {
+  background-color: rgb(30 41 59) !important;
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 30 !important;
+}
+
+:deep(.asset-utable thead th) {
+  color: rgb(203 213 225) !important;
+  padding-top: 0.3rem !important;
+  padding-bottom: 0.3rem !important;
+}
+
+.dark :deep(.asset-utable thead) {
+  background-color: rgb(15 23 42) !important;
+}
+
+.dark :deep(.asset-utable thead th) {
+  color: rgb(226 232 240) !important;
+}
+
+:deep(.asset-utable tbody td) {
+  padding-top: 0.3rem !important;
+  padding-bottom: 0.3rem !important;
+}
+</style>

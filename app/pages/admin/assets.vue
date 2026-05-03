@@ -35,6 +35,18 @@ type Asset = {
     code: string
     name: string
   } | null
+  iot?: {
+    id: string
+    name?: string | null
+    deviceUid?: string | null
+    macAddress?: string | null
+  } | null
+  machine?: {
+    id: string
+    name?: string | null
+    serialNo: string
+    model?: string | null
+  } | null
   createdAt: string
   updatedAt: string
 }
@@ -93,6 +105,7 @@ const selectedSummary = ref<AssetSummary | null>(null)
 const summaryError = ref("")
 const summaryLoading = ref(false)
 const createOpen = ref(false)
+const editOpen = ref(false)
 const issueOpen = ref(false)
 const issueLoading = ref(false)
 const issuedCode = ref("")
@@ -117,6 +130,12 @@ const editingKindId = ref("")
 const kindEditValue = ref("WASHER")
 const editingStatusId = ref("")
 const statusEditValue = ref<"ACTIVE" | "INACTIVE" | "MAINTENANCE">("ACTIVE")
+const editingAssetId = ref("")
+const editForm = ref({
+  name: "",
+  kind: "WASHER",
+  status: "ACTIVE" as "ACTIVE" | "INACTIVE" | "MAINTENANCE",
+})
 
 const tenants = ref<Tenant[]>([])
 const merchants = ref<Merchant[]>([])
@@ -168,6 +187,14 @@ function kindLabel(kind: Asset["kind"]) {
   return kind.charAt(0) + kind.slice(1).toLowerCase()
 }
 
+function iotLabel(asset: Asset) {
+  return asset.iot?.deviceUid || "-"
+}
+
+function machineLabel(asset: Asset) {
+  return asset.machine?.name || "-"
+}
+
 function startEditName(item: Asset) {
   editingNameId.value = item.id
   nameEditValue.value = item.name
@@ -196,14 +223,72 @@ function cancelEditStatus() {
   editingStatusId.value = ""
 }
 
+function startEditAsset(item: Asset) {
+  editingAssetId.value = item.id
+  editForm.value.name = item.name
+  editForm.value.kind = item.kind
+  editForm.value.status = item.status
+  editOpen.value = true
+}
+
+function closeEditDialog() {
+  editOpen.value = false
+  editingAssetId.value = ""
+}
+
+async function submitEditDialog() {
+  if (!editingAssetId.value) return
+  const name = editForm.value.name.trim()
+  if (!name) {
+    setError(new Error("Asset name is required."))
+    return
+  }
+  await saveAssetPatch(editingAssetId.value, {
+    name,
+    kind: editForm.value.kind,
+    status: editForm.value.status,
+  })
+  closeEditDialog()
+}
+
 async function saveAssetPatch(assetId: string, body: Record<string, unknown>) {
   loading.value = true
   error.value = ""
   try {
     await $fetch(`/api/admin/assets/${assetId}`, {
-      method: "PATCH",
+      method: "patch",
       body,
-    })
+    } as any)
+    await loadAssets()
+  } catch (err) {
+    setError(err)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function deleteAsset(item: Asset) {
+  if (!import.meta.client) return
+  const confirmText = window.prompt("Type DELETE to confirm deletion")
+  if (confirmText === null) return
+  const confirmName = window.prompt(`Type asset name to confirm: ${item.name}`)
+  if (confirmName === null) return
+
+  loading.value = true
+  error.value = ""
+  try {
+    await $fetch(`/api/admin/assets/${item.id}`, {
+      method: "delete",
+      body: {
+        confirmText,
+        confirmName,
+      },
+    } as any)
+
+    if (selectedAssetId.value === item.id) {
+      selectedAssetId.value = ""
+      selectedSummary.value = null
+    }
     await loadAssets()
   } catch (err) {
     setError(err)
@@ -615,9 +700,9 @@ async function deleteExpiredRegistrationCode(id: string) {
   if (!ok) return
   try {
     await $fetch(`/api/admin/device-registration-codes/${id}`, {
-      method: "DELETE",
+      method: "delete",
       body: { confirmText: "DELETE" }
-    })
+    } as any)
     await loadIssuedCodes()
   } catch (err) {
     setError(err)
@@ -765,24 +850,12 @@ watch(issueKind, () => {
             </select>
           </div>
           <div class="col-span-2 flex items-end gap-2">
-            <UInput
+            <SearchInput
               v-model="filters.q"
               placeholder="Search code/name/asset uuid..."
-              class="w-full max-w-[320px] bg-white dark:bg-slate-950"
-              :ui="{
-                base: 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ring-1 ring-slate-300 dark:ring-slate-600',
-              }"
+              class="w-full max-w-[320px]"
+              @enter="onSearch"
             />
-            <UButton
-              color="primary"
-              variant="soft"
-              icon="i-lucide-search"
-              class="text-blue-700 dark:text-blue-200 ring-blue-300/70 dark:ring-blue-700/60"
-              :loading="loading"
-              @click="onSearch"
-            >
-              Search
-            </UButton>
           </div>
           <div class="flex justify-end">
             <div class="flex items-center gap-2">
@@ -862,13 +935,15 @@ watch(issueKind, () => {
       </div>
 
       <div v-else class="overflow-auto rounded-lg border border-slate-200 dark:border-slate-800">
-        <table class="w-full min-w-[1100px] text-sm">
+        <table class="w-full min-w-[1300px] text-sm">
           <thead class="bg-slate-100/70 dark:bg-slate-800/70">
             <tr class="text-left">
               <th class="px-3 py-2">Asset Code</th>
               <th class="px-3 py-2">Name</th>
               <th class="px-3 py-2">Type</th>
               <th class="px-3 py-2">Branch</th>
+              <th class="px-3 py-2">IoT</th>
+              <th class="px-3 py-2">Machine</th>
               <th class="px-3 py-2">Status</th>
               <th class="px-3 py-2">Updated</th>
               <th class="px-3 py-2">Actions</th>
@@ -891,80 +966,58 @@ watch(issueKind, () => {
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-2">
-                  <template v-if="editingNameId === asset.id">
-                    <UInput
-                      v-model="nameEditValue"
-                      placeholder="Asset name"
-                      class="w-[120px] max-w-full"
-                      :ui="{ base: 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100' }"
-                    />
-                    <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="loading" @click.stop="saveName(asset)" />
-                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click.stop="cancelEditName" />
-                  </template>
-                  <template v-else>
-                    <span>{{ asset.name }}</span>
-                    <UButton size="xs" color="primary" variant="ghost" icon="i-lucide-pencil" @click.stop="startEditName(asset)" />
-                  </template>
+                  <span>{{ asset.name }}</span>
                 </div>
               </td>
               <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300">
                 <div class="flex items-center gap-2">
-                  <template v-if="editingKindId === asset.id">
-                    <select
-                      v-model="kindEditValue"
-                      class="w-[120px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
-                    >
-                      <option value="WASHER">WASHER</option>
-                      <option value="DRYER">DRYER</option>
-                      <option value="WATER">WATER</option>
-                      <option value="VENDING">VENDING</option>
-                    </select>
-                    <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="loading" @click.stop="saveKind(asset)" />
-                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click.stop="cancelEditKind" />
-                  </template>
-                  <template v-else>
-                    <span>{{ kindLabel(asset.kind) }}</span>
-                    <UButton size="xs" color="primary" variant="ghost" icon="i-lucide-pencil" @click.stop="startEditKind(asset)" />
-                  </template>
+                  <span>{{ kindLabel(asset.kind) }}</span>
                 </div>
               </td>
               <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300">{{ branchLabel(asset.branch) }}</td>
+              <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300">{{ iotLabel(asset) }}</td>
+              <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300">{{ machineLabel(asset) }}</td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-2">
-                  <template v-if="editingStatusId === asset.id">
-                    <select
-                      v-model="statusEditValue"
-                      class="w-[120px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
-                    >
-                      <option value="ACTIVE">ACTIVE</option>
-                      <option value="INACTIVE">INACTIVE</option>
-                      <option value="MAINTENANCE">MAINTENANCE</option>
-                    </select>
-                    <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="loading" @click.stop="saveStatus(asset)" />
-                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click.stop="cancelEditStatus" />
-                  </template>
-                  <template v-else>
-                    <span class="text-xs font-semibold" :class="assetStatusClass(asset.status)">
-                      {{ asset.status }}
-                    </span>
-                    <UButton size="xs" color="primary" variant="ghost" icon="i-lucide-pencil" @click.stop="startEditStatus(asset)" />
-                  </template>
+                  <span class="text-xs font-semibold" :class="assetStatusClass(asset.status)">
+                    {{ asset.status }}
+                  </span>
                 </div>
               </td>
               <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">{{ formatDate(asset.updatedAt) }}</td>
               <td class="px-3 py-2">
-                <a
-                  :href="assetDetailHref(asset.id)"
-                  class="inline-flex items-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-                  title="View detail"
-                  @click.stop
-                >
-                  <UIcon name="i-lucide-eye" class="size-4" />
-                </a>
+                <div class="flex items-center gap-2">
+                  <a
+                    :href="assetDetailHref(asset.id)"
+                    class="inline-flex items-center p-1 text-slate-700 transition hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400"
+                    title="View detail"
+                    @click.stop
+                  >
+                    <UIcon name="i-lucide-eye" class="size-4" />
+                  </a>
+                  <button
+                    type="button"
+                    class="inline-flex items-center p-1 text-slate-700 transition hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-200 dark:hover:text-blue-400"
+                    title="Edit asset"
+                    :disabled="loading"
+                    @click.stop="startEditAsset(asset)"
+                  >
+                    <UIcon name="i-lucide-pencil" class="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex items-center p-1 text-rose-500 transition hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+                    title="Delete asset"
+                    :disabled="loading"
+                    @click.stop="deleteAsset(asset)"
+                  >
+                    <UIcon name="i-lucide-trash-2" class="size-4" />
+                  </button>
+                </div>
               </td>
             </tr>
             <tr v-if="!assets.length">
-              <td colspan="7" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No assets found.</td>
+              <td colspan="9" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No assets found.</td>
             </tr>
           </tbody>
         </table>
@@ -983,6 +1036,55 @@ watch(issueKind, () => {
         </div>
       </div>
     </UCard>
+
+    <UModal v-model:open="editOpen" :ui="{ content: 'sm:max-w-2xl' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Edit Asset</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeEditDialog" />
+            </div>
+          </template>
+          <div class="grid gap-3 md:grid-cols-3">
+            <UFormField label="Name">
+              <UInput
+                v-model="editForm.name"
+                placeholder="Asset name"
+                :ui="{ base: 'h-10 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }"
+              />
+            </UFormField>
+            <UFormField label="Type">
+              <select
+                v-model="editForm.kind"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              >
+                <option value="WASHER">WASHER</option>
+                <option value="DRYER">DRYER</option>
+                <option value="WATER">WATER</option>
+                <option value="VENDING">VENDING</option>
+              </select>
+            </UFormField>
+            <UFormField label="Status">
+              <select
+                v-model="editForm.status"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              >
+                <option value="ACTIVE">ACTIVE</option>
+                <option value="INACTIVE">INACTIVE</option>
+                <option value="MAINTENANCE">MAINTENANCE</option>
+              </select>
+            </UFormField>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeEditDialog">Cancel</UButton>
+              <UButton color="primary" class="text-white" :loading="loading" @click="submitEditDialog">Save</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
 
     <UModal v-model:open="createOpen" :ui="{ content: 'sm:max-w-lg' }">
       <template #content>

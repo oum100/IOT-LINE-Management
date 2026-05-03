@@ -57,6 +57,8 @@ model Order {
   customerName          String
   lineUserId            String?
   note                  String?
+  selfCancelTokenHash   String?
+  selfCancelTokenIssuedAt DateTime?
   totalAmount           Int
   status                OrderStatus      @default(PENDING_PAYMENT)
   createdAt             DateTime         @default(now())
@@ -78,20 +80,26 @@ model OrderItem {
   orderId         String
   machineId       String
   assetId         String?
+  productId       String?
   priceId         String
   priceLabel      String
   amount          Int
   durationMinutes Int
+  serviceModeSnapshot ServiceMode?
+  unitSnapshot    ServiceUnit?
+  quantitySnapshot Decimal?       @db.Decimal(12, 3)
   status          OrderItemStatus @default(PENDING)
   startedAt       DateTime?
   completedAt     DateTime?
   machine         Machine         @relation(fields: [machineId], references: [id])
   asset           Asset?          @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  product         Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
   order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   price           MachinePrice    @relation(fields: [priceId], references: [id])
   refundItems     RefundItem[]
 
   @@index([assetId])
+  @@index([productId])
 }
 
 model Payment {
@@ -126,28 +134,139 @@ model Payment {
 }
 
 model BillerProfile {
-  id           String       @id @default(cuid())
-  tenantId     String
-  code         String
-  displayName  String
-  providerCode ProviderCode
-  status       BillerStatus @default(ACTIVE)
-  priority     Int          @default(100)
-  billerId     String?
-  credentials  Json?
-  config       Json?
-  metadata     Json?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id                   String               @id @default(cuid())
+  tenantId             String
+  code                 String
+  displayName          String
+  providerCode         String
+  integrationMode      IntegrationMode      @default(PLATFORM_QR)
+  status               BillerStatus         @default(ACTIVE)
+  priority             Int                  @default(100)
+  providerConnectionId String?
+  billerId             String?
+  shopId               String?
+  accountName          String?
+  bankName             String?
+  accountNumber        String?
+  promptPayTarget      String?
+  slipVerifyConnectionId String?
+  credentials          Json?
+  config               Json?
+  metadata             Json?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
-  tenant           Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  payments         Payment[]
-  merchantBindings MerchantBillerBinding[]
-  branchBindings   BranchBillerBinding[]
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  providerConnection   ProviderConnection?   @relation(fields: [providerConnectionId], references: [id], onDelete: SetNull)
+  slipVerifyConnection SlipVerifyConnection? @relation(fields: [slipVerifyConnectionId], references: [id], onDelete: SetNull)
+  payments             Payment[]
+  tenantBindings       TenantBillerBinding[]
+  merchantBindings     MerchantBillerBinding[]
+  branchBindings       BranchBillerBinding[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, providerCode, integrationMode, status, priority])
+  @@index([providerConnectionId])
+  @@index([slipVerifyConnectionId])
+  @@map("biller_profiles")
+}
+
+model ProviderConnection {
+  id                 String        @id @default(cuid())
+  tenantId           String
+  code               String
+  displayName        String
+  providerServiceId  String?
+  providerCode       String
+  status             BillerStatus  @default(ACTIVE)
+  baseUrl            String?
+  appKey             String?
+  appSecret          String?
+  webhookSecret      String?
+  supportsQrIssue    Boolean       @default(false)
+  supportsCallback   Boolean       @default(false)
+  supportsSlipVerify Boolean       @default(false)
+  credentials        Json?
+  metadata           Json?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  providerService  ProviderService? @relation(fields: [providerServiceId], references: [id], onDelete: SetNull)
+  billerProfiles   BillerProfile[]
 
   @@unique([tenantId, code])
   @@index([tenantId, providerCode, status])
-  @@map("biller_profiles")
+  @@index([providerServiceId])
+  @@map("provider_connections")
+}
+
+model ProviderService {
+  id                        String              @id @default(cuid())
+  tenantId                  String?
+  code                      String
+  displayName               String
+  serviceType               ProviderServiceType
+  status                    BillerStatus        @default(ACTIVE)
+  supportsQrGeneration      Boolean             @default(false)
+  supportsConfirmCallback   Boolean             @default(false)
+  supportsSingleTxnVerify   Boolean             @default(false)
+  supportsSingleSlipVerify  Boolean             @default(false)
+  isDefault                 Boolean             @default(false)
+  metadata                  Json?
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+
+  tenant              Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  providerConnections ProviderConnection[]
+
+  @@unique([tenantId, code])
+  @@index([serviceType, status])
+  @@index([tenantId, serviceType, status])
+  @@map("provider_services")
+}
+
+model SlipVerifyConnection {
+  id            String       @id @default(cuid())
+  tenantId      String
+  code          String
+  displayName   String
+  providerCode  String
+  status        BillerStatus @default(ACTIVE)
+  baseUrl       String?
+  appKey        String?
+  appSecret     String?
+  webhookSecret String?
+  credentials   Json?
+  metadata      Json?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  billerProfiles BillerProfile[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, providerCode, status])
+  @@map("slip_verify_connections")
+}
+
+model TenantBillerBinding {
+  id              String   @id @default(cuid())
+  tenantId        String
+  billerProfileId String
+  isDefault       Boolean  @default(true)
+  priority        Int      @default(100)
+  active          Boolean  @default(true)
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  billerProfile BillerProfile @relation(fields: [billerProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, billerProfileId])
+  @@index([tenantId, active, isDefault, priority])
+  @@map("tenant_biller_bindings")
 }
 
 model MerchantBillerBinding {
@@ -167,7 +286,7 @@ model MerchantBillerBinding {
   billerProfile   BillerProfile   @relation(fields: [billerProfileId], references: [id], onDelete: Cascade)
 
   @@unique([merchantAccountId, billerProfileId])
-  @@index([tenantId, merchantAccountId, active, priority])
+  @@index([tenantId, merchantAccountId, active, isDefault, priority])
   @@map("merchant_biller_bindings")
 }
 
@@ -188,7 +307,7 @@ model BranchBillerBinding {
   billerProfile BillerProfile @relation(fields: [billerProfileId], references: [id], onDelete: Cascade)
 
   @@unique([branchId, billerProfileId])
-  @@index([tenantId, branchId, active, priority])
+  @@index([tenantId, branchId, active, isDefault, priority])
   @@map("branch_biller_bindings")
 }
 
@@ -329,6 +448,22 @@ enum ProductPricingType {
   SPECIAL
 }
 
+enum ServiceMode {
+  TIME
+  QUANTITY
+  UNIT
+}
+
+enum ServiceUnit {
+  MINUTE
+  SECOND
+  LITER
+  GRAM
+  PIECE
+  BOX
+  SLOT
+}
+
 enum DeviceBindingStatus {
   ACTIVE
   INACTIVE
@@ -337,6 +472,14 @@ enum DeviceBindingStatus {
 enum AppUserRole {
   ADMIN
   USER
+  OWNER
+  MANAGER
+  STAFF
+}
+
+enum UserScopeType {
+  MERCHANT
+  BRANCH
 }
 
 enum DeviceKeyStatus {
@@ -351,18 +494,26 @@ enum DeviceRegistrationStatus {
   REVOKED
 }
 
-enum ProviderCode {
-  SLIP2GO
-  MAEMANEE
-  KSHOP
-  PROMPTPAY
-  INTERNAL
+enum ProviderServiceType {
+  PAYMENT_GATEWAY
+  SLIP_VERIFY
+  BANK_API
 }
 
 enum BillerStatus {
   ACTIVE
   INACTIVE
   DISABLED
+}
+
+enum IntegrationMode {
+  PLATFORM_QR
+  PROVIDER_QR
+}
+
+enum ExpenseTypeStatus {
+  ACTIVE
+  INACTIVE
 }
 
 model Tenant {
@@ -387,10 +538,17 @@ model Tenant {
   orders                  Order[]
   payments                Payment[]
   billerProfiles          BillerProfile[]
+  providerConnections     ProviderConnection[]
+  providerServices        ProviderService[]
+  slipVerifyConnections   SlipVerifyConnection[]
+  tenantBillerBindings    TenantBillerBinding[]
   merchantBillerBindings  MerchantBillerBinding[]
   branchBillerBindings    BranchBillerBinding[]
   users                   User[]
+  userScopeAssignments    UserScopeAssignment[]
   deviceRegistrationCodes DeviceRegistrationCode[]
+  expenseTypes            ExpenseType[]
+  expenses                Expense[]
 
   @@index([status])
   @@map("tenants")
@@ -414,7 +572,9 @@ model MerchantAccount {
   payments                Payment[]
   billerBindings          MerchantBillerBinding[]
   users                   User[]
+  userScopeAssignments    UserScopeAssignment[]
   deviceRegistrationCodes DeviceRegistrationCode[]
+  expenses                Expense[]
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
@@ -439,12 +599,57 @@ model Branch {
   orders                  Order[]
   payments                Payment[]
   billerBindings          BranchBillerBinding[]
+  userScopeAssignments    UserScopeAssignment[]
   deviceRegistrationCodes DeviceRegistrationCode[]
+  expenses                Expense[]
 
   @@unique([tenantId, code])
   @@index([tenantId, status])
   @@index([merchantAccountId])
   @@map("branches")
+}
+
+model ExpenseType {
+  id        String            @id @default(cuid())
+  tenantId  String
+  code      String
+  name      String
+  status    ExpenseTypeStatus @default(ACTIVE)
+  sortOrder Int               @default(100)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  expenses Expense[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, status, sortOrder])
+  @@map("expense_types")
+}
+
+model Expense {
+  id                String   @id @default(cuid())
+  tenantId          String
+  merchantAccountId String?
+  branchId          String?
+  expenseTypeId     String
+  amount            Int
+  occurredAt        DateTime
+  note              String?
+  metadata          Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  merchantAccount MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
+  branch          Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  expenseType     ExpenseType     @relation(fields: [expenseTypeId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, occurredAt])
+  @@index([merchantAccountId, occurredAt])
+  @@index([branchId, occurredAt])
+  @@index([expenseTypeId, occurredAt])
+  @@map("expenses")
 }
 
 model Asset {
@@ -481,6 +686,8 @@ model MachineUnit {
   status    MachineUnitStatus @default(SPARE)
   brand     String?
   model     String?
+  warrantyStartAt DateTime?
+  warrantyEndAt DateTime?
   metadata  Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -549,6 +756,9 @@ model Product {
   kind      String
   amount    Int?
   durationMinutes Int?
+  serviceMode ServiceMode @default(TIME)
+  serviceUnit ServiceUnit @default(MINUTE)
+  quantity  Decimal?    @db.Decimal(12, 3)
   active    Boolean     @default(true)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
@@ -557,6 +767,7 @@ model Product {
   machineKind MachineKind         @relation(fields: [kind], references: [code], onDelete: Restrict)
   prices      AssetProductPrice[]
   offers      AssetProductOffer[]
+  orderItems  OrderItem[]
 
   @@unique([tenantId, code])
   @@index([tenantId, kind, active])
@@ -570,6 +781,11 @@ model AssetProductPrice {
   productId       String
   amount          Int
   durationMinutes Int
+  serviceMode     ServiceMode @default(TIME)
+  serviceUnit     ServiceUnit @default(MINUTE)
+  quantity        Decimal?    @db.Decimal(12, 3)
+  slotNo          Int?
+  stockQty        Int?
   sortOrder       Int      @default(0)
   active          Boolean  @default(true)
   createdAt       DateTime @default(now())
@@ -592,6 +808,9 @@ model AssetProductOffer {
   pricingType     ProductPricingType @default(STANDARD)
   amount          Int
   durationMinutes Int
+  serviceMode     ServiceMode @default(TIME)
+  serviceUnit     ServiceUnit @default(MINUTE)
+  quantity        Decimal?    @db.Decimal(12, 3)
   priority        Int                @default(100)
   effectiveFrom   DateTime
   effectiveTo     DateTime?
@@ -694,10 +913,34 @@ model User {
   merchantAccount MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
   accounts        Account[]
   sessions        Session[]
+  scopeAssignments UserScopeAssignment[]
 
   @@index([tenantId, role, isActive])
   @@index([merchantAccountId])
   @@map("users")
+}
+
+model UserScopeAssignment {
+  id                String        @id @default(cuid())
+  userId            String
+  tenantId          String
+  scopeType         UserScopeType
+  merchantAccountId String?
+  branchId          String?
+  active            Boolean       @default(true)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  merchantAccount MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
+  branch          Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([userId, active])
+  @@index([tenantId, scopeType, active])
+  @@index([merchantAccountId, active])
+  @@index([branchId, active])
+  @@map("user_scope_assignments")
 }
 
 model Account {
@@ -784,4 +1027,27 @@ model DeviceRegistrationCode {
   @@index([tenantId, status, expiresAt])
   @@index([merchantAccountId, branchId])
   @@map("device_registration_codes")
+}
+
+model SystemSetting {
+  key       String   @id @db.Text
+  value     Json
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("system_settings")
+}
+
+model PlatformBootstrapAuditLog {
+  id            String   @id @db.Text
+  action        String   @db.Text
+  bootstrapMode String   @map("bootstrap_mode") @db.Text
+  userId        String   @map("user_id") @db.Text
+  email         String   @db.Text
+  actorUserId   String?  @map("actor_user_id") @db.Text
+  ipAddress     String?  @map("ip_address") @db.Text
+  userAgent     String?  @map("user_agent") @db.Text
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("platform_bootstrap_audit_logs")
 }

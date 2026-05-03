@@ -560,7 +560,7 @@ watch(compareKey, async () => {
   <div class="space-y-6">
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">Dashboard V2</p>
+        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">Revenue</p>
         <h2 class="text-2xl font-semibold text-slate-900 dark:text-white">{{ tenantName }}</h2>
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-300">Tenant: {{ tenantCode }} ({{ tenantName }})</p>
       </div>

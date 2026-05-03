@@ -4,10 +4,16 @@ import { MachineStatus } from '@prisma/client'
 import { orderCounter } from '../../utils/metrics'
 import { demoMachines } from '../../utils/demo-data'
 import { createMockOrder } from '../../utils/mock-orders'
+import { generateOrderSelfCancelToken, hashOrderSelfCancelToken } from '../../utils/order-self-cancel'
 import { buildPromptPayPayload } from '../../utils/payment'
 import { resolvePaymentExpiryMinutes } from '../../utils/payment-expiry'
 import { prisma } from '../../utils/prisma'
+import { resolveMaeManeeReferencePrefix, resolveQrPaymentMode } from '../../utils/system-config'
+import { resolveBillerProfileForOrder } from '../../utils/biller-routing'
+import { issueProviderQr } from '../../utils/provider-qr'
 import { createOrderSchema } from '../../utils/validation'
+import { resolveBranchByCode } from '../../utils/branch-resolver'
+import { upsertLineMember } from '../../utils/line-members'
 
 export default defineEventHandler(async (event) => {
   const rawBody = await readBody(event)
@@ -17,18 +23,24 @@ export default defineEventHandler(async (event) => {
   })
   const config = useRuntimeConfig()
   const expiryMinutes = await resolvePaymentExpiryMinutes(event)
+  const legacyQrPaymentMode = await resolveQrPaymentMode(event)
+  const legacyMaeManeeReferencePrefix = await resolveMaeManeeReferencePrefix(event)
+  const branchCtx = await resolveBranchByCode(body.branchCode)
 
   try {
-    const selectedPriceIds = body.items.map(item => item.priceId)
+    const selectedAssetPriceIds = body.items.map(item => item.priceId)
     const selectedMachineIds = body.items.map(item => item.machineId)
     const uniqueMachineIds = Array.from(new Set(selectedMachineIds))
     const orderNumber = `ORD-${nanoid(8).toUpperCase()}`
+    const selfCancelToken = generateOrderSelfCancelToken()
+    const selfCancelTokenHash = hashOrderSelfCancelToken(selfCancelToken)
     const paymentDeadlineAt = new Date(Date.now() + expiryMinutes * 60 * 1000)
 
     const created = await prisma.$transaction(async (tx) => {
       const machines = await tx.machine.findMany({
         where: {
-          id: { in: uniqueMachineIds }
+          id: { in: uniqueMachineIds },
+          branchId: branchCtx.id
         }
       })
 
@@ -54,63 +66,147 @@ export default defineEventHandler(async (event) => {
         })
       }
 
-      const prices = await tx.machinePrice.findMany({
+      const assetPrices = await tx.assetProductPrice.findMany({
         where: {
-          id: { in: selectedPriceIds },
-          machineId: { in: selectedMachineIds }
+          id: { in: selectedAssetPriceIds },
+          active: true
         },
         include: {
-          machine: true
+          product: true
         }
       })
 
-      if (prices.length !== body.items.length) {
+      if (assetPrices.length !== body.items.length) {
         throw createError({
           statusCode: 400,
           statusMessage: 'Some selected price options no longer exist'
         })
       }
 
-      const totalAmount = prices.reduce((sum, item) => sum + item.amount, 0)
-      const qrPayload = buildPromptPayPayload({
-        mode: config.qrPaymentMode,
-        target: config.promptPayTarget,
+      const machineIdsForLookup = machines.map(m => m.id)
+      const machinePrices = await tx.machinePrice.findMany({
+        where: { machineId: { in: machineIdsForLookup } },
+        select: {
+          id: true,
+          machineId: true,
+          amount: true,
+          durationMinutes: true,
+          sortOrder: true,
+          label: true
+        }
+      })
+
+      const totalAmount = assetPrices.reduce((sum, item) => sum + item.amount, 0)
+      const routeContext = {
+        tenantId: branchCtx.tenantId,
+        merchantAccountId: branchCtx.merchantAccountId || null,
+        branchId: branchCtx.id
+      }
+      const resolvedBiller = await resolveBillerProfileForOrder(routeContext)
+      const qrPaymentMode = resolvedBiller?.qrPaymentMode || legacyQrPaymentMode
+      const maeManeeReferencePrefix = legacyMaeManeeReferencePrefix
+      const providerQrEnabled =
+        resolvedBiller?.integrationMode === 'PROVIDER_QR' &&
+        Boolean(resolvedBiller.providerConnection?.supportsQrIssue) &&
+        Boolean(resolvedBiller.providerConnection?.baseUrl)
+
+      if (resolvedBiller?.integrationMode === 'PROVIDER_QR' && !providerQrEnabled) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: 'Provider QR is configured but provider connection is not ready'
+        })
+      }
+
+      const providerCallbackUrl =
+        config.public?.appBaseUrl
+          ? `${String(config.public.appBaseUrl).replace(/\/+$/, '')}/api/payments/provider-callback`
+          : null
+
+      const providerQr = providerQrEnabled
+        ? await issueProviderQr({
+            baseUrl: resolvedBiller?.providerConnection?.baseUrl || '',
+            appKey: resolvedBiller?.providerConnection?.appKey || null,
+            appSecret: resolvedBiller?.providerConnection?.appSecret || null,
+            credentials: (resolvedBiller?.providerConnection?.credentials || null) as Record<string, unknown> | null,
+            orderNumber,
+            amount: totalAmount,
+            customerName: body.customerName,
+            tenantId: routeContext.tenantId,
+            merchantAccountId: routeContext.merchantAccountId,
+            branchId: routeContext.branchId,
+            callbackUrl: providerCallbackUrl
+          })
+        : null
+
+      const qrPayload = providerQr?.qrPayload || buildPromptPayPayload({
+        mode: qrPaymentMode,
+        target: resolvedBiller?.promptPayTarget || config.promptPayTarget,
         amount: totalAmount,
         orderNumber,
         lineUserId: body.lineUserId,
-        billerId: config.maeManeeBillerId,
-        referencePrefix: config.maeManeeReferencePrefix,
+        billerId: resolvedBiller?.billerId || config.maeManeeBillerId,
+        referencePrefix: maeManeeReferencePrefix,
         templatePayload: config.maeManeeTemplatePayload
       })
 
       const order = await tx.order.create({
         data: {
           orderNumber,
+          tenantId: routeContext.tenantId,
+          merchantAccountId: routeContext.merchantAccountId,
+          branchId: routeContext.branchId,
           customerName: body.customerName,
           lineUserId: body.lineUserId || null,
           note: body.note || null,
+          selfCancelTokenHash,
+          selfCancelTokenIssuedAt: new Date(),
           totalAmount,
           createdAt: new Date(),
           items: {
             create: body.items.map((item) => {
-              const price = prices.find(entry => entry.id === item.priceId && entry.machineId === item.machineId)
+              const machine = machines.find(entry => entry.id === item.machineId)
+              if (!machine?.assetId) {
+                throw createError({ statusCode: 400, statusMessage: 'Selected machine has no asset mapping' })
+              }
+              const assetPrice = assetPrices.find(entry => entry.id === item.priceId && entry.assetId === machine.assetId)
+              if (!assetPrice) {
+                throw createError({ statusCode: 400, statusMessage: 'Selected product is not bound to this asset' })
+              }
 
-              if (!price) {
-                throw createError({ statusCode: 400, statusMessage: 'Invalid machine and price selection' })
+              const candidates = machinePrices.filter(entry => entry.machineId === item.machineId)
+              const matchedMachinePrice =
+                candidates.find(entry => entry.sortOrder === assetPrice.sortOrder) ||
+                candidates.find(entry => entry.amount === assetPrice.amount && entry.durationMinutes === assetPrice.durationMinutes) ||
+                candidates[0]
+
+              if (!matchedMachinePrice) {
+                throw createError({ statusCode: 400, statusMessage: 'Machine price mapping is not configured' })
               }
 
               return {
                 machineId: item.machineId,
-                priceId: price.id,
-                priceLabel: price.label,
-                amount: price.amount,
-                durationMinutes: price.durationMinutes
+                assetId: machine.assetId,
+                productId: assetPrice.productId,
+                priceId: matchedMachinePrice.id,
+                priceLabel: assetPrice.product?.name || matchedMachinePrice.label,
+                amount: assetPrice.amount,
+                durationMinutes: assetPrice.durationMinutes,
+                serviceModeSnapshot: assetPrice.serviceMode,
+                unitSnapshot: assetPrice.serviceUnit,
+                quantitySnapshot: assetPrice.quantity
               }
             })
           },
           payment: {
             create: {
               amount: totalAmount,
+              tenantId: routeContext.tenantId,
+              merchantAccountId: routeContext.merchantAccountId,
+              branchId: routeContext.branchId,
+              billerProfileId: resolvedBiller?.billerProfileId || null,
+              providerCode: resolvedBiller?.providerCode || (qrPaymentMode === 'promptpay' ? 'PROMPTPAY' : 'MAEMANEE'),
+              providerPaymentIntentId: providerQr?.providerPaymentIntentId || null,
+              providerReference: providerQr?.providerReference || null,
               qrPayload
             }
           }
@@ -134,10 +230,21 @@ export default defineEventHandler(async (event) => {
     })
 
     orderCounter.inc()
+    if (body.lineUserId) {
+      await upsertLineMember({
+        lineUserId: body.lineUserId,
+        tenantId: branchCtx.tenantId,
+        merchantAccountId: branchCtx.merchantAccountId,
+        branchId: branchCtx.id,
+        displayName: body.customerName || null,
+        liffId: config.public.lineLiffId || null
+      })
+    }
 
     return {
       orderId: created.order.id,
       orderNumber,
+      selfCancelToken,
       paymentDeadlineAt: paymentDeadlineAt.toISOString(),
       paymentExpiryMinutes: expiryMinutes
     }
@@ -194,19 +301,21 @@ export default defineEventHandler(async (event) => {
     }, 0)
 
     const qrPayload = buildPromptPayPayload({
-      mode: config.qrPaymentMode,
+      mode: legacyQrPaymentMode,
       target: config.promptPayTarget || '0812345678',
       amount: totalAmount,
       orderNumber: `TEST-${nanoid(8).toUpperCase()}`,
       lineUserId: body.lineUserId,
       billerId: config.maeManeeBillerId,
-      referencePrefix: config.maeManeeReferencePrefix,
+      referencePrefix: legacyMaeManeeReferencePrefix,
       templatePayload: config.maeManeeTemplatePayload
     })
+    const selfCancelToken = generateOrderSelfCancelToken()
     const order = await createMockOrder({
       customerName: body.customerName,
       lineUserId: body.lineUserId,
       note: body.note,
+      selfCancelTokenHash: hashOrderSelfCancelToken(selfCancelToken),
       selections,
       qrPayload,
       paymentExpiryMinutes: expiryMinutes
@@ -215,6 +324,7 @@ export default defineEventHandler(async (event) => {
     return {
       orderId: order.id,
       orderNumber: order.orderNumber,
+      selfCancelToken,
       paymentDeadlineAt: order.paymentDeadlineAt,
       paymentExpiryMinutes: expiryMinutes,
       mode: 'test'

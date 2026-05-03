@@ -3,17 +3,18 @@ import { readBody } from 'h3'
 import { nanoid } from 'nanoid'
 import { z } from 'zod'
 import { prisma } from '../../utils/prisma'
+import { assertPermission } from '../../utils/rbac'
 
-type Role = 'PLATFORM_ADMIN' | 'TENANT_ADMIN' | 'TENANT_STAFF' | 'ADMIN' | 'USER'
+type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
 function isPlatformRole(role: Role | string | null | undefined) {
   const normalized = String(role || '').toUpperCase()
-  return normalized === 'PLATFORM_ADMIN' || normalized === 'ADMIN'
+  return normalized === 'ADMIN' || normalized === 'USER'
 }
 
 const bodySchema = z.object({
   displayName: z.string().trim().min(2).max(120),
-  providerCode: z.enum(['SLIP2GO', 'MAEMANEE', 'KSHOP', 'PROMPTPAY', 'INTERNAL']),
+  providerCode: z.string().trim().min(2).max(40),
   status: z.enum(['ACTIVE', 'INACTIVE', 'DISABLED']).default('ACTIVE'),
   priority: z.coerce.number().int().min(1).max(999).default(100)
 })
@@ -42,6 +43,7 @@ async function generateBillerCode(tenantId: string, displayName: string) {
 }
 
 export default defineEventHandler(async (event) => {
+  await assertPermission(event, 'portal.settings.manage')
   const session = await getServerSession(event)
   const user = session?.user as {
     id?: string
@@ -71,7 +73,7 @@ export default defineEventHandler(async (event) => {
       tenantId: resolvedTenantId,
       code,
       displayName: body.displayName,
-      providerCode: body.providerCode,
+      providerCode: body.providerCode.toUpperCase(),
       status: body.status,
       priority: body.priority
     },

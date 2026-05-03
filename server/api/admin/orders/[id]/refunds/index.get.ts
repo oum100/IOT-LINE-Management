@@ -1,16 +1,12 @@
 import { getRouterParam } from 'h3'
+import { RefundStatus } from '@prisma/client'
 import { prisma } from '../../../../../utils/prisma'
-import { assertAdminAccess } from '../../../../../utils/admin-auth'
+import { assertPermission } from '../../../../../utils/rbac'
 
-const countableStatuses = [
-  'REQUESTED',
-  'APPROVED',
-  'PROCESSING',
-  'REFUNDED'
-]
+const countableStatuses: RefundStatus[] = ['REQUESTED', 'APPROVED', 'PROCESSING', 'REFUNDED']
 
 export default defineEventHandler(async (event) => {
-  await assertAdminAccess(event)
+  await assertPermission(event, 'platform.order.read')
 
   const id = getRouterParam(event, 'id')
   if (!id) {

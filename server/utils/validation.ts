@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 export const createOrderSchema = z.object({
+  branchCode: z.string().trim().min(1),
   customerName: z.string().trim().optional().transform(value => value?.trim() || 'คุณลูกค้า'),
   lineUserId: z.string().optional().nullable(),
   note: z.string().optional().nullable(),

@@ -15,18 +15,57 @@ export default defineEventHandler(async (event) => {
 
   await requireDeleteConfirm(event, asset.name)
 
-  const [orderItemCount, bindingCount, machineCount] = await Promise.all([
-    prisma.orderItem.count({ where: { assetId: id } }),
-    prisma.assetBinding.count({ where: { assetId: id } }),
-    prisma.machine.count({ where: { assetId: id } })
-  ])
-  if (orderItemCount || bindingCount || machineCount) {
+  const orderItemCount = await prisma.orderItem.count({ where: { assetId: id } })
+  if (orderItemCount) {
     throw createError({
       statusCode: 409,
-      statusMessage: 'Asset has linked data. Delete is blocked.'
+      statusMessage: 'Asset has linked orders. Delete is blocked.'
     })
   }
 
-  await prisma.asset.delete({ where: { id } })
+  await prisma.$transaction(async (tx) => {
+    const activeBindings = await tx.assetBinding.findMany({
+      where: {
+        assetId: id,
+        status: 'ACTIVE',
+        endedAt: null
+      },
+      select: {
+        id: true,
+        iotDeviceId: true,
+        machineUnitId: true
+      }
+    })
+
+    const iotIds = Array.from(new Set(activeBindings.map(item => item.iotDeviceId).filter(Boolean))) as string[]
+    const machineUnitIds = Array.from(new Set(activeBindings.map(item => item.machineUnitId).filter(Boolean))) as string[]
+
+    if (activeBindings.length) {
+      await tx.assetBinding.updateMany({
+        where: { id: { in: activeBindings.map(item => item.id) } },
+        data: {
+          status: 'INACTIVE',
+          endedAt: new Date(),
+          reason: 'Asset deleted'
+        }
+      })
+    }
+
+    if (iotIds.length) {
+      await tx.iotDevice.updateMany({
+        where: { id: { in: iotIds } },
+        data: { status: 'SPARE' }
+      })
+    }
+
+    if (machineUnitIds.length) {
+      await tx.machineUnit.updateMany({
+        where: { id: { in: machineUnitIds } },
+        data: { status: 'SPARE' }
+      })
+    }
+
+    await tx.asset.delete({ where: { id } })
+  })
   return { ok: true }
 })

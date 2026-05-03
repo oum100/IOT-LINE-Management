@@ -1,10 +1,10 @@
 export type AppPortal = 'platform' | 'tenant'
 
-export type AppRole = 'PLATFORM_ADMIN' | 'TENANT_ADMIN' | 'TENANT_STAFF' | 'ADMIN' | 'USER' | string | null | undefined
+export type AppRole = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF' | string | null | undefined
 
 export function resolvePortalFromRole(role: AppRole): AppPortal {
   const normalized = String(role || '').toUpperCase()
-  if (normalized === 'PLATFORM_ADMIN' || normalized === 'ADMIN') {
+  if (normalized === 'ADMIN' || normalized === 'USER') {
     return 'platform'
   }
   return 'tenant'

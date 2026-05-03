@@ -552,22 +552,12 @@ watch(
                 {{ tenant.name }}
               </option>
             </select>
-            <UInput
+            <SearchInput
               v-model="query"
               placeholder="Search merchant..."
               class="w-[320px]"
-              :ui="inputUi"
+              @enter="onSearch"
             />
-            <UButton
-              color="primary"
-              variant="soft"
-              icon="i-lucide-search"
-              class="text-blue-700 dark:text-blue-200 ring-blue-300/70 dark:ring-blue-700/60 hover:bg-blue-100 dark:hover:bg-blue-900/30"
-              :loading="loading"
-              @click="onSearch"
-            >
-              Search
-            </UButton>
             <UButton
               color="primary"
               icon="i-lucide-plus"

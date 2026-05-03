@@ -87,7 +87,7 @@ export default defineEventHandler(async (event) => {
         id: `payment-slip-${slip.id}`,
         at: slip.uploadedAt,
         title: 'Slip Uploaded',
-        note: slip.reviewNote || 'Awaiting review',
+        note: 'Awaiting review',
         tone: 'warning'
       })
     }
@@ -156,4 +156,3 @@ export default defineEventHandler(async (event) => {
     events
   }
 })
-

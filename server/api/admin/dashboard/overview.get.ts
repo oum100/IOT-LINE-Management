@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { getQuery } from 'h3'
 import { prisma } from '../../../utils/prisma'
-import { assertAdminAccess } from '../../../utils/admin-auth'
+import { assertPermission } from '../../../utils/rbac'
 
 const querySchema = z.object({
   top: z.coerce.number().int().min(1).max(50).default(5),
@@ -114,9 +114,10 @@ const ASSET_TYPE_STATUSES = ['WASHER', 'DRYER', 'WATER', 'VENDING']
 const DEVICE_BINDING_STATUSES = ['BIND_ACTIVE', 'BIND_INACTIVE', 'UNBOUND']
 const ORDER_STATUSES = ['PENDING_PAYMENT', 'SLIP_UPLOADED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
 const PAYMENT_STATUSES = ['PENDING', 'SLIP_UPLOADED', 'VERIFIED', 'REJECTED']
+const EXPENSE_TYPE_DEFAULTS = ['ELEC', 'WATER', 'RENT', 'STAFF']
 
 export default defineEventHandler(async (event) => {
-  await assertAdminAccess(event)
+  await assertPermission(event, 'platform.dashboard.read')
 
   const query = querySchema.parse(getQuery(event))
   const tenantIds = parseTenantIds(query.tenantIds)
@@ -185,7 +186,9 @@ export default defineEventHandler(async (event) => {
       orderTotal,
       orderStatus,
       paymentTotal,
-      paymentStatus
+      paymentStatus,
+      expenseTotal,
+      expenseTypeGroup
     ] = await Promise.all([
       prisma.tenant.count({ where: tenantWhere }),
       prisma.tenant.groupBy({
@@ -258,8 +261,34 @@ export default defineEventHandler(async (event) => {
         by: ['status'],
         where: byTenantWhere,
         _count: { _all: true }
+      }),
+      prisma.expense.aggregate({
+        where: {
+          ...(tenantIdFilter ? { tenantId: tenantIdFilter } : {}),
+          occurredAt: { gte: range.start, lte: range.end }
+        },
+        _sum: { amount: true }
+      }),
+      prisma.expense.groupBy({
+        by: ['expenseTypeId'],
+        where: {
+          ...(tenantIdFilter ? { tenantId: tenantIdFilter } : {}),
+          occurredAt: { gte: range.start, lte: range.end }
+        },
+        _sum: { amount: true }
       })
     ])
+
+    const expenseTypeIds = expenseTypeGroup.map(item => item.expenseTypeId)
+    const expenseTypes = expenseTypeIds.length
+      ? await prisma.expenseType.findMany({
+          where: { id: { in: expenseTypeIds } },
+          select: { id: true, code: true, name: true }
+        })
+      : []
+    const expenseTypeMap = new Map(expenseTypes.map(item => [item.id, item]))
+    const totalSales = salesByTenant.reduce((sum, item) => sum + item.amount, 0)
+    const totalExpenseAmount = Number(expenseTotal._sum.amount || 0)
 
     return {
       filters: {
@@ -270,7 +299,9 @@ export default defineEventHandler(async (event) => {
         tenantIds
       },
       sales: {
-        totalAmount: salesByTenant.reduce((sum, item) => sum + item.amount, 0),
+        totalAmount: totalSales,
+        totalExpense: totalExpenseAmount,
+        netRevenue: totalSales - totalExpenseAmount,
         byTenant: salesByTenant
       },
       cards: [
@@ -348,6 +379,21 @@ export default defineEventHandler(async (event) => {
         title: 'Payments',
         total: paymentTotal,
         statuses: withDefaultStatuses(paymentStatus.map(item => ({ status: item.status, _count: item._count })), PAYMENT_STATUSES)
+      },
+      {
+        key: 'expenses',
+        title: 'Expenses',
+        total: totalExpenseAmount,
+        statuses: withDefaultLabelCounts(
+          expenseTypeGroup.map(item => {
+            const type = expenseTypeMap.get(item.expenseTypeId)
+            return {
+              label: type?.code || type?.name || item.expenseTypeId,
+              count: Number(item._sum.amount || 0)
+            }
+          }),
+          EXPENSE_TYPE_DEFAULTS
+        )
       }
       ]
     }
@@ -363,6 +409,8 @@ export default defineEventHandler(async (event) => {
       },
       sales: {
         totalAmount: 0,
+        totalExpense: 0,
+        netRevenue: 0,
         byTenant: []
       },
       cards: []

@@ -6,6 +6,9 @@ definePageMeta({
 
 const { signIn } = useAuth()
 const { t, ts } = useI18n()
+const { data: bootstrapStatus } = await useFetch<{ hasPlatformAdmin: boolean; allowBootstrap: boolean }>(
+  '/api/platform/bootstrap-status'
+)
 
 const email = ref('')
 const password = ref('')
@@ -23,10 +26,15 @@ const isEmailValid = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEma
 const isPasswordValid = computed(() =>
   /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(password.value)
 )
-const canLogin = computed(() => isEmailValid.value && isPasswordValid.value && !loading.value)
-const canSendMagicLink = computed(() => isEmailValid.value && !magicLoading.value)
+const isPlatformBootstrapRequired = computed(() => !!bootstrapStatus.value?.allowBootstrap)
+const canLogin = computed(() => isEmailValid.value && isPasswordValid.value && !loading.value && !isPlatformBootstrapRequired.value)
+const canSendMagicLink = computed(() => isEmailValid.value && !magicLoading.value && !isPlatformBootstrapRequired.value)
 
 async function loginWithCredentials() {
+  if (isPlatformBootstrapRequired.value) {
+    await navigateTo('/platform/setup')
+    return
+  }
   emailError.value = ''
   passwordError.value = ''
   magicMessage.value = ''
@@ -73,6 +81,10 @@ async function loginWithCredentials() {
 }
 
 async function loginWithProvider(provider: string) {
+  if (isPlatformBootstrapRequired.value) {
+    await navigateTo('/platform/setup')
+    return
+  }
   errorMessage.value = ''
   emailError.value = ''
   passwordError.value = ''
@@ -81,6 +93,10 @@ async function loginWithProvider(provider: string) {
 }
 
 async function sendMagicLink() {
+  if (isPlatformBootstrapRequired.value) {
+    await navigateTo('/platform/setup')
+    return
+  }
   emailError.value = ''
   passwordError.value = ''
   if (!isEmailValid.value) {
@@ -104,6 +120,15 @@ async function sendMagicLink() {
   } finally {
     magicLoading.value = false
   }
+}
+
+async function submitAuthForm() {
+  if (authTab.value === 'password') {
+    await loginWithCredentials()
+    return
+  }
+
+  await sendMagicLink()
 }
 </script>
 
@@ -129,9 +154,31 @@ async function sendMagicLink() {
             <p class="text-base font-medium text-slate-600 dark:text-slate-300">
               Sign In to manage all your devices
             </p>
+            <p
+              v-if="bootstrapStatus?.allowBootstrap"
+              class="mt-2 text-sm font-medium text-amber-600 dark:text-amber-300"
+            >
+              Sign in is temporarily disabled until the first platform admin is created.
+            </p>
           </div>
 
-          <div class="space-y-4">
+          <UAlert
+            v-if="isPlatformBootstrapRequired"
+            color="warning"
+            variant="soft"
+            icon="i-lucide-shield-alert"
+            title="Platform is not initialized yet"
+            description="Create the first platform admin before sign in can be used. This setup is available only once."
+            class="mb-5"
+          >
+            <template #actions>
+              <UButton color="warning" variant="solid" @click="navigateTo('/platform/setup')">
+                Go to Platform Setup
+              </UButton>
+            </template>
+          </UAlert>
+
+          <form class="space-y-4" @submit.prevent="submitAuthForm">
             <div
               class="grid w-full grid-cols-2 gap-0 overflow-hidden rounded-xl border border-slate-300 dark:border-slate-700">
               <UButton size="sm" :variant="authTab === 'password' ? 'solid' : 'ghost'"
@@ -139,6 +186,7 @@ async function sendMagicLink() {
                 :class="authTab === 'password'
                   ? 'rounded-none text-white'
                   : 'rounded-none bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800'" block
+                type="button"
                 @click="authTab = 'password'">
                 Password
               </UButton>
@@ -147,6 +195,7 @@ async function sendMagicLink() {
                 :class="authTab === 'magic'
                   ? 'rounded-none text-white'
                   : 'rounded-none bg-white text-slate-700 hover:bg-slate-100 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800'" block
+                type="button"
                 @click="authTab = 'magic'">
                 Magic Link
               </UButton>
@@ -172,6 +221,7 @@ async function sendMagicLink() {
                 <template #trailing>
                   <UButton color="neutral" variant="ghost" size="md"
                     class="inline-flex h-9 w-9 items-center justify-center rounded-full p-0 text-slate-600 dark:text-slate-300"
+                    type="button"
                     @click="showPassword = !showPassword">
                     <UIcon :name="showPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'" class="size-5" />
                   </UButton>
@@ -186,37 +236,37 @@ async function sendMagicLink() {
                 </p>
               </template>
             </UFormField>
-          </div>
 
-          <div class="space-y-4 pt-6">
-            <div v-if="authTab === 'password'" class="text-right text-sm font-semibold">
-              <NuxtLink to="/auth/forgot-password"
-                class="text-slate-600 transition hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-300">
-                Forget password?
-              </NuxtLink>
+            <div class="space-y-4 pt-6">
+              <div v-if="authTab === 'password'" class="text-right text-sm font-semibold">
+                <NuxtLink to="/auth/forgot-password"
+                  class="text-slate-600 transition hover:text-blue-600 dark:text-slate-300 dark:hover:text-blue-300">
+                  Forget password?
+                </NuxtLink>
+              </div>
+
+              <UButton v-if="authTab === 'password'" :loading="loading" :disabled="!canLogin" color="primary" block
+                size="xl" class="text-white dark:text-white rounded-full" type="submit">
+                {{ t('auth.login') }}
+              </UButton>
+              <UButton v-else :loading="magicLoading" :disabled="!canSendMagicLink" color="primary" block size="xl"
+                class="text-white dark:text-white rounded-full" type="submit">
+                {{ ts('auth.sendMagicLink') }}
+              </UButton>
+
+              <p v-if="authTab === 'magic' && magicMessage" class="text-center text-sm font-semibold text-emerald-600">
+                {{ magicMessage }}
+              </p>
+
+              <div class="text-center text-sm font-semibold text-slate-600 dark:text-slate-300">
+                Do not have an account?
+                <NuxtLink to="/signup"
+                  class="ml-1 text-blue-600 underline-offset-2 transition hover:underline dark:text-blue-300">
+                  Sign Up
+                </NuxtLink>
+              </div>
             </div>
-
-            <UButton v-if="authTab === 'password'" :loading="loading" :disabled="!canLogin" color="primary" block
-              size="xl" class="text-white dark:text-white rounded-full" @click="loginWithCredentials">
-              {{ t('auth.login') }}
-            </UButton>
-            <UButton v-else :loading="magicLoading" :disabled="!canSendMagicLink" color="primary" block size="xl"
-              class="text-white dark:text-white rounded-full" @click="sendMagicLink">
-              {{ ts('auth.sendMagicLink') }}
-            </UButton>
-
-            <p v-if="authTab === 'magic' && magicMessage" class="text-center text-sm font-semibold text-emerald-600">
-              {{ magicMessage }}
-            </p>
-
-            <div class="text-center text-sm font-semibold text-slate-600 dark:text-slate-300">
-              Do not have an account?
-              <NuxtLink to="/signup"
-                class="ml-1 text-blue-600 underline-offset-2 transition hover:underline dark:text-blue-300">
-                Sign Up
-              </NuxtLink>
-            </div>
-          </div>
+          </form>
 
           <div class="flex items-center gap-3 pt-1">
             <div class="h-px flex-1 bg-slate-200 dark:bg-slate-700" />

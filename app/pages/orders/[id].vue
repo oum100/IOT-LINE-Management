@@ -6,21 +6,37 @@ import type { OrderDetails } from '~~/shared/types'
 const route = useRoute()
 const router = useRouter()
 const orderId = computed(() => route.params.id as string)
+const branchCode = computed(() => {
+  const raw = route.query.branchCode
+  return typeof raw === 'string' ? raw.trim() : ''
+})
+const branchQuery = computed(() => branchCode.value ? `branchCode=${encodeURIComponent(branchCode.value)}` : '')
+const withBranchQuery = (url: string) => {
+  if (!branchQuery.value) return url
+  return `${url}${url.includes('?') ? '&' : '?'}${branchQuery.value}`
+}
+const tokenStorageKey = computed(() => `order-self-cancel-token:${orderId.value}`)
 const slipFile = ref<File | null>(null)
 const uploading = ref(false)
 const verifying = ref(false)
 const cancelling = ref(false)
 const nowTs = ref(Date.now())
+const storedSelfCancelToken = ref('')
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 const expiryRefreshTriggered = ref(false)
 
-const { data: order, refresh } = await useFetch<OrderDetails>(() => `/api/orders/${orderId.value}`)
+const { data: order, refresh } = await useFetch<OrderDetails>(() => withBranchQuery(`/api/orders/${orderId.value}`))
+const querySelfCancelToken = computed(() => {
+  const raw = route.query.ct
+  return typeof raw === 'string' ? raw : ''
+})
+const selfCancelToken = computed(() => querySelfCancelToken.value || storedSelfCancelToken.value)
 
 const isServiceStarted = computed(() => ['IN_PROGRESS', 'COMPLETED'].includes(order.value?.status || ''))
 const receiptNumber = computed(() => `RCPT-${order.value?.orderNumber || 'TEST'}`)
-const qrImageUrl = computed(() => `/api/orders/${orderId.value}/qr-jpg`)
-const qrImageSaveUrl = computed(() => `/api/orders/${orderId.value}/qr-jpg?download=1`)
-const receiptImageSaveUrl = computed(() => `/api/orders/${orderId.value}/receipt-line-jpg?download=1`)
+const qrImageUrl = computed(() => withBranchQuery(`/api/orders/${orderId.value}/qr-jpg`))
+const qrImageSaveUrl = computed(() => withBranchQuery(`/api/orders/${orderId.value}/qr-jpg?download=1`))
+const receiptImageSaveUrl = computed(() => withBranchQuery(`/api/orders/${orderId.value}/receipt-line-jpg?download=1`))
 const qrIncludesOrderReference = computed(() => {
   const payload = order.value?.payment?.qrPayload || ''
   const orderNumber = order.value?.orderNumber || ''
@@ -107,7 +123,7 @@ const paymentStatusTextClass = computed(() => {
 const canCancelOrder = computed(() => {
   const deadlineAt = order.value?.paymentDeadlineAt
   const hasTimeLeft = deadlineAt ? new Date(deadlineAt).getTime() > nowTs.value : false
-  return Boolean(order.value?.canCancel) && hasTimeLeft && !cancelling.value
+  return Boolean(order.value?.canCancel) && hasTimeLeft && !cancelling.value && Boolean(selfCancelToken.value)
 })
 const showDemoAdminAction = computed(() => {
   if (!order.value) {
@@ -207,7 +223,7 @@ async function saveReceiptImage() {
 }
 
 function goToMachineList() {
-  router.push('/order')
+  router.push(branchCode.value ? `/order?branchCode=${encodeURIComponent(branchCode.value)}` : '/order')
 }
 
 async function uploadSlip() {
@@ -221,13 +237,13 @@ async function uploadSlip() {
   uploading.value = true
 
   try {
-    await $fetch(`/api/orders/${orderId.value}/slip`, {
+    await $fetch(withBranchQuery(`/api/orders/${orderId.value}/slip`), {
       method: 'POST',
       body: formData
     })
 
     await refresh()
-    await router.push(`/status/${order.value?.orderNumber || orderId.value}`)
+    await router.push(withBranchQuery(`/status/${order.value?.orderNumber || orderId.value}`))
   } finally {
     uploading.value = false
   }
@@ -237,16 +253,17 @@ async function demoApprove() {
   verifying.value = true
 
   try {
-    await $fetch(`/api/orders/${orderId.value}/verify-slip`, {
+    await $fetch(withBranchQuery(`/api/orders/${orderId.value}/verify-slip`), {
       method: 'POST',
       body: {
+        branchCode: branchCode.value || undefined,
         approved: true,
         reviewer: 'demo-admin'
       }
     })
 
     await refresh()
-    await router.push(`/status/${order.value?.orderNumber || orderId.value}`)
+    await router.push(withBranchQuery(`/status/${order.value?.orderNumber || orderId.value}`))
   } finally {
     verifying.value = false
   }
@@ -260,19 +277,30 @@ async function cancelOrder() {
   cancelling.value = true
 
   try {
-    await $fetch(`/api/orders/${order.value.id}/cancel`, {
+    await $fetch(withBranchQuery(`/api/orders/${order.value.id}/self-cancel`), {
       method: 'POST',
       body: {
+        branchCode: branchCode.value || undefined,
+        token: selfCancelToken.value,
         reason: 'Cancelled by customer before successful payment'
       }
     })
-    await router.push('/order')
+    await router.push(branchCode.value ? `/order?branchCode=${encodeURIComponent(branchCode.value)}` : '/order')
   } finally {
     cancelling.value = false
   }
 }
 
 onMounted(() => {
+  if (typeof window !== 'undefined') {
+    if (querySelfCancelToken.value) {
+      storedSelfCancelToken.value = querySelfCancelToken.value
+      window.sessionStorage.setItem(tokenStorageKey.value, querySelfCancelToken.value)
+    } else {
+      storedSelfCancelToken.value = window.sessionStorage.getItem(tokenStorageKey.value) || ''
+    }
+  }
+
   countdownTimer = setInterval(() => {
     nowTs.value = Date.now()
 
@@ -287,6 +315,13 @@ onBeforeUnmount(() => {
   if (countdownTimer) {
     clearInterval(countdownTimer)
   }
+})
+
+watch(querySelfCancelToken, (next) => {
+  if (typeof window === 'undefined') return
+  if (!next) return
+  storedSelfCancelToken.value = next
+  window.sessionStorage.setItem(tokenStorageKey.value, next)
 })
 
 watch(
@@ -306,7 +341,7 @@ watch(
 
     if (shouldBackToList) {
       setTimeout(() => {
-        router.push('/order')
+        router.push(branchCode.value ? `/order?branchCode=${encodeURIComponent(branchCode.value)}` : '/order')
       }, 600)
     }
   },

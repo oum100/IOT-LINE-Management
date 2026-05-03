@@ -1,15 +1,17 @@
 import { getServerSession } from '#auth'
 import { getQuery } from 'h3'
 import { prisma } from '../../utils/prisma'
+import { assertPermission, resolvePortalScopeContext } from '../../utils/rbac'
 
-type Role = 'PLATFORM_ADMIN' | 'TENANT_ADMIN' | 'TENANT_STAFF' | 'ADMIN' | 'USER'
+type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
 function isPlatformRole(role: Role | string | null | undefined) {
   const normalized = String(role || '').toUpperCase()
-  return normalized === 'PLATFORM_ADMIN' || normalized === 'ADMIN'
+  return normalized === 'ADMIN' || normalized === 'USER'
 }
 
 export default defineEventHandler(async (event) => {
+  await assertPermission(event, 'portal.asset.manage')
   const session = await getServerSession(event)
   const user = session?.user as {
     id?: string
@@ -28,13 +30,8 @@ export default defineEventHandler(async (event) => {
   const queryAssetType = String(query.assetType || '').trim()
   const queryAssetId = String(query.assetId || '').trim()
 
-  const resolvedTenantId = user.tenantId
-    || (user.merchantAccountId
-      ? (await prisma.merchantAccount.findUnique({
-          where: { id: user.merchantAccountId },
-          select: { tenantId: true }
-        }))?.tenantId
-      : null)
+  const scope = await resolvePortalScopeContext(user)
+  const resolvedTenantId = scope.resolvedTenantId
 
   if (!isPlatformRole(user.role) && !resolvedTenantId) {
     throw createError({ statusCode: 403, statusMessage: 'Tenant scope is required' })
@@ -49,6 +46,7 @@ export default defineEventHandler(async (event) => {
 
   const merchantWhere = {
     ...(resolvedTenantId ? { tenantId: resolvedTenantId } : {}),
+    ...(scope.allowedMerchantIds !== null ? { id: { in: scope.allowedMerchantIds } } : {}),
     ...(queryMerchantId ? { id: queryMerchantId } : {}),
     ...(user.merchantAccountId ? { id: user.merchantAccountId } : {})
   }
@@ -87,6 +85,8 @@ export default defineEventHandler(async (event) => {
   const branches = await prisma.branch.findMany({
     where: {
       ...(resolvedTenantId ? { tenantId: resolvedTenantId } : {}),
+      ...(scope.allowedMerchantIds !== null ? { merchantAccountId: { in: scope.allowedMerchantIds } } : {}),
+      ...(scope.allowedBranchIds !== null ? { id: { in: scope.allowedBranchIds } } : {}),
       ...(selectedMerchantId ? { merchantAccountId: selectedMerchantId } : {}),
       ...(queryBranchId ? { id: queryBranchId } : {})
     },
@@ -122,6 +122,7 @@ export default defineEventHandler(async (event) => {
   const assets = await prisma.asset.findMany({
     where: {
       ...(resolvedTenantId ? { tenantId: resolvedTenantId } : {}),
+      ...(scope.allowedBranchIds !== null ? { branchId: { in: scope.allowedBranchIds } } : {}),
       ...(selectedBranchId ? { branchId: selectedBranchId } : {}),
       ...(selectedMerchantId && !selectedBranchId ? { branch: { merchantAccountId: selectedMerchantId } } : {}),
       ...(queryAssetType ? { kind: queryAssetType } : {})
