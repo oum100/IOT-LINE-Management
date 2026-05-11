@@ -1,0 +1,11 @@
+{
+  "branchCode": "RGH18",
+  "customerName": "Cash Device Test",
+  "note": "order for cash-device confirm test",
+  "items": [
+    {
+      "assetId": "<ASSET_ID>",
+      "priceId": "<ASSET_PRODUCT_PRICE_ID>"
+    }
+  ]
+}

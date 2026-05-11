@@ -8,7 +8,7 @@ const schema = z.object({
   merchantAccountId: z.string().optional().nullable(),
   branchId: z.string().optional().nullable(),
   expiresAt: z.string().datetime().optional(),
-  note: z.string().trim().optional()
+  note: z.string().trim().optional().nullable()
 })
 
 export default defineEventHandler(async (event) => {

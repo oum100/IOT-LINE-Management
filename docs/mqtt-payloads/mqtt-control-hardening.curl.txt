@@ -1,0 +1,34 @@
+# 0) Create order first (use returned orderNumber for cash confirm)
+curl -X POST 'http://localhost:3001/api/orders' \
+  -H 'Content-Type: application/json' \
+  --data @docs/mqtt-payloads/create-order.json
+
+# 1) Send cash confirm via MQTT webhook endpoint
+curl -X POST 'http://localhost:3001/api/mqtt/events' \
+  -H 'Content-Type: application/json' \
+  -H 'x-mqtt-secret: <MQTT_WEBHOOK_SECRET>' \
+  --data @docs/mqtt-payloads/cash-payment-confirm.mqtt-events.json
+
+# 2) Send cash confirm directly
+curl -X POST 'http://localhost:3001/api/payments/cash-device-confirm' \
+  -H 'Content-Type: application/json' \
+  -H 'x-cash-device-secret: <CASH_DEVICE_WEBHOOK_SECRET_OR_MQTT_WEBHOOK_SECRET>' \
+  --data @docs/mqtt-payloads/cash-payment-confirm.direct-api.json
+
+# 3) Device command ACK via MQTT webhook
+curl -X POST 'http://localhost:3001/api/mqtt/events' \
+  -H 'Content-Type: application/json' \
+  -H 'x-mqtt-secret: <MQTT_WEBHOOK_SECRET>' \
+  --data @docs/mqtt-payloads/device-command-ack.mqtt-events.json
+
+# 4) Device command ACK via direct API
+curl -X POST 'http://localhost:3001/api/mqtt/device-ack' \
+  -H 'Content-Type: application/json' \
+  -H 'x-mqtt-secret: <MQTT_WEBHOOK_SECRET>' \
+  --data @docs/mqtt-payloads/device-command-ack.direct-api.json
+
+# 5) Reconcile timeout/retry/dead-letter sweep
+curl -X POST 'http://localhost:3001/api/internal/device-commands/reconcile' \
+  -H 'Content-Type: application/json' \
+  -H 'x-internal-token: <INTERNAL_JOB_TOKEN>' \
+  --data @docs/mqtt-payloads/device-command-reconcile.direct-api.json

@@ -1,34 +1,68 @@
 @import "tailwindcss";
+@import "@nuxt/ui";
 
 :root {
-  --ui-primary: #0f766e;
-  --ui-secondary: #fb923c;
-  --ui-success: #16a34a;
+  --ui-primary: #2563eb;
+  --ui-secondary: #1e40af;
+  --ui-success: #22c55e;
   --ui-warning: #f59e0b;
-  --ui-error: #dc2626;
-  --ui-bg: #f7f7f3;
+  --ui-error: #ef4444;
+  --ui-bg: #cccfd4;
 }
 
 html {
   background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 28%),
-    radial-gradient(circle at top right, rgba(251, 146, 60, 0.16), transparent 26%),
-    linear-gradient(180deg, #fcfcf8 0%, #f4f4ef 100%);
+    radial-gradient(
+      circle at top left,
+      rgba(100, 116, 139, 0.1),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at top right,
+      rgba(148, 163, 184, 0.12),
+      transparent 30%
+    ),
+    linear-gradient(180deg, #e8edf4 0%, #dde4ee 100%);
   min-height: 100%;
 }
 
 body {
   font-family: "IBM Plex Sans Thai", "Kanit", sans-serif;
-  color: #16302b;
+  color: #0f172a;
   min-height: 100vh;
+}
+
+.dark html,
+html.dark {
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(37, 99, 235, 0.18),
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at top right,
+      rgba(30, 64, 175, 0.22),
+      transparent 30%
+    ),
+    linear-gradient(180deg, #020617 0%, #0f172a 100%);
+}
+
+.dark body,
+body.dark {
+  color: #e2e8f0;
 }
 
 .line-shell {
   backdrop-filter: blur(10px);
   background: rgba(255, 255, 255, 0.8);
-  box-shadow: 0 24px 60px rgba(22, 48, 43, 0.12);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.12);
 }
 
 .section-card {
-  @apply rounded-3xl border border-white/60 bg-white/90 shadow-lg shadow-teal-950/5;
+  @apply rounded-3xl border border-white/70 bg-white/90 shadow-lg shadow-blue-950/10 dark:border-slate-800 dark:bg-slate-900;
+}
+
+.liff-shell .section-card {
+  @apply rounded-3xl border border-slate-700 bg-slate-950 text-slate-100 shadow-lg shadow-slate-950/30;
 }

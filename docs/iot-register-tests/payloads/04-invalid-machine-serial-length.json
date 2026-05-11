@@ -1,0 +1,14 @@
+{
+  "registrationCode": "<READY_REGISTRATION_CODE>",
+  "registerType": "asset",
+  "spare": false,
+  "macAddress": "3C:E9:0E:54:C5:56",
+  "fwVersion": "1.2.3",
+  "iotName": "RGH18-IOT-03",
+  "iotModel": "ESP32-D1",
+  "machineSerialNo": "",
+  "machineBrand": "RGH",
+  "machineModel": "WM-03",
+  "machineKind": "WASHER",
+  "assetName": "RGH18 Washer 03"
+}

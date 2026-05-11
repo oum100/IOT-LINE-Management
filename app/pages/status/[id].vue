@@ -3,6 +3,10 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from '#app'
 import type { OrderStatusView } from '~~/shared/types'
 
+definePageMeta({
+  layout: 'liff'
+})
+
 const route = useRoute()
 const orderId = computed(() => route.params.id as string)
 const { data: order, refresh } = await useFetch<OrderStatusView>(() => `/api/orders/${orderId.value}/status`)
@@ -74,39 +78,39 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-none px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+  <div class="mx-auto w-full max-w-none px-4 py-4 text-slate-100 sm:px-6 sm:py-6 lg:px-8">
     <div v-if="order" class="space-y-4">
       <div class="section-card p-4">
-        <p class="text-xs uppercase tracking-[0.22em] text-teal-700/70">Live Machine Status</p>
-        <h1 class="mt-1 text-2xl font-bold text-slate-900">{{ order.orderNumber }}</h1>
-        <p class="mt-1 text-sm text-slate-600">ลูกค้า {{ order.customerName }}</p>
+        <p class="text-xs uppercase tracking-[0.22em] text-teal-300">Live Machine Status</p>
+        <h1 class="mt-1 text-2xl font-bold text-slate-100">{{ order.orderNumber }}</h1>
+        <p class="mt-1 text-sm text-slate-300">ลูกค้า {{ order.customerName }}</p>
         <div class="mt-3 flex items-center gap-2">
           <UBadge color="warning" variant="soft" class="px-3 py-1 text-sm font-semibold">
             {{ paymentStatus }}
           </UBadge>
           <button
             type="button"
-            class="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            class="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-100 transition hover:bg-slate-700"
             @click="refresh()"
           >
             Refresh
           </button>
         </div>
-        <p class="mt-2 text-xs text-slate-500">อัปเดตล่าสุด {{ new Date(order.updatedAt).toLocaleTimeString('th-TH') }}</p>
+        <p class="mt-2 text-xs text-slate-300">อัปเดตล่าสุด {{ new Date(order.updatedAt).toLocaleTimeString('th-TH') }}</p>
       </div>
 
       <div class="section-card p-4">
-        <p class="text-xs uppercase tracking-[0.22em] text-teal-700/70">Machines</p>
+        <p class="text-xs uppercase tracking-[0.22em] text-teal-300">Machines</p>
         <div class="mt-3 space-y-3">
           <div
             v-for="item in order.items"
             :key="item.id"
-            class="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3"
+            class="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3"
           >
             <div class="flex items-center justify-between gap-3">
               <div>
-                <p class="text-lg font-semibold text-slate-900">{{ item.machineName }}</p>
-                <p class="text-sm text-slate-600">{{ item.durationMinutes }} นาที • {{ item.amount }} บาท</p>
+                <p class="text-lg font-semibold text-slate-100">{{ item.machineName }}</p>
+                <p class="text-sm text-slate-300">{{ item.durationMinutes }} นาที • {{ item.amount }} บาท</p>
               </div>
               <div class="text-right">
                 <UBadge
@@ -118,7 +122,7 @@ onBeforeUnmount(() => {
                 </UBadge>
                 <p
                   v-if="item.status === 'RUNNING'"
-                  class="mt-1 text-base font-semibold text-slate-600"
+                  class="mt-1 text-base font-semibold text-slate-200"
                 >
                   {{ remainingText(item) }}
                 </p>

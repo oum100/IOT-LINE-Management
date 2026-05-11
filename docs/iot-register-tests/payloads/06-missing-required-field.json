@@ -1,0 +1,11 @@
+{
+  "registrationCode": "<READY_REGISTRATION_CODE>",
+  "registerType": "asset",
+  "spare": false,
+  "macAddress": "3C:E9:0E:54:C5:58",
+  "fwVersion": "1.2.3",
+  "iotName": "RGH18-IOT-05",
+  "iotModel": "ESP32-D1",
+  "machineSerialNo": "SN12345678904",
+  "machineKind": "WASHER"
+}

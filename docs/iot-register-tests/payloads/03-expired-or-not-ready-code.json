@@ -1,0 +1,14 @@
+{
+  "registrationCode": "<EXPIRED_OR_USED_CODE>",
+  "registerType": "asset",
+  "spare": false,
+  "macAddress": "3C:E9:0E:54:C5:55",
+  "fwVersion": "1.2.3",
+  "iotName": "RGH18-IOT-02",
+  "iotModel": "ESP32-D1",
+  "machineSerialNo": "SN12345678902",
+  "machineBrand": "RGH",
+  "machineModel": "WM-02",
+  "machineKind": "WASHER",
+  "assetName": "RGH18 Washer 02"
+}

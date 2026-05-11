@@ -1,6 +1,6 @@
 import { OrderStatus, PaymentStatus } from '@prisma/client'
 import type { H3Event } from 'h3'
-import { getAdminSettings } from './admin-settings'
+import { getPaymentExpiryMinutesSetting } from './admin-settings'
 
 type ExpiryContext = {
   createdAt: Date | string
@@ -18,8 +18,7 @@ export async function resolvePaymentExpiryMinutes(event: H3Event) {
   const base = Number(config.paymentExpiryMinutes || 15)
 
   try {
-    const adminSettings = await getAdminSettings()
-    const custom = Number(adminSettings.paymentExpiryMinutes)
+    const custom = await getPaymentExpiryMinutesSetting(NaN)
 
     if (Number.isFinite(custom) && custom >= 1 && custom <= 1440) {
       return custom

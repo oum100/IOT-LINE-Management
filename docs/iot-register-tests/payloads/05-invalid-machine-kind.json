@@ -1,0 +1,14 @@
+{
+  "registrationCode": "<READY_REGISTRATION_CODE>",
+  "registerType": "asset",
+  "spare": false,
+  "macAddress": "3C:E9:0E:54:C5:57",
+  "fwVersion": "1.2.3",
+  "iotName": "RGH18-IOT-04",
+  "iotModel": "ESP32-D1",
+  "machineSerialNo": "SN12345678903",
+  "machineBrand": "RGH",
+  "machineModel": "WM-04",
+  "machineKind": "UNKNOWN_KIND",
+  "assetName": "RGH18 Unknown 01"
+}

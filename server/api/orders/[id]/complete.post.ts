@@ -1,7 +1,9 @@
 import { createError, getRouterParam } from 'h3'
 import { completeOrder } from '../../../utils/order-workflow'
+import { assertAnyPermission } from '../../../utils/rbac'
 
 export default defineEventHandler(async (event) => {
+  await assertAnyPermission(event, ['platform.order.manage', 'portal.order.manage'])
   const orderId = getRouterParam(event, 'id')
 
   if (!orderId) {

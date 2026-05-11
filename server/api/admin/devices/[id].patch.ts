@@ -5,6 +5,9 @@ import { assertAdminAccess } from '../../../utils/admin-auth'
 const schema = z.object({
   deviceUid: z.string().trim().nullable().optional(),
   fwVersion: z.string().trim().nullable().optional(),
+  name: z.string().trim().nullable().optional(),
+  model: z.string().trim().nullable().optional(),
+  status: z.enum(['NEW', 'SPARE', 'BOUND', 'OFFLINE', 'DISABLED']).optional(),
   metadata: z.record(z.any()).optional()
 })
 

@@ -1,0 +1,5 @@
+{
+  "sentTimeoutSec": 120,
+  "pendingTimeoutSec": 60,
+  "limit": 100
+}

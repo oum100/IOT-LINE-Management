@@ -1,0 +1,9 @@
+{
+  "registrationCode": "<READY_NEW_MACHINE_CODE>",
+  "registerType": "machine",
+  "spare": false,
+  "machineSerialNo": "SN12345678901",
+  "machineBrand": "WashPro",
+  "machineModel": "WP-11",
+  "machineKind": "WASHER"
+}

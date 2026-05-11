@@ -1,6 +1,9 @@
 import { z } from 'zod'
+import { Resend } from 'resend'
 import { hashPassword } from '../../utils/password'
 import { prisma } from '../../utils/prisma'
+import { createEmailVerificationToken } from '../../utils/email-verification'
+import { resolveEmailVerificationExpiryMinutes } from '../../utils/system-config'
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -55,7 +58,7 @@ export default defineEventHandler(async (event) => {
       email,
       name: body.name?.trim() || null,
       passwordHash,
-      role: 'USER',
+      role: 'STAFF',
       tenantId,
       merchantAccountId
     },
@@ -66,8 +69,49 @@ export default defineEventHandler(async (event) => {
     }
   })
 
+  const config = useRuntimeConfig()
+  const authSecret = config.authSecret || 'dev-auth-secret-change-me'
+  const expiresInMinutes = await resolveEmailVerificationExpiryMinutes(event)
+  const token = createEmailVerificationToken({
+    email,
+    secret: authSecret,
+    expiresInMinutes
+  })
+
+  const authOrigin = String(config.authOrigin || '').trim()
+  const authOriginBase = authOrigin.replace(/\/api\/auth\/?$/i, '')
+  const baseUrl =
+    authOriginBase ||
+    config.public.appUrl ||
+    `${getRequestProtocol(event)}://${getRequestHost(event)}`
+  const verifyUrl = `${baseUrl.replace(/\/$/, '')}/auth/verify-email?token=${encodeURIComponent(token)}`
+
+  if (process.dev) {
+    console.info('[auth][register] verify recipient:', email)
+    console.info('[auth][register] verify url:', verifyUrl)
+  }
+
+  const from = config.authMagicLinkFrom || 'Washpoint <onboarding@resend.dev>'
+  if (config.resendApiKey) {
+    const resend = new Resend(config.resendApiKey)
+    await resend.emails.send({
+      from,
+      to: email,
+      subject: 'Verify your Washpoint account',
+      html: `
+        <p>Hi ${created.name || 'there'},</p>
+        <p>Thank you for registering. Please verify your email:</p>
+        <p><a href="${verifyUrl}">${verifyUrl}</a></p>
+        <p>This link expires in ${expiresInMinutes} minutes.</p>
+      `
+    })
+  }
+
   return {
     ok: true,
-    user: created
+    user: created,
+    verification: {
+      required: true
+    }
   }
 })

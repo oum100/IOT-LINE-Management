@@ -19,7 +19,8 @@ export default defineEventHandler(async (event): Promise<OrderStatusView> => {
       include: {
         items: {
           include: {
-            machine: true
+            machine: true,
+            asset: true
           }
         },
         payment: true
@@ -40,12 +41,12 @@ export default defineEventHandler(async (event): Promise<OrderStatusView> => {
       updatedAt: order.updatedAt.toISOString(),
       items: order.items.map(item => ({
         id: item.id,
-        machineName: item.machine.name,
+        machineName: item.asset?.name || item.machine?.name || '-',
         durationMinutes: item.durationMinutes,
         amount: item.amount,
         status: item.status,
         startedAt: item.startedAt ? item.startedAt.toISOString() : null,
-        remainingMinutes: item.machine.remainingMinutes
+        remainingMinutes: item.machine?.remainingMinutes ?? null
       }))
     }
   } catch (error) {

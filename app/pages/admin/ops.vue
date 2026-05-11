@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
+definePageMeta({
+  middleware: 'portal-auth'
+})
+
 type Tenant = { id: string; code: string; name: string; status: string }
 type Merchant = { id: string; code: string; name: string; status: string; environment: string }
 type Branch = { id: string; code: string; name: string; status: string; merchantAccountId?: string | null }
@@ -480,9 +484,9 @@ async function editMerchant(item: Merchant) {
 async function editBranch(item: Branch) {
   const name = ask('Branch name', item.name)
   if (name === null) return
-  const statusRaw = ask('Status: ACTIVE | INACTIVE | DISABLED', item.status)
+  const statusRaw = ask('Status: ACTIVE | SUSPENDED | DISABLED', item.status)
   if (statusRaw === null) return
-  const status = pickEnum(statusRaw, ['ACTIVE', 'INACTIVE', 'DISABLED'] as const, item.status as 'ACTIVE' | 'INACTIVE' | 'DISABLED')
+  const status = pickEnum(statusRaw, ['ACTIVE', 'SUSPENDED', 'DISABLED'] as const, item.status as 'ACTIVE' | 'SUSPENDED' | 'DISABLED')
   await patchBy('/api/admin/branches', item.id, { name: name || item.name, status }, reloadAll, 'Branch updated')
 }
 
@@ -555,7 +559,6 @@ async function runRegisterTest() {
 
 const selectedTenant = computed(() => tenants.value.find(item => item.id === selectedTenantId.value) || null)
 type AdminView = 'all' | 'tenant' | 'merchant' | 'branch' | 'asset' | 'machine' | 'device' | 'user'
-
 const route = useRoute()
 const adminView = computed<AdminView>(() => {
   const path = route.path.toLowerCase()
@@ -600,13 +603,7 @@ onMounted(async () => {
       <div class="flex flex-wrap items-center gap-3">
         <p class="text-xs font-semibold uppercase tracking-[0.25em] text-cyan-600">Admin Ops</p>
         <a href="/admin/ops" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">All</a>
-        <a href="/admin/tenants" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Tenants</a>
-        <a href="/admin/merchants" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Merchants</a>
-        <a href="/admin/branches" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Branches</a>
-        <a href="/admin/assets" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Assets</a>
-        <a href="/admin/machines" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Machines</a>
-        <a href="/admin/devices" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Devices</a>
-        <a href="/admin/users" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Users</a>
+        <a href="/admin/tenant" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Tenant</a>
         <a href="/admin/settings" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Payment Settings</a>
         <a href="/auth/signin" class="rounded-lg border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50">Auth Signin</a>
       </div>
@@ -634,12 +631,12 @@ onMounted(async () => {
           <label class="text-xs text-slate-500">Active Tenant</label>
           <select v-model="selectedTenantId" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
             <option value="">- select -</option>
-            <option v-for="item in tenants" :key="item.id" :value="item.id">{{ item.code }} • {{ item.name }}</option>
+            <option v-for="item in tenants" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </div>
         <div class="mt-3 space-y-2 text-sm">
           <div v-for="item in tenants" :key="item.id" class="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
-            <span>{{ item.code }} • {{ item.name }}</span>
+            <span>{{ item.name }}</span>
             <div class="flex items-center gap-3">
               <button class="text-sky-700" @click="editTenant(item)">Edit</button>
               <button class="text-rose-600" @click="deleteBy('/api/admin/tenants', item.id, reloadAll)">Delete</button>
@@ -659,12 +656,12 @@ onMounted(async () => {
           <label class="text-xs text-slate-500">Active Merchant</label>
           <select v-model="selectedMerchantId" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
             <option value="">- select -</option>
-            <option v-for="item in merchants" :key="item.id" :value="item.id">{{ item.code }} • {{ item.name }}</option>
+            <option v-for="item in merchants" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </div>
         <div class="mt-3 space-y-2 text-sm">
           <div v-for="item in merchants" :key="item.id" class="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
-            <span>{{ item.code }} • {{ item.name }}</span>
+            <span>{{ item.name }}</span>
             <div class="flex items-center gap-3">
               <button class="text-sky-700" @click="editMerchant(item)">Edit</button>
               <button class="text-rose-600" @click="deleteBy('/api/admin/merchants', item.id, reloadAll)">Delete</button>
@@ -684,12 +681,12 @@ onMounted(async () => {
           <label class="text-xs text-slate-500">Active Branch</label>
           <select v-model="selectedBranchId" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
             <option value="">- select -</option>
-            <option v-for="item in branches" :key="item.id" :value="item.id">{{ item.code }} • {{ item.name }}</option>
+            <option v-for="item in branches" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </div>
         <div class="mt-3 space-y-2 text-sm">
           <div v-for="item in branches" :key="item.id" class="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
-            <span>{{ item.code }} • {{ item.name }}</span>
+            <span>{{ item.name }}</span>
             <div class="flex items-center gap-3">
               <button class="text-sky-700" @click="editBranch(item)">Edit</button>
               <button class="text-rose-600" @click="deleteBy('/api/admin/branches', item.id, reloadAll)">Delete</button>

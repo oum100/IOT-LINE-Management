@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
       bindings: {
         include: {
           asset: true,
-          machineUnit: true
+          machine: true
         }
       },
       keys: true

@@ -31,7 +31,7 @@ const defaultProfile = (): LineLiffProfile => ({
 export function useLineLiff() {
   const profile = useState<LineLiffProfile>('line-liff-profile', defaultProfile)
 
-  async function verifyWithServer(payload: { idToken?: string, accessToken?: string, userId?: string }) {
+  async function verifyWithServer(payload: { idToken?: string, accessToken?: string, userId?: string, branchCode?: string }) {
     try {
       const verified = await $fetch<{
         userId: string
@@ -59,7 +59,7 @@ export function useLineLiff() {
     }
   }
 
-  async function init(force = false) {
+  async function init(force = false, branchCode?: string) {
     if (!import.meta.client || profile.value.loading || (profile.value.ready && !force)) {
       return
     }
@@ -145,7 +145,8 @@ export function useLineLiff() {
         await verifyWithServer({
           idToken,
           accessToken,
-          userId
+          userId,
+          branchCode
         })
       }
     } catch (error) {

@@ -4,12 +4,16 @@ import type { MachineWithPrices } from '~~/shared/types'
 
 type CartItem = {
   cartId: string
-  machineId: string
+  assetId?: string | null
+  machineId?: string | null
   machineName: string
   priceId: string
   priceLabel: string
   durationMinutes: number
   amount: number
+  serviceMode?: 'TIME' | 'QUANTITY' | 'UNIT'
+  serviceUnit?: 'MINUTE' | 'SECOND' | 'LITER' | 'GRAM' | 'PIECE' | 'BOX' | 'SLOT'
+  quantity?: number | null
 }
 
 type MachineSelectionInput = {
@@ -36,12 +40,16 @@ export const useCartStore = defineStore(
 
         this.items.push({
           cartId: nanoid(),
-          machineId: machine.id,
+          assetId: machine.assetId || null,
+          machineId: machine.id || null,
           machineName: machine.name,
           priceId: price.id,
           priceLabel: price.label,
           durationMinutes: price.durationMinutes,
-          amount: price.amount
+          amount: price.amount,
+          serviceMode: price.serviceMode,
+          serviceUnit: price.serviceUnit,
+          quantity: price.quantity
         })
       },
       replaceSelections(selections: MachineSelectionInput[]) {
@@ -54,12 +62,16 @@ export const useCartStore = defineStore(
 
           return [{
             cartId: nanoid(),
-            machineId: selection.machine.id,
+            assetId: selection.machine.assetId || null,
+            machineId: selection.machine.id || null,
             machineName: selection.machine.name,
             priceId: price.id,
             priceLabel: price.label,
             durationMinutes: price.durationMinutes,
-            amount: price.amount
+            amount: price.amount,
+            serviceMode: price.serviceMode,
+            serviceUnit: price.serviceUnit,
+            quantity: price.quantity
           }]
         })
       },

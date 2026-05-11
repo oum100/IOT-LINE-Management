@@ -1,0 +1,15 @@
+{
+  "tenantCode": "EIT",
+  "topic": "tenant/EIT/machine/RGH18-WM-01/ack",
+  "qos": 1,
+  "status": "RECEIVED",
+  "note": "ESP32 ack command",
+  "payload": {
+    "eventType": "device_command_ack",
+    "commandRef": "cmd-orderItemId-1715230000000",
+    "machineCode": "RGH18-WM-01",
+    "orderItemId": "cmxxxxxx",
+    "ackStatus": "DONE",
+    "note": "Program completed"
+  }
+}

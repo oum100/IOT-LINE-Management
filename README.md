@@ -26,10 +26,29 @@ cp .env.example .env
 bun install
 bun run db:push
 bun run db:seed
-bun run dev
+bun run dev:local
 ```
 
-เปิด `http://localhost:3000`
+เปิด `http://localhost:3001`
+
+## Run modes (Local / Tunnel / Production)
+
+โปรเจกต์ใช้ `.env` เป็น base config และใช้ไฟล์ `.env.mode.*` เพื่อ override URL ตามโหมด
+
+- Local dev (ไม่ออกอินเทอร์เน็ต):
+  - `bun run dev:local`
+  - ใช้ `http://localhost:3001`
+
+- Tunnel dev (ทดสอบ OAuth/LINE บนมือถือ):
+  1. ใส่โดเมน tunnel ปัจจุบันใน `.env.mode.tunnel`
+  2. รัน `bun run dev:tunnel`
+  3. อัปเดต callback URL ใน Google/LINE/GitHub ให้ตรงโดเมนเดียวกัน
+
+- Production-like build/preview:
+  1. ตั้งโดเมนจริงใน `.env.mode.production`
+  2. `bun run build:prod`
+  3. `bun run preview:prod`
+  4. หรือรัน output ตรงด้วย `bun run start:prod`
 
 ค่าเริ่มต้นของฐานข้อมูล:
 
@@ -64,6 +83,26 @@ Endpoints เพิ่ม:
 
 - `POST /api/auth/register` สมัคร user แบบ email/password
 - `GET /api/auth/whoami` เช็ค session ปัจจุบัน
+
+### Create Platform Admin (Interactive)
+
+รันคำสั่ง:
+
+```bash
+bun run admin:create platform
+```
+
+ระบบจะถาม `email/password` ใน terminal แล้วสร้าง (หรืออัปเดต) user ให้เป็น role `ADMIN`
+
+### Delete Admin (Interactive)
+
+รันคำสั่ง:
+
+```bash
+bun run admin:delete
+```
+
+ระบบจะถามอีเมล admin และให้พิมพ์ `DELETE` เพื่อยืนยันก่อนลบจริง
 
 ## Admin CRUD API
 

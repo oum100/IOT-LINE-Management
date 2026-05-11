@@ -1,16 +1,19 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { MachineStatus, OrderItemStatus, OrderStatus, PaymentStatus } from '@prisma/client'
-import { createError, getRouterParam, readMultipartFormData } from 'h3'
+import { createError, getQuery, getRouterParam, readMultipartFormData } from 'h3'
 import { slipUploadCounter } from '../../../utils/metrics'
 import { updateMockOrder } from '../../../utils/mock-orders'
 import { sendCustomerNotification, sendOrderReceiptCardNotification } from '../../../utils/notifications'
 import { startOrderMachines } from '../../../utils/order-workflow'
+import { assertOrderBranchScope } from '../../../utils/order-branch-scope'
 import { prisma } from '../../../utils/prisma'
 import { verifySlipWithSlip2Go } from '../../../utils/slip2go'
 
 export default defineEventHandler(async (event) => {
   const orderId = getRouterParam(event, 'id')
+  const query = getQuery(event)
+  const branchCode = typeof query.branchCode === 'string' ? query.branchCode : ''
 
   if (!orderId) {
     throw createError({ statusCode: 400, statusMessage: 'Missing order id' })
@@ -42,6 +45,7 @@ export default defineEventHandler(async (event) => {
     if (!order?.payment) {
       throw createError({ statusCode: 404, statusMessage: 'Payment not found' })
     }
+    await assertOrderBranchScope(order.branchId, branchCode)
 
     if (order.status === OrderStatus.CANCELLED) {
       throw createError({ statusCode: 409, statusMessage: 'Order is cancelled' })
@@ -85,7 +89,7 @@ export default defineEventHandler(async (event) => {
         where: { orderId },
         select: { machineId: true }
       })
-      const machineIds = Array.from(new Set(orderItems.map(item => item.machineId)))
+      const machineIds = Array.from(new Set(orderItems.map(item => item.machineId).filter(Boolean) as string[]))
 
       await prisma.$transaction(async (tx) => {
         await tx.payment.update({
@@ -150,7 +154,7 @@ export default defineEventHandler(async (event) => {
           orderNumber: receiptOrder.orderNumber,
           totalAmount: receiptOrder.totalAmount,
           items: receiptOrder.items.map(item => ({
-            machineName: item.machine.name,
+            machineName: item.machine?.name || '-',
             durationMinutes: item.durationMinutes,
             amount: item.amount
           }))

@@ -3,17 +3,22 @@ import { createError, getRouterParam, readBody } from 'h3'
 import { updateMockOrder } from '../../../utils/mock-orders'
 import { sendCustomerNotification, sendOrderReceiptCardNotification } from '../../../utils/notifications'
 import { startOrderMachines } from '../../../utils/order-workflow'
+import { assertOrderBranchScope } from '../../../utils/order-branch-scope'
 import { prisma } from '../../../utils/prisma'
+import { assertAnyPermission } from '../../../utils/rbac'
 import { verifySlipSchema } from '../../../utils/validation'
 
 export default defineEventHandler(async (event) => {
+  await assertAnyPermission(event, ['platform.order.manage', 'portal.order.manage'])
   const orderId = getRouterParam(event, 'id')
 
   if (!orderId) {
     throw createError({ statusCode: 400, statusMessage: 'Missing order id' })
   }
 
-  const body = verifySlipSchema.parse(await readBody(event))
+  const rawBody = await readBody(event)
+  const body = verifySlipSchema.parse(rawBody)
+  const branchCode = String((rawBody as any)?.branchCode || '').trim()
   try {
     const payment = await prisma.payment.findUnique({
       where: { orderId },
@@ -25,6 +30,7 @@ export default defineEventHandler(async (event) => {
     if (!payment) {
       throw createError({ statusCode: 404, statusMessage: 'Payment not found' })
     }
+    await assertOrderBranchScope(payment.order.branchId, branchCode)
 
     if (payment.order.status === OrderStatus.CANCELLED) {
       throw createError({ statusCode: 409, statusMessage: 'Order is cancelled' })
@@ -53,7 +59,7 @@ export default defineEventHandler(async (event) => {
         where: { orderId },
         select: { machineId: true }
       })
-      const machineIds = Array.from(new Set(orderItems.map(item => item.machineId)))
+      const machineIds = Array.from(new Set(orderItems.map(item => item.machineId).filter(Boolean) as string[]))
 
       order = await prisma.$transaction(async (tx) => {
         await tx.payment.update({
@@ -120,7 +126,7 @@ export default defineEventHandler(async (event) => {
           orderNumber: fullOrder.orderNumber,
           totalAmount: fullOrder.totalAmount,
           items: fullOrder.items.map(item => ({
-            machineName: item.machine.name,
+            machineName: item.machine?.name || '-',
             durationMinutes: item.durationMinutes,
             amount: item.amount
           }))

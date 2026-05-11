@@ -18,14 +18,16 @@ export async function assertAdminAccess(event: H3Event) {
 
   const config = useRuntimeConfig(event)
   const requiredKey = config.adminApiKey || ''
-
-  if (!requiredKey) {
-    return
-  }
-
   const headerKey = getHeader(event, 'x-admin-key') || ''
 
-  if (headerKey !== requiredKey) {
+  if (!requiredKey) {
+    throw createError({
+      statusCode: 401,
+      statusMessage: 'Unauthorized admin access (ADMIN_API_KEY is not configured)'
+    })
+  }
+
+  if (!headerKey || headerKey !== requiredKey) {
     throw createError({
       statusCode: 401,
       statusMessage: 'Unauthorized admin access'
