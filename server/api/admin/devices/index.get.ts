@@ -9,6 +9,7 @@ export default defineEventHandler(async (event) => {
   const tenantId = String(query.tenantId || '').trim()
   const merchantAccountId = String(query.merchantAccountId || '').trim()
   const branchId = String(query.branchId || '').trim()
+  const status = String(query.status || '').trim().toUpperCase()
 
   const { q, skip, take, page, pageSize } = withPaging(query)
   const where = {
@@ -33,6 +34,7 @@ export default defineEventHandler(async (event) => {
           }
         }
       : {}),
+    ...(status ? { status } : {}),
     ...(q
       ? {
           OR: [

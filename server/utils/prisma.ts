@@ -6,8 +6,20 @@ const globalForPrisma = globalThis as unknown as {
 
 function hasRequiredDelegates(client: PrismaClient | undefined) {
   if (!client) return false
-  const delegates = client as unknown as { expense?: unknown; providerService?: unknown }
-  return Boolean(delegates.expense && delegates.providerService)
+  const delegates = client as unknown as {
+    expense?: unknown
+    providerService?: unknown
+    mqttServer?: unknown
+    tenantMqttBinding?: unknown
+    paymentTrace?: unknown
+  }
+  return Boolean(
+    delegates.expense &&
+    delegates.providerService &&
+    delegates.mqttServer &&
+    delegates.tenantMqttBinding &&
+    delegates.paymentTrace
+  )
 }
 
 let prismaInstance = globalForPrisma.prisma

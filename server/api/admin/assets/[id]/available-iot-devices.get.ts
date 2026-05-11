@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
     items = await prisma.iotDevice.findMany({
       where: {
         tenantId: asset.tenantId,
-        status: 'SPARE',
+        status: { in: ['NEW', 'SPARE'] },
         bindings: {
           none: {
             status: 'ACTIVE',

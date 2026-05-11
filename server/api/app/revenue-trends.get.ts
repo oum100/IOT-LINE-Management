@@ -83,6 +83,8 @@ export default defineEventHandler(async (event) => {
     createdAt: { gte: monthlyStart, lte: now },
     ...(tenantScopeId ? { tenantId: tenantScopeId } : {}),
     ...(lockedMerchantId ? { merchantAccountId: lockedMerchantId } : {}),
+    ...(scope.allowedMerchantIds !== null ? { merchantAccountId: { in: scope.allowedMerchantIds } } : {}),
+    ...(scope.allowedBranchIds !== null ? { branchId: { in: scope.allowedBranchIds } } : {}),
     ...(query.mode === 'custom' && !lockedMerchantId && requestedMerchantIds.length
       ? { merchantAccountId: { in: requestedMerchantIds } }
       : {}),
@@ -95,6 +97,8 @@ export default defineEventHandler(async (event) => {
     occurredAt: { gte: monthlyStart, lte: now },
     ...(tenantScopeId ? { tenantId: tenantScopeId } : {}),
     ...(lockedMerchantId ? { merchantAccountId: lockedMerchantId } : {}),
+    ...(scope.allowedMerchantIds !== null ? { merchantAccountId: { in: scope.allowedMerchantIds } } : {}),
+    ...(scope.allowedBranchIds !== null ? { branchId: { in: scope.allowedBranchIds } } : {}),
     ...(query.mode === 'custom' && !lockedMerchantId && requestedMerchantIds.length
       ? { merchantAccountId: { in: requestedMerchantIds } }
       : {}),

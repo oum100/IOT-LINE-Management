@@ -41,7 +41,7 @@ export default defineEventHandler(async (event) => {
     }
 
     const payment = order.payment
-    const machineIds = Array.from(new Set(order.items.map(item => item.machineId)))
+    const machineIds = Array.from(new Set(order.items.map(item => item.machineId).filter(Boolean) as string[]))
 
     await prisma.$transaction(async (tx) => {
       if (payment.status !== PaymentStatus.VERIFIED) {

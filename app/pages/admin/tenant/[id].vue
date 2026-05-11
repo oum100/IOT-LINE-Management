@@ -187,11 +187,11 @@ watch(tenantId, () => {
           </div>
           <div>
             <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Created</p>
-            <p class="mt-1 text-sm text-slate-700 dark:text-slate-200">{{ formatDate(tenant.createdAt) }}</p>
+            <div class="mt-1 text-sm text-slate-700 dark:text-slate-200"><DateTimeTwoLine :value="tenant.createdAt" /></div>
           </div>
           <div>
             <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">Updated</p>
-            <p class="mt-1 text-sm text-slate-700 dark:text-slate-200">{{ formatDate(tenant.updatedAt) }}</p>
+            <div class="mt-1 text-sm text-slate-700 dark:text-slate-200"><DateTimeTwoLine :value="tenant.updatedAt" /></div>
           </div>
         </div>
       </UCard>

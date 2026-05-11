@@ -21,8 +21,9 @@ type MachineItem = {
   id: string
   code: string
   name: string
+  serialNo: string
   kind: string
-  status: "AVAILABLE" | "RESERVED" | "RUNNING" | "MAINTENANCE"
+  status: "NEW" | "AVAILABLE" | "RESERVED" | "RUNNING" | "MAINTENANCE"
   tenant?: { id: string; name: string; code: string } | null
   merchantAccount?: { id: string; name: string } | null
   branch?: { id: string; name: string } | null
@@ -31,7 +32,13 @@ type MachineItem = {
 }
 
 const loading = ref(false)
+const creating = ref(false)
+const editing = ref(false)
+const deletingId = ref("")
 const error = ref("")
+const formError = ref("")
+const createOpen = ref(false)
+const editOpen = ref(false)
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
@@ -53,19 +60,153 @@ const summary = ref<MachineSummary>({
   runningCount: 0,
   maintenanceCount: 0,
 })
+const createForm = ref({
+  code: "",
+  serialNumber: "",
+  kind: "WASHER",
+  status: "AVAILABLE" as MachineItem["status"] | "NEW" | "SPARE" | "BOUND" | "OFFLINE" | "DISABLED",
+  locationLabel: "Front row",
+})
+const editForm = ref({
+  id: "",
+  serialNumber: "",
+  status: "AVAILABLE" as MachineItem["status"] | "NEW" | "SPARE" | "BOUND" | "OFFLINE" | "DISABLED",
+  locationLabel: "",
+})
+const inputUi = {
+  base: "bg-slate-900 text-slate-100 placeholder:text-slate-400 ring-1 ring-slate-600",
+}
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
 function formatDate(date: string) {
   return new Date(date).toLocaleString()
 }
 
-function machineStatusClass(status: MachineItem["status"] | "IN_USE") {
-  if (status === "IN_USE") return "text-emerald-600 dark:text-emerald-400 font-semibold"
+function formatDateOnly(date: string) {
+  return new Date(date).toLocaleDateString()
+}
+
+function formatTimeOnly(date: string) {
+  return new Date(date).toLocaleTimeString()
+}
+
+function machineStatusClass(status: MachineItem["status"] | "BOUND") {
+  if (status === "BOUND") return "text-emerald-600 dark:text-emerald-400 font-semibold"
+  if (status === "NEW") return "text-sky-600 dark:text-sky-400 font-semibold"
   if (status === "AVAILABLE") return "text-emerald-600 dark:text-emerald-400 font-semibold"
   if (status === "RESERVED") return "text-cyan-600 dark:text-cyan-400 font-semibold"
   if (status === "RUNNING") return "text-blue-600 dark:text-blue-400 font-semibold"
   if (status === "MAINTENANCE") return "text-amber-600 dark:text-amber-400 font-semibold"
   return "text-slate-700 dark:text-slate-200 font-semibold"
+}
+
+function machineStatusLabel(status: MachineItem["status"] | "BOUND") {
+  return status === "BOUND" ? "BOUND" : status
+}
+
+function openCreateDialog() {
+  if (!filters.value.tenantId) {
+    error.value = "Please select tenant before creating machine."
+    return
+  }
+  formError.value = ""
+  createForm.value = {
+    code: "",
+    serialNumber: "",
+    kind: "WASHER",
+    status: "AVAILABLE",
+    locationLabel: "Front row",
+  }
+  createOpen.value = true
+}
+
+async function createMachine() {
+  if (!filters.value.tenantId) {
+    error.value = "Tenant is required."
+    return
+  }
+  creating.value = true
+  formError.value = ""
+  try {
+    await $fetch("/api/admin/machines", {
+      method: "POST",
+      body: {
+        tenantId: filters.value.tenantId,
+        merchantAccountId: filters.value.merchantAccountId || null,
+        branchId: filters.value.branchId || null,
+        code: createForm.value.code.trim(),
+        serialNumber: createForm.value.serialNumber.trim(),
+        kind: createForm.value.kind,
+        status: createForm.value.status,
+        locationLabel: createForm.value.locationLabel.trim() || "Front row",
+      },
+    })
+    createOpen.value = false
+    await loadData()
+  } catch (err) {
+    formError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || "Failed to create machine"
+  } finally {
+    creating.value = false
+  }
+}
+
+function openEditDialog(item: MachineItem) {
+  formError.value = ""
+  editForm.value = {
+    id: item.id,
+    serialNumber: item.serialNo || item.name,
+    status: item.status,
+    locationLabel: item.branch?.name ? item.branch.name : "Front row",
+  }
+  editOpen.value = true
+}
+
+async function saveMachine() {
+  if (!editForm.value.id) return
+  editing.value = true
+  formError.value = ""
+  try {
+    await $fetch(`/api/admin/machines/${editForm.value.id}`, {
+      method: "PATCH",
+      body: {
+        serialNumber: editForm.value.serialNumber.trim(),
+        status: editForm.value.status,
+        locationLabel: editForm.value.locationLabel.trim() || "Front row",
+      },
+    })
+    editOpen.value = false
+    await loadData()
+  } catch (err) {
+    formError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || "Failed to update machine"
+  } finally {
+    editing.value = false
+  }
+}
+
+async function deleteMachine(item: MachineItem) {
+  const expectedName = (item.serialNo || item.name || item.code).trim()
+  const typed = window.prompt(`Type machine serial number to confirm delete:\n${expectedName}`, "")
+  if (typed === null) return
+  if (typed.trim() !== expectedName) {
+    error.value = "Machine serial number does not match. Delete cancelled."
+    return
+  }
+  deletingId.value = item.id
+  error.value = ""
+  try {
+    await $fetch(`/api/admin/machines/${item.id}`, {
+      method: "DELETE",
+      body: {
+        confirmText: "DELETE",
+        confirmName: expectedName,
+      },
+    } as any)
+    await loadData()
+  } catch (err) {
+    error.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || "Failed to delete machine"
+  } finally {
+    deletingId.value = ""
+  }
 }
 
 async function loadTenants() {
@@ -158,6 +299,13 @@ watch(
   },
 )
 
+watch(
+  () => filters.value.branchId,
+  () => {
+    applyFilters()
+  },
+)
+
 onMounted(async () => {
   try {
     await loadTenants()
@@ -179,7 +327,7 @@ onMounted(async () => {
 
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <template #header>
-        <div class="grid gap-3 md:grid-cols-[220px_220px_220px_1fr_auto_auto] md:items-end">
+        <div class="grid gap-3 md:grid-cols-[220px_220px_220px_1fr_auto_auto_auto] md:items-end">
           <div class="flex flex-col gap-1">
             <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Tenant</label>
             <select v-model="filters.tenantId" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
@@ -203,9 +351,10 @@ onMounted(async () => {
           </div>
           <SearchInput
             v-model="search"
-            placeholder="Search machine code/name/id..."
+            placeholder="Search machine code/serial/id..."
             @enter="applyFilters"
           />
+          <UButton icon="i-lucide-plus" color="primary" class="text-white" @click="openCreateDialog">Create</UButton>
           <UButton icon="i-lucide-refresh-cw" color="neutral" variant="soft" @click="loadData">Refresh</UButton>
         </div>
       </template>
@@ -223,7 +372,7 @@ onMounted(async () => {
           <thead class="bg-slate-100 text-left text-slate-600 dark:bg-slate-800 dark:text-slate-200">
             <tr>
               <th class="px-3 py-2">Code</th>
-              <th class="px-3 py-2">Name</th>
+              <th class="px-3 py-2">Serial Number</th>
               <th class="px-3 py-2">Type</th>
               <th class="px-3 py-2">Status</th>
               <th class="px-3 py-2">Tenant</th>
@@ -231,24 +380,33 @@ onMounted(async () => {
               <th class="px-3 py-2">Branch</th>
               <th class="px-3 py-2">Asset</th>
               <th class="px-3 py-2">Updated</th>
+              <th class="px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in items" :key="item.id" class="border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/40">
               <td class="px-3 py-2 font-medium">{{ item.code }}</td>
-              <td class="px-3 py-2">{{ item.name }}</td>
+              <td class="px-3 py-2">{{ item.serialNo || item.name }}</td>
               <td class="px-3 py-2">{{ item.kind }}</td>
               <td class="px-3 py-2">
-                <span :class="machineStatusClass(item.status)">{{ item.status }}</span>
+                <span :class="machineStatusClass(item.status)">{{ machineStatusLabel(item.status) }}</span>
               </td>
               <td class="px-3 py-2">{{ item.tenant?.name || "-" }}</td>
               <td class="px-3 py-2">{{ item.merchantAccount?.name || "-" }}</td>
               <td class="px-3 py-2">{{ item.branch?.name || "-" }}</td>
               <td class="px-3 py-2">{{ item.asset?.name || "-" }}</td>
-              <td class="px-3 py-2">{{ formatDate(item.updatedAt) }}</td>
+              <td class="px-3 py-2">
+                <DateTimeTwoLine :value="item.updatedAt" />
+              </td>
+              <td class="px-3 py-2">
+                <div class="flex items-center gap-1">
+                  <UButton icon="i-lucide-pencil" size="xs" color="neutral" variant="soft" @click="openEditDialog(item)" />
+                  <UButton icon="i-lucide-trash-2" size="xs" color="error" variant="soft" :loading="deletingId === item.id" @click="deleteMachine(item)" />
+                </div>
+              </td>
             </tr>
             <tr v-if="!loading && items.length === 0">
-              <td colspan="9" class="px-3 py-6 text-center text-slate-500">No machines found</td>
+              <td colspan="10" class="px-3 py-6 text-center text-slate-500">No machines found</td>
             </tr>
           </tbody>
         </table>
@@ -263,5 +421,67 @@ onMounted(async () => {
         </div>
       </div>
     </UCard>
+
+    <UModal v-model:open="createOpen" :ui="{ content: 'sm:max-w-xl' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Create Machine</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="createOpen = false" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="formError" color="error" variant="soft" :title="formError" />
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <UFormField label="Code"><UInput v-model="createForm.code" :ui="inputUi" /></UFormField>
+              <UFormField label="Serial Number"><UInput v-model="createForm.serialNumber" :ui="inputUi" /></UFormField>
+            </div>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <UFormField label="Type"><UInput v-model="createForm.kind" :ui="inputUi" /></UFormField>
+              <UFormField label="Status">
+                <USelect v-model="createForm.status" :items="['NEW','AVAILABLE','RESERVED','RUNNING','MAINTENANCE','SPARE','BOUND','OFFLINE','DISABLED']" :ui="inputUi" />
+              </UFormField>
+              <UFormField label="Location"><UInput v-model="createForm.locationLabel" :ui="inputUi" /></UFormField>
+            </div>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="createOpen = false">Cancel</UButton>
+              <UButton color="primary" class="text-white" :loading="creating" @click="createMachine">Create</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="editOpen" :ui="{ content: 'sm:max-w-xl' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Edit Machine</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="editOpen = false" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="formError" color="error" variant="soft" :title="formError" />
+            <UFormField label="Serial Number"><UInput v-model="editForm.serialNumber" :ui="inputUi" /></UFormField>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <UFormField label="Status">
+                <USelect v-model="editForm.status" :items="['NEW','AVAILABLE','RESERVED','RUNNING','MAINTENANCE','SPARE','BOUND','OFFLINE','DISABLED']" :ui="inputUi" />
+              </UFormField>
+              <UFormField label="Location"><UInput v-model="editForm.locationLabel" :ui="inputUi" /></UFormField>
+            </div>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="editOpen = false">Cancel</UButton>
+              <UButton color="primary" class="text-white" :loading="editing" @click="saveMachine">Save</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
   </section>
 </template>

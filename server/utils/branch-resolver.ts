@@ -16,7 +16,12 @@ export async function resolveBranchByCode(branchCode: string): Promise<ResolvedB
   }
 
   const rows = await prisma.branch.findMany({
-    where: { code },
+    where: {
+      OR: [
+        { code },
+        { name: { equals: code, mode: 'insensitive' } }
+      ]
+    },
     select: {
       id: true,
       code: true,
@@ -45,4 +50,3 @@ export async function resolveBranchByCode(branchCode: string): Promise<ResolvedB
     merchantAccountId: row.merchantAccountId || null
   }
 }
-

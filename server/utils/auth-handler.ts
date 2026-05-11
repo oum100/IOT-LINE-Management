@@ -133,8 +133,13 @@ const authHandler = NuxtAuthHandler({
         const password = credentials?.password;
         if (!email || !password) return null;
 
-        const user = await prisma.user.findUnique({
-          where: { email },
+        const user = await prisma.user.findFirst({
+          where: {
+            email: {
+              equals: email,
+              mode: "insensitive",
+            },
+          },
         });
         if (!user || !user.passwordHash || !user.isActive) return null;
 

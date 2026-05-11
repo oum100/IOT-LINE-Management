@@ -51,7 +51,7 @@ export default defineEventHandler(async (event) => {
   const appBaseUrl = String(config.public.appUrl || "").replace(/\/$/, "");
   const ownerUrl =
     body.ownerUrl ||
-    `${appBaseUrl}/login?callback=${encodeURIComponent(`/app/dashboard?tenant=${tenant.code}`)}`;
+    `${appBaseUrl}/login?callback=${encodeURIComponent(`/app/status?tenant=${tenant.code}`)}`;
 
   const from = config.authMagicLinkFrom || "Washpoint <onboarding@resend.dev>";
   let delivered = false;

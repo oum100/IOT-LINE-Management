@@ -17,17 +17,38 @@ type PaymentSummary = {
   rejectedCount: number
 }
 
+type PaymentTimelineEvent = {
+  id: string
+  at?: string | Date | null
+  title: string
+  note?: string
+  tone: "neutral" | "primary" | "success" | "warning" | "error"
+}
+
 type PaymentItem = {
   id: string
   status: "PENDING" | "SLIP_UPLOADED" | "VERIFIED" | "REJECTED"
   amount: number
   providerCode: string | null
   providerReference: string | null
+  qrPayload?: string | null
+  slipCount?: number
   tenant?: { id: string; name: string; code: string } | null
   merchantAccount?: { id: string; name: string } | null
   branch?: { id: string; name: string } | null
   order?: { id: string; orderNumber: string; customerName: string } | null
   verifiedAt: string | null
+  createdAt: string
+}
+
+type PaymentTraceItem = {
+  id: string
+  stage: string
+  direction: string
+  providerCode?: string | null
+  statusCode?: number | null
+  mappedStatus?: string | null
+  note?: string | null
   createdAt: string
 }
 
@@ -54,11 +75,65 @@ const summary = ref<PaymentSummary>({
   verifiedCount: 0,
   rejectedCount: 0,
 })
+
+const detailOpen = ref(false)
+const detailLoading = ref(false)
+const detailError = ref("")
+const detailPayment = ref<PaymentItem | null>(null)
+const detailEvents = ref<PaymentTimelineEvent[]>([])
+const detailTraces = ref<PaymentTraceItem[]>([])
+
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
-function formatDate(date: string | null) {
-  if (!date) return "-"
-  return new Date(date).toLocaleString()
+function paymentStatusClass(status: PaymentItem["status"]) {
+  if (status === "VERIFIED") return "text-emerald-600 dark:text-emerald-400"
+  if (status === "REJECTED") return "text-rose-600 dark:text-rose-400"
+  if (status === "SLIP_UPLOADED") return "text-cyan-600 dark:text-cyan-400"
+  return "text-amber-600 dark:text-amber-400"
+}
+
+async function openDetailDialog(item: PaymentItem) {
+  detailOpen.value = true
+  detailLoading.value = true
+  detailError.value = ""
+  detailPayment.value = item
+  detailEvents.value = []
+  try {
+    const response = await $fetch<{ payment: PaymentItem; events: PaymentTimelineEvent[]; traces?: PaymentTraceItem[] }>(`/api/admin/payments/${item.id}/detail`)
+    detailPayment.value = response.payment || item
+    detailEvents.value = response.events || []
+    detailTraces.value = response.traces || []
+  } catch (err) {
+    detailError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || "Failed to load payment details"
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function closeDetailDialog() {
+  detailOpen.value = false
+  detailLoading.value = false
+  detailError.value = ""
+  detailPayment.value = null
+  detailEvents.value = []
+  detailTraces.value = []
+}
+
+const detailTimelineItems = computed(() =>
+  detailEvents.value.map((event) => ({
+    date: event.at ? new Date(event.at).toLocaleString() : "-",
+    title: event.title,
+    description: event.note || "-",
+    color: event.tone
+  }))
+)
+
+function timelineDotClass(tone: PaymentTimelineEvent["tone"]) {
+  if (tone === "success") return "bg-emerald-500"
+  if (tone === "warning") return "bg-amber-500"
+  if (tone === "error") return "bg-rose-500"
+  if (tone === "primary") return "bg-blue-500"
+  return "bg-slate-400"
 }
 
 async function loadTenants() {
@@ -172,7 +247,7 @@ onMounted(async () => {
 
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <template #header>
-        <div class="grid gap-3 md:grid-cols-[220px_220px_220px_1fr_auto_auto] md:items-end">
+        <div class="grid gap-3 md:grid-cols-[220px_220px_220px_1fr_auto] md:items-end">
           <div class="flex flex-col gap-1">
             <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Tenant</label>
             <select v-model="filters.tenantId" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
@@ -225,6 +300,7 @@ onMounted(async () => {
               <th class="px-3 py-2">Merchant (Brand)</th>
               <th class="px-3 py-2">Branch</th>
               <th class="px-3 py-2">Verified At</th>
+              <th class="px-3 py-2 text-center">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -232,16 +308,28 @@ onMounted(async () => {
               <td class="px-3 py-2 font-medium">{{ item.order?.orderNumber || "-" }}</td>
               <td class="px-3 py-2">{{ item.order?.customerName || "-" }}</td>
               <td class="px-3 py-2">{{ item.id }}</td>
-              <td class="px-3 py-2">{{ item.status }}</td>
+              <td class="px-3 py-2">
+                <span class="font-semibold" :class="paymentStatusClass(item.status)">{{ item.status }}</span>
+              </td>
               <td class="px-3 py-2">{{ item.amount }}</td>
               <td class="px-3 py-2">{{ item.providerCode || "-" }}</td>
               <td class="px-3 py-2">{{ item.tenant?.name || "-" }}</td>
               <td class="px-3 py-2">{{ item.merchantAccount?.name || "-" }}</td>
               <td class="px-3 py-2">{{ item.branch?.name || "-" }}</td>
-              <td class="px-3 py-2">{{ formatDate(item.verifiedAt || item.createdAt) }}</td>
+              <td class="px-3 py-2"><DateTimeTwoLine :value="item.verifiedAt || item.createdAt" /></td>
+              <td class="px-3 py-2 text-center">
+                <button
+                  type="button"
+                  class="inline-flex items-center text-blue-600 transition hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                  title="payment details"
+                  @click="openDetailDialog(item)"
+                >
+                  <UIcon name="i-lucide-list" class="size-4" />
+                </button>
+              </td>
             </tr>
             <tr v-if="!loading && items.length === 0">
-              <td colspan="10" class="px-3 py-6 text-center text-slate-500">No payments found</td>
+              <td colspan="11" class="px-3 py-6 text-center text-slate-500">No payments found</td>
             </tr>
           </tbody>
         </table>
@@ -256,5 +344,110 @@ onMounted(async () => {
         </div>
       </div>
     </UCard>
+
+    <UModal
+      v-model:open="detailOpen"
+      :dismissible="!detailLoading"
+      :ui="{ content: 'sm:max-w-5xl' }"
+    >
+      <template #content>
+        <UCard :ui="{ root: 'bg-slate-900 ring-1 ring-slate-700 text-slate-100', body: 'space-y-4' }">
+          <template #header>
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <h3 class="text-base font-semibold text-slate-100">Payment Details</h3>
+                <p class="text-xs text-slate-300">{{ detailPayment?.id || "-" }}</p>
+              </div>
+              <UButton icon="i-lucide-x" color="neutral" variant="ghost" @click="closeDetailDialog" />
+            </div>
+          </template>
+
+          <UAlert v-if="detailError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="detailError" />
+
+          <div class="grid gap-3 md:grid-cols-2">
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Order</p>
+              <p class="font-medium text-slate-100">{{ detailPayment?.order?.orderNumber || "-" }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Customer</p>
+              <p class="font-medium text-slate-100">{{ detailPayment?.order?.customerName || "-" }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Status</p>
+              <p class="font-medium" :class="paymentStatusClass((detailPayment?.status || 'PENDING') as PaymentItem['status'])">{{ detailPayment?.status || "-" }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Amount</p>
+              <p class="font-medium text-slate-100">{{ detailPayment?.amount ?? "-" }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Provider Ref</p>
+              <p class="font-medium text-slate-100">{{ detailPayment?.providerReference || "-" }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Slip Count</p>
+              <p class="font-medium text-slate-100">{{ detailPayment?.slipCount ?? 0 }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3 md:col-span-2">
+              <p class="text-xs text-slate-300">QR Payload</p>
+              <p class="break-all font-mono text-xs text-slate-100">{{ detailPayment?.qrPayload || "-" }}</p>
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+            <p class="mb-2 text-sm font-semibold text-slate-100">Payment Flow</p>
+            <div v-if="detailLoading" class="py-6 text-center text-sm text-slate-300">Loading payment timeline...</div>
+            <div v-else-if="!detailTimelineItems.length" class="py-6 text-center text-sm text-slate-300">No payment timeline events</div>
+            <div v-else class="space-y-4">
+              <div
+                v-for="event in detailTimelineItems"
+                :key="`${event.title}-${event.date}`"
+                class="flex items-start gap-3"
+              >
+                <span
+                  class="mt-1 inline-flex h-2.5 w-2.5 shrink-0 rounded-full"
+                  :class="timelineDotClass((event.color || 'neutral') as PaymentTimelineEvent['tone'])"
+                />
+                <div class="space-y-0.5">
+                  <p class="text-xs text-slate-300">{{ event.date }}</p>
+                  <p class="text-sm font-medium text-slate-100">{{ event.title }}</p>
+                  <p class="text-sm text-slate-300">{{ event.description }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+            <p class="mb-2 text-sm font-semibold text-slate-100">Provider Trace</p>
+            <div v-if="!detailTraces.length" class="py-4 text-center text-sm text-slate-300">No trace logs</div>
+            <div v-else class="overflow-x-auto rounded-lg border border-slate-700">
+              <table class="min-w-full text-xs">
+                <thead class="bg-slate-700/60 text-slate-100">
+                  <tr>
+                    <th class="px-2 py-2 text-left">At</th>
+                    <th class="px-2 py-2 text-left">Stage</th>
+                    <th class="px-2 py-2 text-left">Direction</th>
+                    <th class="px-2 py-2 text-left">Status</th>
+                    <th class="px-2 py-2 text-left">Mapped</th>
+                    <th class="px-2 py-2 text-left">Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="trace in detailTraces" :key="trace.id" class="border-t border-slate-700">
+                    <td class="px-2 py-2 text-slate-200">{{ new Date(trace.createdAt).toLocaleString() }}</td>
+                    <td class="px-2 py-2 text-slate-200">{{ trace.stage }}</td>
+                    <td class="px-2 py-2 text-slate-200">{{ trace.direction }}</td>
+                    <td class="px-2 py-2 text-slate-200">{{ trace.statusCode ?? "-" }}</td>
+                    <td class="px-2 py-2 text-slate-200">{{ trace.mappedStatus || "-" }}</td>
+                    <td class="px-2 py-2 text-slate-200">{{ trace.note || "-" }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </UCard>
+      </template>
+    </UModal>
   </section>
 </template>

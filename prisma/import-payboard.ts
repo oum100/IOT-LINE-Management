@@ -214,13 +214,22 @@ async function main() {
     });
     assetCount += 1;
 
-    const machineUnit = await prisma.machineUnit.upsert({
+    const machine = await prisma.machine.upsert({
       where: {
         serialNo: (row.device_serial || `PB-SERIAL-${row.device_id}`).trim(),
       },
       create: {
         tenantId: tenant.id,
+        merchantAccountId: merchantInfo.id,
+        branchId: merchantInfo.branchId,
+        assetId: asset.id,
+        code: machineCode,
+        name: machineName,
         serialNo: (row.device_serial || `PB-SERIAL-${row.device_id}`).trim(),
+        kind,
+        status: machineStatusFrom(row),
+        locationLabel: merchantInfo.name,
+        topic: row.device_udid ? `payboard/${row.device_udid}` : null,
         metadata: {
           source: "payboard",
           payboardDeviceId: row.device_id,
@@ -228,6 +237,15 @@ async function main() {
       },
       update: {
         tenantId: tenant.id,
+        merchantAccountId: merchantInfo.id,
+        branchId: merchantInfo.branchId,
+        assetId: asset.id,
+        code: machineCode,
+        name: machineName,
+        kind,
+        status: machineStatusFrom(row),
+        locationLabel: merchantInfo.name,
+        topic: row.device_udid ? `payboard/${row.device_udid}` : null,
       },
     });
 
@@ -267,13 +285,13 @@ async function main() {
         data: {
           tenantId: tenant.id,
           assetId: asset.id,
-          machineUnitId: machineUnit.id,
+          machineId: machine.id,
           iotDeviceId: iot.id,
           status: DeviceBindingStatus.ACTIVE,
           reason: "initial-import",
         },
       });
-    } else if (activeBinding.machineUnitId !== machineUnit.id || activeBinding.iotDeviceId !== iot.id) {
+    } else if (activeBinding.machineId !== machine.id || activeBinding.iotDeviceId !== iot.id) {
       await prisma.assetBinding.update({
         where: { id: activeBinding.id },
         data: {
@@ -286,7 +304,7 @@ async function main() {
         data: {
           tenantId: tenant.id,
           assetId: asset.id,
-          machineUnitId: machineUnit.id,
+          machineId: machine.id,
           iotDeviceId: iot.id,
           status: DeviceBindingStatus.ACTIVE,
           reason: "sync-import",
@@ -294,33 +312,6 @@ async function main() {
       });
     }
 
-    const machine = await prisma.machine.upsert({
-      where: { code: machineCode },
-      create: {
-        tenantId: tenant.id,
-        merchantAccountId: merchantInfo.id,
-        branchId: merchantInfo.branchId,
-        assetId: asset.id,
-        code: machineCode,
-        name: machineName,
-        kind,
-        status: machineStatusFrom(row),
-        locationLabel: merchantInfo.name,
-        topic: row.device_udid ? `payboard/${row.device_udid}` : null,
-        remainingMinutes: null,
-      },
-      update: {
-        tenantId: tenant.id,
-        merchantAccountId: merchantInfo.id,
-        branchId: merchantInfo.branchId,
-        assetId: asset.id,
-        name: machineName,
-        kind,
-        status: machineStatusFrom(row),
-        locationLabel: merchantInfo.name,
-        topic: row.device_udid ? `payboard/${row.device_udid}` : null,
-      },
-    });
     machineCount += 1;
 
     const skus = (row.machine_sku || []).filter(Boolean);

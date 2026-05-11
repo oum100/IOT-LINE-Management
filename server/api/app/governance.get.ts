@@ -1,7 +1,7 @@
 import { getServerSession } from '#auth'
 import { prisma } from '../../utils/prisma'
 import { resolvePaymentExpiryMinutes } from '../../utils/payment-expiry'
-import { assertPermission, resolvePortalScopeContext } from '../../utils/rbac'
+import { assertPermission, normalizeRole, resolvePortalScopeContext } from '../../utils/rbac'
 
 type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
@@ -18,15 +18,47 @@ export default defineEventHandler(async (event) => {
 
   const scope = await resolvePortalScopeContext(user)
   const resolvedTenantId = scope.resolvedTenantId
+  const normalizedRole = normalizeRole(user.role)
 
   if (!resolvedTenantId) {
     throw createError({ statusCode: 403, statusMessage: 'Tenant scope is required' })
   }
 
+  const userScopeWhere = (() => {
+    const base = { tenantId: resolvedTenantId } as Record<string, unknown>
+    if (normalizedRole !== 'MANAGER' && normalizedRole !== 'STAFF') return base
+
+    const or: Array<Record<string, unknown>> = [{ id: user.id }]
+    if (scope.allowedMerchantIds !== null && scope.allowedMerchantIds.length) {
+      or.push({ merchantAccountId: { in: scope.allowedMerchantIds } })
+      or.push({
+        scopeAssignments: {
+          some: {
+            active: true,
+            scopeType: 'MERCHANT',
+            merchantAccountId: { in: scope.allowedMerchantIds }
+          }
+        }
+      })
+    }
+    if (scope.allowedBranchIds !== null && scope.allowedBranchIds.length) {
+      or.push({
+        scopeAssignments: {
+          some: {
+            active: true,
+            scopeType: 'BRANCH',
+            branchId: { in: scope.allowedBranchIds }
+          }
+        }
+      })
+    }
+    return { ...base, OR: or }
+  })()
+
   const orm = prisma as any
   const [users, billers, paymentExpiryMinutes] = await Promise.all([
     prisma.user.findMany({
-      where: { tenantId: resolvedTenantId },
+      where: userScopeWhere,
       orderBy: { createdAt: 'desc' },
       take: 50,
       select: {

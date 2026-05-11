@@ -24,6 +24,6 @@ export default defineNuxtRouteMiddleware(async (to) => {
 
   const currentPortal = resolvePortalFromRole(user.role)
   if (currentPortal !== targetPortal) {
-    return navigateTo(currentPortal === 'platform' ? '/platform/dashboard' : '/app/dashboard')
+    return navigateTo(currentPortal === 'platform' ? '/platform/dashboard' : '/app/status')
   }
 })

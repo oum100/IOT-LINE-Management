@@ -19,7 +19,7 @@ type AssetDetails = {
   activeBinding?: {
     id: string
     iotDevice?: { id: string; macAddress: string; deviceUid?: string | null } | null
-    machineUnit?: { id: string; serialNo: string } | null
+    machine?: { id: string; serialNo: string } | null
     startedAt: string
     reason?: string | null
   } | null
@@ -114,10 +114,6 @@ watch(id, () => {
       <div v-else-if="details" class="space-y-4">
         <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div class="rounded-md border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
-            <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Asset UUID</p>
-            <p class="mt-1 text-sm font-medium text-slate-900 dark:text-white">{{ details.assetUuid }}</p>
-          </div>
-          <div class="rounded-md border border-slate-200 bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
             <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Type</p>
             <p class="mt-1 text-sm font-medium text-slate-900 dark:text-white">{{ details.kind }}</p>
           </div>
@@ -185,7 +181,7 @@ watch(id, () => {
             <div v-else-if="activeTab === 'machine'" class="space-y-2">
               <h3 class="text-sm font-semibold text-slate-900 dark:text-white">Machine Information</h3>
               <p class="text-xs text-slate-600 dark:text-slate-300">
-                Serial No: {{ details.activeBinding?.machineUnit?.serialNo || "Not bound" }}
+                Serial No: {{ details.activeBinding?.machine?.serialNo || "Not bound" }}
               </p>
               <p class="text-xs text-slate-500 dark:text-slate-400">
                 Binding Started: {{ formatDate(details.activeBinding?.startedAt) }}

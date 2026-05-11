@@ -16,6 +16,7 @@ export default defineEventHandler(async (event): Promise<DeviceSummary> => {
   const tenantId = String(query.tenantId || '').trim()
   const merchantAccountId = String(query.merchantAccountId || '').trim()
   const branchId = String(query.branchId || '').trim()
+  const status = String(query.status || '').trim().toUpperCase()
 
   const baseWhere = {
     ...(tenantId ? { tenantId } : {}),
@@ -38,13 +39,14 @@ export default defineEventHandler(async (event): Promise<DeviceSummary> => {
             }
           }
         }
-      : {})
+      : {}),
+    ...(status ? { status } : {})
   }
 
   const [totalCount, spareCount, inUseCount, offlineCount, disabledCount] = await Promise.all([
     prisma.iotDevice.count({ where: baseWhere }),
     prisma.iotDevice.count({ where: { ...baseWhere, status: 'SPARE' } }),
-    prisma.iotDevice.count({ where: { ...baseWhere, status: 'IN_USE' } }),
+    prisma.iotDevice.count({ where: { ...baseWhere, status: 'BOUND' } }),
     prisma.iotDevice.count({ where: { ...baseWhere, status: 'OFFLINE' } }),
     prisma.iotDevice.count({ where: { ...baseWhere, status: 'DISABLED' } })
   ])

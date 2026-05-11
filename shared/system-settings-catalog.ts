@@ -4,6 +4,7 @@ export type QrPaymentMode = typeof QR_PAYMENT_MODE_OPTIONS[number]
 export const SYSTEM_SETTING_KEYS = {
   platformInitialized: 'platform.initialized',
   paymentExpiryMinutes: 'admin.paymentExpiryMinutes',
+  defaultNewUserPassword: 'admin.defaultNewUserPassword',
   emailVerificationExpiryMinutes: 'auth.emailVerificationExpiresMinutes',
   passwordResetExpiryMinutes: 'auth.passwordResetExpiresMinutes',
   qrPaymentMode: 'payment.qrMode',
@@ -56,6 +57,14 @@ export const SYSTEM_SETTINGS_CATALOG: Record<SystemSettingCatalogKey, SystemSett
     min: 1,
     max: 1440
   },
+  [SYSTEM_SETTING_KEYS.defaultNewUserPassword]: {
+    label: 'Default Password for New User',
+    description: 'Default password applied when creating new user accounts without explicit password input.',
+    type: 'string',
+    editable: true,
+    resettable: true,
+    defaultValue: 'P@ssw0rd'
+  },
   [SYSTEM_SETTING_KEYS.passwordResetExpiryMinutes]: {
     label: 'Password Reset Expiry',
     description: 'Sets how long password reset links remain valid after they are issued.',
@@ -89,6 +98,7 @@ export const SYSTEM_SETTINGS_CATALOG: Record<SystemSettingCatalogKey, SystemSett
 export const SYSTEM_SETTING_ORDER: SystemSettingCatalogKey[] = [
   SYSTEM_SETTING_KEYS.platformInitialized,
   SYSTEM_SETTING_KEYS.paymentExpiryMinutes,
+  SYSTEM_SETTING_KEYS.defaultNewUserPassword,
   SYSTEM_SETTING_KEYS.emailVerificationExpiryMinutes,
   SYSTEM_SETTING_KEYS.passwordResetExpiryMinutes
 ]

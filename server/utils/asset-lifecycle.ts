@@ -28,29 +28,29 @@ export async function lockDeviceForUpdate(tx: Tx, deviceId: string) {
   `
 }
 
-export async function lockMachineUnitForUpdate(tx: Tx, machineUnitId: string) {
+export async function lockMachineForUpdate(tx: Tx, machineId: string) {
   await tx.$queryRaw`
     SELECT id
-    FROM "machine_units"
-    WHERE id = ${machineUnitId}
+    FROM "Machine"
+    WHERE id = ${machineId}
     FOR UPDATE
   `
 }
 
-export async function lockAssetBindingRowsForUpdate(tx: Tx, assetId: string, deviceId?: string | null, machineUnitId?: string | null) {
+export async function lockAssetBindingRowsForUpdate(tx: Tx, assetId: string, deviceId?: string | null, machineId?: string | null) {
   await tx.$queryRaw`
     SELECT id
     FROM "asset_bindings"
     WHERE "assetId" = ${assetId}
        OR "iotDeviceId" = ${deviceId || null}
-       OR "machineUnitId" = ${machineUnitId || null}
+       OR "machineId" = ${machineId || null}
     FOR UPDATE
   `
 }
 
-export function resolveAssignmentStatus(input: { hasIotDevice: boolean; hasMachineUnit: boolean }): AssignmentStatus {
-  if (input.hasIotDevice && input.hasMachineUnit) return 'ASSIGNED'
-  if (!input.hasIotDevice && !input.hasMachineUnit) return 'UNASSIGNED'
+export function resolveAssignmentStatus(input: { hasIotDevice: boolean; hasMachine: boolean }): AssignmentStatus {
+  if (input.hasIotDevice && input.hasMachine) return 'ASSIGNED'
+  if (!input.hasIotDevice && !input.hasMachine) return 'UNASSIGNED'
   return 'PARTIAL_ASSIGNED'
 }
 
@@ -68,12 +68,12 @@ export async function readIotDeviceStatus(tx: Tx, deviceId: string): Promise<str
   }
 }
 
-export async function readMachineUnitStatus(tx: Tx, machineUnitId: string): Promise<string | null> {
+export async function readMachineStatus(tx: Tx, machineId: string): Promise<string | null> {
   try {
     const rows = await tx.$queryRaw<Array<{ status: string }>>`
       SELECT "status"::text AS status
-      FROM "machine_units"
-      WHERE id = ${machineUnitId}
+      FROM "Machine"
+      WHERE id = ${machineId}
       LIMIT 1
     `
     return rows[0]?.status || null
@@ -98,7 +98,7 @@ export async function refreshIotDeviceStatus(tx: Tx, deviceId: string) {
   try {
     await tx.$executeRaw`
       UPDATE "iot_devices"
-      SET "status" = ${activeBinding ? 'IN_USE' : 'SPARE'}::"IotDeviceStatus"
+      SET "status" = ${activeBinding ? 'BOUND' : 'SPARE'}::"IotDeviceStatus"
       WHERE id = ${deviceId}
     `
   } catch {
@@ -106,14 +106,14 @@ export async function refreshIotDeviceStatus(tx: Tx, deviceId: string) {
   }
 }
 
-export async function refreshMachineUnitStatus(tx: Tx, machineUnitId: string) {
-  const current = await readMachineUnitStatus(tx, machineUnitId)
+export async function refreshMachineStatus(tx: Tx, machineId: string) {
+  const current = await readMachineStatus(tx, machineId)
   if (!current) return
   if (current === 'DISABLED' || current === 'OFFLINE') return
 
   const activeBinding = await tx.assetBinding.findFirst({
     where: {
-      machineUnitId,
+      machineId,
       status: 'ACTIVE',
       endedAt: null
     },
@@ -121,9 +121,9 @@ export async function refreshMachineUnitStatus(tx: Tx, machineUnitId: string) {
   })
   try {
     await tx.$executeRaw`
-      UPDATE "machine_units"
-      SET "status" = ${activeBinding ? 'IN_USE' : 'SPARE'}::"MachineUnitStatus"
-      WHERE id = ${machineUnitId}
+      UPDATE "Machine"
+      SET "status" = ${activeBinding ? 'BOUND' : 'SPARE'}::"MachineStatus"
+      WHERE id = ${machineId}
     `
   } catch {
     // status column may not exist yet in transitional environments

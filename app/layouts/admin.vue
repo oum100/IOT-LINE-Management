@@ -25,6 +25,7 @@ const sidebarMenus = computed(() => [
     title: 'Business Structure',
     icon: 'i-lucide-building-2',
     items: [
+      { to: '/admin/business-structure', label: 'Business Structure Mgmt', child: true, icon: 'i-lucide-network' },
       { to: '/admin/tenant', label: t('common.tenants'), child: true, icon: 'i-lucide-building-2' },
       { to: '/admin/merchants', label: t('common.merchants'), child: true, icon: 'i-lucide-store' },
       { to: '/admin/branchs', label: t('common.branches'), child: true, icon: 'i-lucide-map-pinned' }
@@ -37,7 +38,9 @@ const sidebarMenus = computed(() => [
     items: [
       { to: '/admin/assets', label: t('common.assets'), child: true, icon: 'i-lucide-package' },
       { to: '/admin/devices', label: t('common.devices'), child: true, icon: 'i-lucide-cpu' },
-      { to: '/admin/machine', label: t('common.machines'), child: true, icon: 'i-lucide-cog' }
+      { to: '/admin/machine', label: t('common.machines'), child: true, icon: 'i-lucide-cog' },
+      { to: '/admin/register-codes', label: 'Register Code', child: true, icon: 'i-lucide-key-round' },
+      { to: '/admin/device-keys', label: 'Device Keys', child: true, icon: 'i-lucide-key' }
     ]
   },
   {
@@ -45,7 +48,9 @@ const sidebarMenus = computed(() => [
     title: 'Product & Pricing',
     icon: 'i-lucide-tag',
     items: [
-      { to: '/admin/product', label: 'Products', child: true, icon: 'i-lucide-receipt-text' }
+      { to: '/admin/promotion', label: 'Promotions', child: true, icon: 'i-lucide-badge-percent' },
+      { to: '/admin/product', label: 'Products', child: true, icon: 'i-lucide-receipt-text' },
+      { to: '/admin/product-types', label: 'Product Types', child: true, icon: 'i-lucide-tags' }
     ]
   },
   {

@@ -1,7 +1,7 @@
 import { getServerSession } from '#auth'
 import { getQuery } from 'h3'
 import { prisma } from '../../utils/prisma'
-import { assertPermission, resolvePortalScopeContext } from '../../utils/rbac'
+import { assertAnyPermission, resolvePortalScopeContext } from '../../utils/rbac'
 
 type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
@@ -10,8 +10,18 @@ function isPlatformRole(role: Role | string | null | undefined) {
   return normalized === 'ADMIN' || normalized === 'USER'
 }
 
+function pricingTypeRank(type: string) {
+  if (type === 'PROMOTION') return 0
+  if (type === 'SPECIAL') return 1
+  return 2
+}
+
 export default defineEventHandler(async (event) => {
-  await assertPermission(event, 'portal.asset.manage')
+  await assertAnyPermission(event, [
+    'portal.asset.read',
+    'portal.asset.manage.global',
+    'portal.asset.manage.scoped'
+  ])
   const session = await getServerSession(event)
   const user = session?.user as {
     id?: string
@@ -131,9 +141,27 @@ export default defineEventHandler(async (event) => {
       id: true,
       code: true,
       name: true,
+      kind: true,
       status: true,
       branchId: true,
       updatedAt: true
+      ,
+      prices: {
+        where: { active: true },
+        select: { id: true },
+        take: 1
+      },
+      bindings: {
+        where: {
+          status: 'ACTIVE',
+          endedAt: null
+        },
+        select: {
+          iotDeviceId: true,
+          machineId: true
+        },
+        take: 1
+      }
     },
     orderBy: { name: 'asc' },
     take: 200
@@ -173,6 +201,31 @@ export default defineEventHandler(async (event) => {
     ...item,
     locked: lockedProductIds.has(item.id)
   }))
+
+  const assetsWithReadiness = assets.map((item) => {
+    const activeBinding = item.bindings[0] || null
+    const hasDevice = Boolean(activeBinding?.iotDeviceId)
+    const hasMachine = Boolean(activeBinding?.machineId)
+    const hasProduct = (item.prices?.length || 0) > 0
+    const readiness = !hasDevice
+      ? 'MISSING_DEVICE'
+      : !hasMachine
+        ? 'MISSING_MACHINE'
+        : !hasProduct
+          ? 'MISSING_PRODUCT'
+          : 'READY'
+
+    return {
+      id: item.id,
+      code: item.code,
+      name: item.name,
+      kind: item.kind,
+      status: item.status,
+      branchId: item.branchId,
+      updatedAt: item.updatedAt,
+      readiness
+    }
+  })
 
   const devices = await prisma.iotDevice.findMany({
     where: {
@@ -226,7 +279,7 @@ export default defineEventHandler(async (event) => {
     canDelete: item.status === 'SPARE' && item._count.bindings === 0
   }))
 
-  const machineUnits = await prisma.machineUnit.findMany({
+  const machines = await prisma.machine.findMany({
     where: {
       ...(resolvedTenantId ? { tenantId: resolvedTenantId } : {}),
       ...(selectedMerchantId || selectedBranchId
@@ -265,7 +318,7 @@ export default defineEventHandler(async (event) => {
     orderBy: { createdAt: 'desc' },
     take: 200
   })
-  const machineUnitsWithDelete = machineUnits.map((item) => ({
+  const machinesWithDelete = machines.map((item) => ({
     id: item.id,
     serialNo: item.serialNo,
     brand: item.brand,
@@ -327,6 +380,9 @@ export default defineEventHandler(async (event) => {
               id: true,
               amount: true,
               durationMinutes: true,
+              serviceMode: true,
+              serviceUnit: true,
+              quantity: true,
               sortOrder: true,
               active: true,
               product: {
@@ -336,7 +392,10 @@ export default defineEventHandler(async (event) => {
                   name: true,
                   active: true,
                   amount: true,
-                  durationMinutes: true
+                  durationMinutes: true,
+                  serviceMode: true,
+                  serviceUnit: true,
+                  quantity: true
                 }
               }
             },
@@ -365,15 +424,154 @@ export default defineEventHandler(async (event) => {
     : []
 
   const usageByPriceId = new Map(bindingUsageRows.map(row => [row.priceId, Number(row.orderCount || 0)]))
+  const activeOrUpcomingOffers = selectedAssetId
+    ? await prisma.assetProductOffer.findMany({
+        where: {
+          tenantId: resolvedTenantId || undefined,
+          assetId: selectedAssetId,
+          active: true,
+          OR: [
+            {
+              AND: [
+                { effectiveFrom: { lte: new Date() } },
+                {
+                  OR: [
+                    { effectiveTo: null },
+                    { effectiveTo: { gte: new Date() } }
+                  ]
+                }
+              ]
+            },
+            { effectiveFrom: { gt: new Date() } }
+          ]
+        },
+        select: {
+          id: true,
+          productId: true,
+          pricingType: true,
+          amount: true,
+          durationMinutes: true,
+          serviceMode: true,
+          serviceUnit: true,
+          quantity: true,
+          priority: true,
+          effectiveFrom: true,
+          effectiveTo: true,
+          reason: true,
+          product: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        },
+        orderBy: [
+          { priority: 'asc' },
+          { effectiveFrom: 'desc' }
+        ]
+      })
+    : []
+  const currentOfferByProductId = new Map<string, (typeof activeOrUpcomingOffers)[number]>()
+  const upcomingOfferByProductId = new Map<string, (typeof activeOrUpcomingOffers)[number]>()
+  const currentOfferByProductName = new Map<string, (typeof activeOrUpcomingOffers)[number]>()
+  const upcomingOfferByProductName = new Map<string, (typeof activeOrUpcomingOffers)[number]>()
+  const pausedOffers = selectedAssetId
+    ? await prisma.assetProductOffer.findMany({
+        where: {
+          tenantId: resolvedTenantId || undefined,
+          assetId: selectedAssetId,
+          pricingType: 'PROMOTION',
+          active: false,
+          reason: {
+            in: [
+              'portal-manual-pause',
+              'paused-by-portal',
+              'paused-by-portal-branch',
+              'paused-by-admin',
+              'paused-by-admin-branch'
+            ]
+          },
+          OR: [{ effectiveTo: null }, { effectiveTo: { gte: new Date() } }]
+        },
+        select: {
+          id: true,
+          productId: true,
+          pricingType: true,
+          amount: true,
+          durationMinutes: true,
+          serviceMode: true,
+          serviceUnit: true,
+          quantity: true,
+          priority: true,
+          effectiveFrom: true,
+          effectiveTo: true,
+          reason: true,
+          product: {
+            select: {
+              id: true,
+              name: true
+            }
+          }
+        },
+        orderBy: [{ effectiveFrom: 'desc' }]
+      })
+    : []
+  const pausedOfferByProductId = new Map<string, (typeof pausedOffers)[number]>()
+  const pausedOfferByProductName = new Map<string, (typeof pausedOffers)[number]>()
+  for (const item of pausedOffers) {
+    if (!pausedOfferByProductId.has(item.productId)) pausedOfferByProductId.set(item.productId, item)
+    const nameKey = String(item.product?.name || '').trim().toLowerCase()
+    if (nameKey && !pausedOfferByProductName.has(nameKey)) pausedOfferByProductName.set(nameKey, item)
+  }
+  const now = new Date()
+  for (const item of activeOrUpcomingOffers) {
+    const isCurrent = item.effectiveFrom <= now && (!item.effectiveTo || item.effectiveTo >= now)
+    const targetMap = isCurrent ? currentOfferByProductId : upcomingOfferByProductId
+    const targetNameMap = isCurrent ? currentOfferByProductName : upcomingOfferByProductName
+    const existing = targetMap.get(item.productId)
+    if (!existing) {
+      targetMap.set(item.productId, item)
+      const nameKey = String(item.product?.name || '').trim().toLowerCase()
+      if (nameKey && !targetNameMap.has(nameKey)) {
+        targetNameMap.set(nameKey, item)
+      }
+      continue
+    }
+    const priorityDiff = item.priority - existing.priority
+    if (priorityDiff < 0) {
+      targetMap.set(item.productId, item)
+      const nameKey = String(item.product?.name || '').trim().toLowerCase()
+      if (nameKey) targetNameMap.set(nameKey, item)
+      continue
+    }
+    if (priorityDiff === 0 && pricingTypeRank(item.pricingType) < pricingTypeRank(existing.pricingType)) {
+      targetMap.set(item.productId, item)
+      const nameKey = String(item.product?.name || '').trim().toLowerCase()
+      if (nameKey) targetNameMap.set(nameKey, item)
+    }
+  }
   const selectedAssetWithUsage = selectedAsset
     ? {
         ...selectedAsset,
         prices: selectedAsset.prices.map(item => {
           const orderCount = usageByPriceId.get(item.id) || 0
+          const nameKey = String(item.product?.name || '').trim().toLowerCase()
+          const currentOffer = item.product?.id
+            ? (currentOfferByProductId.get(item.product.id) || (nameKey ? currentOfferByProductName.get(nameKey) : null) || null)
+            : (nameKey ? currentOfferByProductName.get(nameKey) || null : null)
+          const upcomingOffer = item.product?.id
+            ? (upcomingOfferByProductId.get(item.product.id) || (nameKey ? upcomingOfferByProductName.get(nameKey) : null) || null)
+            : (nameKey ? upcomingOfferByProductName.get(nameKey) || null : null)
+          const pausedOffer = item.product?.id
+            ? (pausedOfferByProductId.get(item.product.id) || (nameKey ? pausedOfferByProductName.get(nameKey) : null) || null)
+            : (nameKey ? pausedOfferByProductName.get(nameKey) || null : null)
           return {
             ...item,
             orderCount,
-            canUnbind: item.active && orderCount === 0
+            canUnbind: item.active && orderCount === 0,
+            currentOffer,
+            upcomingOffer,
+            pausedOffer
           }
         })
       }
@@ -400,7 +598,7 @@ export default defineEventHandler(async (event) => {
               fwVersion: true
             }
           },
-          machineUnit: {
+          machine: {
             select: {
               id: true,
               serialNo: true,
@@ -434,9 +632,9 @@ export default defineEventHandler(async (event) => {
     assetTypes: assetKinds.map(item => item.kind),
     merchants: merchantsWithDelete,
     branches: branchesWithDelete,
-    assets,
+    assets: assetsWithReadiness,
     devices: devicesWithDelete,
-    machineUnits: machineUnitsWithDelete,
+    machines: machinesWithDelete,
     products,
     machineKinds,
     selectedAsset: selectedAssetWithUsage,

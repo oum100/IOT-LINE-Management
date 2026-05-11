@@ -18,6 +18,7 @@ export default defineEventHandler(async (event): Promise<SummaryResponse> => {
   const tenantId = String(query.tenantId || '').trim()
   const merchantAccountId = String(query.merchantAccountId || '').trim()
   const branchId = String(query.branchId || '').trim()
+  const assetType = String(query.assetType || '').trim().toUpperCase()
 
   const baseWhere = {
     ...(tenantId ? { tenantId } : {}),
@@ -28,7 +29,8 @@ export default defineEventHandler(async (event): Promise<SummaryResponse> => {
           }
         }
       : {}),
-    ...(branchId ? { branchId } : {})
+    ...(branchId ? { branchId } : {}),
+    ...(assetType ? { kind: assetType } : {})
   }
 
   const [totalCount, activeCount, inactiveCount, maintenanceCount, deviceCount, paymentCount, orderCount] = await Promise.all([

@@ -47,7 +47,8 @@ async function submitOrder() {
         lineUserId: form.lineUserId,
         note: form.note,
         items: cart.items.map(item => ({
-          machineId: item.machineId,
+          assetId: item.assetId || undefined,
+          machineId: item.machineId || undefined,
           priceId: item.priceId
         }))
       }

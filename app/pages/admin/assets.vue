@@ -15,6 +15,7 @@ type Branch = {
   id: string
   code: string
   name: string
+  merchantAccountId?: string | null
 }
 
 type Merchant = {
@@ -29,11 +30,20 @@ type Asset = {
   name: string
   kind: string
   status: "ACTIVE" | "INACTIVE" | "MAINTENANCE"
-  assetUuid: string
+  tenant?: {
+    id: string
+    code: string
+    name: string
+  } | null
   branch?: {
     id: string
     code: string
     name: string
+    merchantAccount?: {
+      id: string
+      code: string
+      name: string
+    } | null
   } | null
   iot?: {
     id: string
@@ -47,6 +57,11 @@ type Asset = {
     serialNo: string
     model?: string | null
   } | null
+  products?: Array<{
+    id: string
+    code: string
+    name: string
+  }>
   createdAt: string
   updatedAt: string
 }
@@ -72,16 +87,8 @@ type ListFilters = {
   tenantId: string
   merchantAccountId: string
   branchId: string
+  assetType: string
   q: string
-}
-
-type RegistrationCodeItem = {
-  id: string
-  code: string
-  status: string
-  note?: string | null
-  expiresAt?: string | null
-  createdAt: string
 }
 
 const route = useRoute()
@@ -93,10 +100,11 @@ const filters = ref<ListFilters>({
   tenantId: "",
   merchantAccountId: "",
   branchId: "",
+  assetType: "",
   q: "",
 })
 const page = ref(1)
-const pageSize = ref(10)
+const pageSize = ref(25)
 const total = ref(0)
 const assets = ref<Asset[]>([])
 const summary = ref<AssetSummary | null>(null)
@@ -106,19 +114,23 @@ const summaryError = ref("")
 const summaryLoading = ref(false)
 const createOpen = ref(false)
 const editOpen = ref(false)
-const issueOpen = ref(false)
-const issueLoading = ref(false)
-const issuedCode = ref("")
-const issuedCodesLoading = ref(false)
-const issuedCodes = ref<RegistrationCodeItem[]>([])
-const issueKind = ref<"ASSET" | "SPARE_IOT" | "SPARE_MACHINE">("ASSET")
-const issueExpireDays = ref<"3" | "5" | "7">("7")
-const issueExpireTime = ref("00:00")
-const issueNote = ref("")
+const deleteOpen = ref(false)
+const deleting = ref(false)
+const deleteTarget = ref<Asset | null>(null)
+const deleteConfirmText = ref("")
+const iotBindingOpen = ref(false)
+const iotBindingAssetId = ref("")
+const iotBindingAssetName = ref("")
+const machineBindingOpen = ref(false)
+const machineBindingAssetId = ref("")
+const machineBindingAssetName = ref("")
+const productPromoOpen = ref(false)
+const productPromoAssetId = ref("")
+const productPromoAssetName = ref("")
 const createForm = ref({
   tenantId: "",
+  merchantAccountId: "",
   branchId: "",
-  assetUuid: "",
   code: "",
   name: "",
   kind: "WASHER",
@@ -146,16 +158,6 @@ const hasPrevPage = computed(() => page.value > 1)
 const hasNextPage = computed(() => page.value < totalPages.value)
 const selectedAsset = computed(() => assets.value.find(item => item.id === selectedAssetId.value) || null)
 const cardSummary = computed(() => selectedSummary.value || summary.value)
-const issueExpiresAtPreview = computed(() => {
-  const days = Number(issueExpireDays.value || "0")
-  if (!Number.isFinite(days) || days <= 0) return null
-  const [hourText] = issueExpireTime.value.split(":")
-  const hour = Number(hourText || "0")
-  const base = new Date()
-  base.setDate(base.getDate() + days)
-  base.setHours(Number.isFinite(hour) ? hour : 0, 0, 0, 0)
-  return base.toISOString()
-})
 
 function setError(err: unknown) {
   const fetchErr = err as { data?: { statusMessage?: string }; message?: string } | undefined
@@ -173,6 +175,31 @@ function assetStatusClass(status: Asset["status"]) {
   return "text-amber-600 dark:text-amber-400"
 }
 
+function assetReadiness(asset: Asset) {
+  const hasDevice = Boolean(asset.iot?.id)
+  const hasMachine = Boolean(asset.machine?.id)
+  const hasProduct = (asset.products?.length || 0) > 0
+  if (!hasDevice) return "MISSING_DEVICE"
+  if (!hasMachine) return "MISSING_MACHINE"
+  if (!hasProduct) return "MISSING_PRODUCT"
+  return "READY"
+}
+
+function assetReadinessLabel(asset: Asset) {
+  const readiness = assetReadiness(asset)
+  if (readiness === "MISSING_DEVICE") return "Missing device"
+  if (readiness === "MISSING_MACHINE") return "Missing machine"
+  if (readiness === "MISSING_PRODUCT") return "Missing product"
+  return "Ready"
+}
+
+function assetReadinessClass(asset: Asset) {
+  const readiness = assetReadiness(asset)
+  if (readiness === "READY") return "text-emerald-600 dark:text-emerald-400"
+  if (readiness === "MISSING_DEVICE" || readiness === "MISSING_MACHINE") return "text-amber-600 dark:text-amber-400"
+  return "text-rose-600 dark:text-rose-400"
+}
+
 function formatDate(value: string) {
   return new Date(value).toLocaleString()
 }
@@ -180,6 +207,15 @@ function formatDate(value: string) {
 function branchLabel(branch?: Asset["branch"] | null) {
   if (!branch) return "-"
   return branch.name
+}
+
+function tenantLabel(tenant?: Asset["tenant"] | null) {
+  if (!tenant) return "-"
+  return tenant.name || tenant.code || "-"
+}
+
+function merchantLabel(asset: Asset) {
+  return asset.branch?.merchantAccount?.name || asset.branch?.merchantAccount?.code || "-"
 }
 
 function kindLabel(kind: Asset["kind"]) {
@@ -193,6 +229,42 @@ function iotLabel(asset: Asset) {
 
 function machineLabel(asset: Asset) {
   return asset.machine?.name || "-"
+}
+
+function productNames(asset: Asset) {
+  return (asset.products || [])
+    .map(item => item.name || item.code)
+    .filter(Boolean)
+}
+
+function openProductPromo(asset: Asset) {
+  productPromoAssetId.value = asset.id
+  productPromoAssetName.value = asset.name
+  productPromoOpen.value = true
+}
+
+function openIotBindingModal(asset: Asset) {
+  iotBindingAssetId.value = asset.id
+  iotBindingAssetName.value = asset.name
+  iotBindingOpen.value = true
+}
+
+function openMachineBindingModal(asset: Asset) {
+  machineBindingAssetId.value = asset.id
+  machineBindingAssetName.value = asset.name
+  machineBindingOpen.value = true
+}
+
+async function onIotBindingChanged() {
+  await loadData()
+}
+
+async function onMachineBindingChanged() {
+  await loadData()
+}
+
+async function onProductPromoChanged() {
+  await loadData()
 }
 
 function startEditName(item: Asset) {
@@ -267,33 +339,41 @@ async function saveAssetPatch(assetId: string, body: Record<string, unknown>) {
   }
 }
 
-async function deleteAsset(item: Asset) {
-  if (!import.meta.client) return
-  const confirmText = window.prompt("Type DELETE to confirm deletion")
-  if (confirmText === null) return
-  const confirmName = window.prompt(`Type asset name to confirm: ${item.name}`)
-  if (confirmName === null) return
+function openDeleteDialog(item: Asset) {
+  deleteTarget.value = item
+  deleteConfirmText.value = ""
+  deleteOpen.value = true
+}
 
-  loading.value = true
+function closeDeleteDialog() {
+  deleteOpen.value = false
+  deleteTarget.value = null
+  deleteConfirmText.value = ""
+}
+
+async function confirmDeleteAsset() {
+  if (!deleteTarget.value) return
+  deleting.value = true
   error.value = ""
   try {
-    await $fetch(`/api/admin/assets/${item.id}`, {
+    await $fetch(`/api/admin/assets/${deleteTarget.value.id}`, {
       method: "delete",
       body: {
-        confirmText,
-        confirmName,
+        confirmText: deleteConfirmText.value,
+        confirmName: deleteTarget.value.name,
       },
     } as any)
 
-    if (selectedAssetId.value === item.id) {
+    if (selectedAssetId.value === deleteTarget.value.id) {
       selectedAssetId.value = ""
       selectedSummary.value = null
     }
+    closeDeleteDialog()
     await loadAssets()
   } catch (err) {
     setError(err)
   } finally {
-    loading.value = false
+    deleting.value = false
   }
 }
 
@@ -336,6 +416,7 @@ function readQueryParams() {
   const tenantId = typeof route.query.tenantId === "string" ? route.query.tenantId : ""
   const merchantAccountId = typeof route.query.merchantAccountId === "string" ? route.query.merchantAccountId : ""
   const branchId = typeof route.query.branchId === "string" ? route.query.branchId : ""
+  const assetType = typeof route.query.assetType === "string" ? route.query.assetType : ""
   const q = typeof route.query.q === "string" ? route.query.q : ""
   const pageQuery = Number(route.query.page)
   const pageSizeQuery = Number(route.query.pageSize)
@@ -343,6 +424,7 @@ function readQueryParams() {
   filters.value.tenantId = tenantId
   filters.value.merchantAccountId = merchantAccountId
   filters.value.branchId = branchId
+  filters.value.assetType = assetType
   filters.value.q = q
 
   if (!Number.isNaN(pageQuery) && pageQuery > 0) page.value = pageQuery
@@ -390,6 +472,7 @@ async function loadAssets() {
       ...(filters.value.tenantId ? { tenantId: filters.value.tenantId } : {}),
       ...(filters.value.merchantAccountId ? { merchantAccountId: filters.value.merchantAccountId } : {}),
       ...(filters.value.branchId ? { branchId: filters.value.branchId } : {}),
+      ...(filters.value.assetType ? { assetType: filters.value.assetType } : {}),
     }
 
     const [response, summaryResponse] = await Promise.all([
@@ -479,6 +562,9 @@ function syncRoute() {
   if (filters.value.branchId) {
     query.branchId = filters.value.branchId
   }
+  if (filters.value.assetType) {
+    query.assetType = filters.value.assetType
+  }
   if (filters.value.merchantAccountId) {
     query.merchantAccountId = filters.value.merchantAccountId
   }
@@ -546,25 +632,20 @@ function onBranchChange() {
   })()
 }
 
+function onAssetTypeChange() {
+  resetPage()
+  void (async () => {
+    await loadAssets()
+    syncRoute()
+  })()
+}
+
 function onPageChange(target: number) {
   const next = Math.min(Math.max(1, target), totalPages.value)
   if (next === page.value) return
   page.value = next
   void loadAssets()
   syncRoute()
-}
-
-function randomAlphaNum(length: number) {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-  let out = ""
-  for (let i = 0; i < length; i += 1) {
-    out += chars[Math.floor(Math.random() * chars.length)]!
-  }
-  return out
-}
-
-function buildAssetUuid() {
-  return randomAlphaNum(15)
 }
 
 function buildAssetCode() {
@@ -577,15 +658,21 @@ function openCreateDialog() {
     return
   }
 
+  const defaultMerchantId =
+    filters.value.merchantAccountId && merchants.value.some((m) => m.id === filters.value.merchantAccountId)
+      ? filters.value.merchantAccountId
+      : merchants.value[0]?.id || ""
+
+  const branchOptions = branches.value.filter((b) => !defaultMerchantId || b.merchantAccountId === defaultMerchantId)
   const defaultBranchId =
-    filters.value.branchId && branches.value.some((b) => b.id === filters.value.branchId)
+    filters.value.branchId && branchOptions.some((b) => b.id === filters.value.branchId)
       ? filters.value.branchId
-      : branches.value[0]?.id || ""
+      : branchOptions[0]?.id || ""
 
   createForm.value = {
     tenantId: filters.value.tenantId,
+    merchantAccountId: defaultMerchantId,
     branchId: defaultBranchId,
-    assetUuid: buildAssetUuid(),
     code: buildAssetCode(),
     name: "",
     kind: "WASHER",
@@ -598,114 +685,10 @@ function closeCreateDialog() {
   createOpen.value = false
 }
 
-function openIssueDialog() {
-  if (!filters.value.tenantId) {
-    setError(new Error("Please select tenant before issuing registration code."))
-    return
-  }
-  issueKind.value = "ASSET"
-  issueExpireDays.value = "7"
-  issueExpireTime.value = "00:00"
-  issueNote.value = ""
-  issuedCode.value = ""
-  issueOpen.value = true
-  void loadIssuedCodes()
-}
-
-function closeIssueDialog() {
-  issueOpen.value = false
-}
-
-function formatIssueDate(value?: string | null) {
-  if (!value) return "-"
-  return new Date(value).toLocaleString()
-}
-
-function isRegistrationExpired(item: RegistrationCodeItem) {
-  if (item.status === "EXPIRED") return true
-  if (!item.expiresAt) return false
-  return new Date(item.expiresAt).getTime() < Date.now()
-}
-
-async function loadIssuedCodes() {
-  if (!filters.value.tenantId) {
-    issuedCodes.value = []
-    return
-  }
-  issuedCodesLoading.value = true
-  try {
-    const query: Record<string, string | number> = {
-      tenantId: filters.value.tenantId,
-      page: 1,
-      pageSize: 10
-    }
-    if (issueKind.value === "ASSET") {
-      if (filters.value.merchantAccountId) query.merchantAccountId = filters.value.merchantAccountId
-      if (filters.value.branchId) query.branchId = filters.value.branchId
-    }
-    const response = await $fetch<{ items: RegistrationCodeItem[] }>("/api/admin/device-registration-codes", { query })
-    issuedCodes.value = response.items || []
-  } catch {
-    issuedCodes.value = []
-  } finally {
-    issuedCodesLoading.value = false
-  }
-}
-
-async function issueRegistrationCode() {
-  if (!filters.value.tenantId) {
-    setError(new Error("Tenant is required."))
-    return
-  }
-  if (issueKind.value === "ASSET" && !filters.value.branchId) {
-    setError(new Error("Branch is required for ASSET registration code."))
-    return
-  }
-
-  issueLoading.value = true
-  error.value = ""
-  try {
-    let endpoint = "/api/admin/device-registration-codes"
-    const body: Record<string, unknown> = { tenantId: filters.value.tenantId }
-    const note = issueNote.value.trim()
-    if (note) body.note = note
-    const expiresAt = new Date(Date.now() + Number(issueExpireDays.value) * 24 * 60 * 60 * 1000).toISOString()
-    body.expiresAt = expiresAt
-
-    if (issueKind.value === "ASSET") {
-      body.merchantAccountId = filters.value.merchantAccountId || null
-      body.branchId = filters.value.branchId || null
-    } else if (issueKind.value === "SPARE_IOT") {
-      endpoint = "/api/admin/device-registration-codes/spare-iot"
-    } else if (issueKind.value === "SPARE_MACHINE") {
-      endpoint = "/api/admin/device-registration-codes/spare-machine"
-    }
-
-    const response = await $fetch<{ plainCode: string }>(endpoint, {
-      method: "POST",
-      body
-    })
-
-    issuedCode.value = response.plainCode
-    await loadIssuedCodes()
-  } catch (err) {
-    setError(err)
-  } finally {
-    issueLoading.value = false
-  }
-}
-
-async function deleteExpiredRegistrationCode(id: string) {
-  const ok = typeof window !== "undefined" ? window.confirm("Delete this expired registration code?") : true
-  if (!ok) return
-  try {
-    await $fetch(`/api/admin/device-registration-codes/${id}`, {
-      method: "delete",
-      body: { confirmText: "DELETE" }
-    } as any)
-    await loadIssuedCodes()
-  } catch (err) {
-    setError(err)
+function onCreateMerchantChange() {
+  const scopedBranches = branches.value.filter((b) => !createForm.value.merchantAccountId || b.merchantAccountId === createForm.value.merchantAccountId)
+  if (!scopedBranches.some((b) => b.id === createForm.value.branchId)) {
+    createForm.value.branchId = scopedBranches[0]?.id || ""
   }
 }
 
@@ -716,7 +699,6 @@ async function createAsset() {
     const payload = {
       tenantId: createForm.value.tenantId.trim(),
       branchId: createForm.value.branchId.trim(),
-      assetUuid: createForm.value.assetUuid.trim(),
       code: createForm.value.code.trim(),
       name: createForm.value.name.trim(),
       kind: createForm.value.kind.trim(),
@@ -724,8 +706,8 @@ async function createAsset() {
     }
 
     if (!payload.tenantId) throw new Error("Tenant is required.")
+    if (!createForm.value.merchantAccountId.trim()) throw new Error("Merchant is required.")
     if (!payload.branchId) throw new Error("Branch is required.")
-    if (!payload.assetUuid) throw new Error("Asset UUID is required.")
     if (!payload.code) throw new Error("Asset code is required.")
     if (!payload.name) throw new Error("Asset name is required.")
 
@@ -777,11 +759,6 @@ watch(selectedAssetId, (assetId) => {
   void loadSelectedAssetSummary(assetId)
 })
 
-watch(issueKind, () => {
-  if (issueOpen.value) {
-    void loadIssuedCodes()
-  }
-})
 </script>
 
 <template>
@@ -809,8 +786,8 @@ watch(issueKind, () => {
 
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <template #header>
-        <div class="grid gap-3 md:grid-cols-[1fr_220px_220px_220px_1fr_auto] md:items-end">
-          <div class="flex flex-col gap-1">
+        <div class="grid gap-3 md:grid-cols-[220px_220px_220px_220px_1fr_auto] md:items-end">
+          <div class="flex w-full flex-col gap-1 md:w-[220px]">
             <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Tenant</label>
             <select
               v-model="filters.tenantId"
@@ -823,7 +800,7 @@ watch(issueKind, () => {
               </option>
             </select>
           </div>
-          <div class="flex flex-col gap-1">
+          <div class="flex w-full flex-col gap-1 md:w-[220px]">
             <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Merchant (Brand)</label>
             <select
               v-model="filters.merchantAccountId"
@@ -836,7 +813,7 @@ watch(issueKind, () => {
               </option>
             </select>
           </div>
-          <div class="flex flex-col gap-1">
+          <div class="flex w-full flex-col gap-1 md:w-[220px]">
             <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Branch</label>
             <select
               v-model="filters.branchId"
@@ -849,7 +826,19 @@ watch(issueKind, () => {
               </option>
             </select>
           </div>
-          <div class="col-span-2 flex items-end gap-2">
+          <div class="flex w-full flex-col gap-1 md:w-[220px]">
+            <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Asset Type</label>
+            <select
+              v-model="filters.assetType"
+              class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+              @change="onAssetTypeChange"
+            >
+              <option value="">All types</option>
+              <option value="WASHER">WASHER</option>
+              <option value="DRYER">DRYER</option>
+            </select>
+          </div>
+          <div class="flex items-end gap-2">
             <SearchInput
               v-model="filters.q"
               placeholder="Search code/name/asset uuid..."
@@ -858,7 +847,7 @@ watch(issueKind, () => {
             />
           </div>
           <div class="flex justify-end">
-            <div class="flex items-center gap-2">
+            <div class="flex flex-nowrap items-center gap-2 whitespace-nowrap">
               <UButton
                 color="primary"
                 icon="i-lucide-plus"
@@ -866,14 +855,6 @@ watch(issueKind, () => {
                 @click="openCreateDialog"
               >
                 Create
-              </UButton>
-              <UButton
-                color="success"
-                icon="i-lucide-key-round"
-                class="text-white"
-                @click="openIssueDialog"
-              >
-                Register Code
               </UButton>
             </div>
           </div>
@@ -935,15 +916,18 @@ watch(issueKind, () => {
       </div>
 
       <div v-else class="overflow-auto rounded-lg border border-slate-200 dark:border-slate-800">
-        <table class="w-full min-w-[1300px] text-sm">
+        <table class="w-full min-w-[1500px] text-sm">
           <thead class="bg-slate-100/70 dark:bg-slate-800/70">
-            <tr class="text-left">
+            <tr class="text-center">
               <th class="px-3 py-2">Asset Code</th>
               <th class="px-3 py-2">Name</th>
               <th class="px-3 py-2">Type</th>
+              <th class="px-3 py-2">Tenant</th>
+              <th class="px-3 py-2">Merchant</th>
               <th class="px-3 py-2">Branch</th>
               <th class="px-3 py-2">IoT</th>
               <th class="px-3 py-2">Machine</th>
+              <th class="px-3 py-2">Product</th>
               <th class="px-3 py-2">Status</th>
               <th class="px-3 py-2">Updated</th>
               <th class="px-3 py-2">Actions</th>
@@ -959,57 +943,91 @@ watch(issueKind, () => {
                 : 'hover:bg-slate-100/80 dark:hover:bg-slate-800/60'"
               @click="selectAsset(asset)"
             >
-              <td class="px-3 py-2">
+              <td class="px-3 py-2 text-center">
                 <span class="rounded bg-slate-100 px-2 py-1 font-mono text-xs text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                   {{ asset.code }}
                 </span>
               </td>
-              <td class="px-3 py-2">
-                <div class="flex items-center gap-2">
+              <td class="px-3 py-2 text-center">
+                <div class="flex items-center justify-center gap-2">
                   <span>{{ asset.name }}</span>
                 </div>
               </td>
-              <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300">
-                <div class="flex items-center gap-2">
+              <td class="px-3 py-2 text-center text-xs text-slate-700 dark:text-slate-300">
+                <div class="flex items-center justify-center gap-2">
                   <span>{{ kindLabel(asset.kind) }}</span>
                 </div>
               </td>
-              <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300">{{ branchLabel(asset.branch) }}</td>
-              <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300">{{ iotLabel(asset) }}</td>
-              <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300">{{ machineLabel(asset) }}</td>
-              <td class="px-3 py-2">
-                <div class="flex items-center gap-2">
-                  <span class="text-xs font-semibold" :class="assetStatusClass(asset.status)">
-                    {{ asset.status }}
-                  </span>
+              <td class="px-3 py-2 text-center text-xs text-slate-700 dark:text-slate-300">{{ tenantLabel(asset.tenant) }}</td>
+              <td class="px-3 py-2 text-center text-xs text-slate-700 dark:text-slate-300">{{ merchantLabel(asset) }}</td>
+              <td class="px-3 py-2 text-center text-xs text-slate-700 dark:text-slate-300">{{ branchLabel(asset.branch) }}</td>
+              <td class="px-3 py-2 text-center text-xs text-slate-700 dark:text-slate-300">
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center rounded px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 hover:text-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/30"
+                  title="Bind/Replace IoT"
+                  @click.stop="openIotBindingModal(asset)"
+                >
+                  {{ iotLabel(asset) }}
+                </button>
+              </td>
+              <td class="px-3 py-2 text-center text-xs text-slate-700 dark:text-slate-300">
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center rounded px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 hover:text-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/30"
+                  title="Bind/Replace Machine"
+                  @click.stop="openMachineBindingModal(asset)"
+                >
+                  {{ machineLabel(asset) }}
+                </button>
+              </td>
+              <td class="px-3 py-2 text-center text-xs text-slate-700 dark:text-slate-300">
+                <template v-if="productNames(asset).length">
+                  <div class="group relative inline-block">
+                    <button
+                      type="button"
+                      class="inline-flex items-center justify-center rounded px-2 py-1 text-xs text-blue-700 hover:bg-blue-50 hover:text-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/30"
+                      title="Open product promo"
+                      @click.stop="openProductPromo(asset)"
+                    >
+                      {{ productNames(asset)[0] }}
+                      <span v-if="productNames(asset).length > 1" class="ml-1 text-slate-500 dark:text-slate-300">+{{ productNames(asset).length - 1 }}</span>
+                    </button>
+                    <div class="pointer-events-none absolute left-1/2 top-full z-30 mt-1 hidden w-56 -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-2 text-left shadow-lg group-hover:block dark:border-slate-700 dark:bg-slate-900">
+                      <p class="mb-1 text-xs font-semibold text-slate-600 dark:text-slate-300">Products</p>
+                      <ul class="space-y-1">
+                        <li v-for="(name, idx) in productNames(asset)" :key="`${asset.id}-hover-product-${idx}`" class="text-xs text-slate-700 dark:text-slate-200">
+                          {{ name }}
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </template>
+                <template v-else>-</template>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <div class="leading-tight text-center">
+                  <p class="text-sm font-semibold" :class="assetStatusClass(asset.status)">{{ asset.status }}</p>
+                  <p class="text-sm font-medium" :class="assetReadinessClass(asset)">{{ assetReadinessLabel(asset) }}</p>
                 </div>
               </td>
-              <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">{{ formatDate(asset.updatedAt) }}</td>
-              <td class="px-3 py-2">
-                <div class="flex items-center gap-2">
+              <td class="px-3 py-2 text-center text-xs text-slate-600 dark:text-slate-300"><DateTimeTwoLine :value="asset.updatedAt" /></td>
+              <td class="px-3 py-2 text-center">
+                <div class="flex items-center justify-center gap-2">
                   <a
                     :href="assetDetailHref(asset.id)"
                     class="inline-flex items-center p-1 text-slate-700 transition hover:text-blue-600 dark:text-slate-200 dark:hover:text-blue-400"
-                    title="View detail"
+                    title="Edit asset"
                     @click.stop
                   >
-                    <UIcon name="i-lucide-eye" class="size-4" />
-                  </a>
-                  <button
-                    type="button"
-                    class="inline-flex items-center p-1 text-slate-700 transition hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-200 dark:hover:text-blue-400"
-                    title="Edit asset"
-                    :disabled="loading"
-                    @click.stop="startEditAsset(asset)"
-                  >
                     <UIcon name="i-lucide-pencil" class="size-4" />
-                  </button>
+                  </a>
                   <button
                     type="button"
                     class="inline-flex items-center p-1 text-rose-500 transition hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
                     title="Delete asset"
                     :disabled="loading"
-                    @click.stop="deleteAsset(asset)"
+                    @click.stop="openDeleteDialog(asset)"
                   >
                     <UIcon name="i-lucide-trash-2" class="size-4" />
                   </button>
@@ -1017,7 +1035,7 @@ watch(issueKind, () => {
               </td>
             </tr>
             <tr v-if="!assets.length">
-              <td colspan="9" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No assets found.</td>
+              <td colspan="12" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No assets found.</td>
             </tr>
           </tbody>
         </table>
@@ -1086,7 +1104,54 @@ watch(issueKind, () => {
       </template>
     </UModal>
 
-    <UModal v-model:open="createOpen" :ui="{ content: 'sm:max-w-lg' }">
+    <UModal v-model:open="deleteOpen" :ui="{ content: 'sm:max-w-lg' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Delete Asset</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeDeleteDialog" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <p class="text-sm text-slate-700 dark:text-slate-200">
+              This action cannot be undone. Please confirm the asset below before delete.
+            </p>
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800/50">
+              <p class="text-sm text-slate-700 dark:text-slate-200">
+                <span class="font-semibold text-slate-900 dark:text-slate-100">Asset:</span>
+                <span class="ml-2 font-semibold text-slate-900 dark:text-slate-100">{{ deleteTarget?.name || '-' }}</span>
+                <span class="ml-1 text-slate-500 dark:text-slate-400">({{ deleteTarget?.code || '-' }})</span>
+              </p>
+            </div>
+            <UFormField label="Type DELETE to confirm">
+              <UInput
+                v-model="deleteConfirmText"
+                class="w-full"
+                placeholder="DELETE"
+                :ui="{ base: 'w-full h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-500' }"
+              />
+            </UFormField>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="closeDeleteDialog">Cancel</UButton>
+              <UButton
+                color="error"
+                class="text-white"
+                :loading="deleting"
+                :disabled="deleteConfirmText !== 'DELETE'"
+                @click="confirmDeleteAsset"
+              >
+                Delete
+              </UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="createOpen" :ui="{ content: 'sm:max-w-4xl' }">
       <template #content>
         <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
           <template #header>
@@ -1097,47 +1162,66 @@ watch(issueKind, () => {
           </template>
 
           <div class="space-y-3">
-            <UFormField label="Tenant">
-              <select
-                v-model="createForm.tenantId"
-                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                disabled
-              >
-                <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">
-                  {{ tenant.name }}
-                </option>
-              </select>
-            </UFormField>
+            <div class="grid gap-3 sm:grid-cols-3">
+              <UFormField>
+                <template #label><span>Tenant <span class="text-rose-500">*</span></span></template>
+                <select
+                  v-model="createForm.tenantId"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                  disabled
+                >
+                  <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">
+                    {{ tenant.name }}
+                  </option>
+                </select>
+              </UFormField>
 
-            <UFormField label="Branch">
-              <select
-                v-model="createForm.branchId"
-                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-              >
-                <option value="">Select branch</option>
-                <option v-for="branch in branches" :key="branch.id" :value="branch.id">
-                  {{ branch.name }}
-                </option>
-              </select>
-            </UFormField>
+              <UFormField>
+                <template #label><span>Merchant <span class="text-rose-500">*</span></span></template>
+                <select
+                  v-model="createForm.merchantAccountId"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                  @change="onCreateMerchantChange"
+                >
+                  <option value="">Select merchant</option>
+                  <option v-for="merchant in merchants" :key="merchant.id" :value="merchant.id">
+                    {{ merchant.name }}
+                  </option>
+                </select>
+              </UFormField>
 
-            <UFormField label="Asset UUID">
-              <UInput v-model="createForm.assetUuid" :ui="{ base: 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100' }" />
-            </UFormField>
-
-            <UFormField label="Asset Code">
-              <UInput v-model="createForm.code" :ui="{ base: 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100' }" />
-            </UFormField>
-
-            <UFormField label="Asset Name">
-              <UInput v-model="createForm.name" placeholder="WM-001" :ui="{ base: 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100' }" />
-            </UFormField>
+              <UFormField>
+                <template #label><span>Branch <span class="text-rose-500">*</span></span></template>
+                <select
+                  v-model="createForm.branchId"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  <option value="">Select branch</option>
+                  <option v-for="branch in branches.filter((b) => !createForm.merchantAccountId || b.merchantAccountId === createForm.merchantAccountId)" :key="branch.id" :value="branch.id">
+                    {{ branch.name }}
+                  </option>
+                </select>
+              </UFormField>
+            </div>
 
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <UFormField label="Type">
+              <UFormField>
+                <template #label><span>Asset Code <span class="text-rose-500">*</span></span></template>
+                <UInput v-model="createForm.code" class="w-full" readonly :ui="{ root: 'w-full', base: 'h-10 w-full bg-slate-100 text-slate-900 placeholder:text-slate-500 ring-1 ring-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:ring-slate-500' }" />
+              </UFormField>
+
+              <UFormField>
+                <template #label><span>Asset Name <span class="text-rose-500">*</span></span></template>
+                <UInput v-model="createForm.name" class="w-full" placeholder="WM-001" :ui="{ root: 'w-full', base: 'h-10 w-full bg-white text-slate-900 placeholder:text-slate-500 ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:ring-slate-500' }" />
+              </UFormField>
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <UFormField>
+                <template #label><span>Type <span class="text-rose-500">*</span></span></template>
                 <select
                   v-model="createForm.kind"
-                  class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="WASHER">WASHER</option>
                   <option value="DRYER">DRYER</option>
@@ -1146,10 +1230,11 @@ watch(issueKind, () => {
                 </select>
               </UFormField>
 
-              <UFormField label="Status">
+              <UFormField>
+                <template #label><span>Status <span class="text-rose-500">*</span></span></template>
                 <select
                   v-model="createForm.status"
-                  class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
                 >
                   <option value="ACTIVE">ACTIVE</option>
                   <option value="INACTIVE">INACTIVE</option>
@@ -1173,136 +1258,26 @@ watch(issueKind, () => {
       </template>
     </UModal>
 
-    <UModal v-model:open="issueOpen" :ui="{ content: 'sm:max-w-5xl' }">
-      <template #content>
-        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
-          <template #header>
-            <div class="flex items-center justify-between gap-3">
-              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Issue Registration Code</h3>
-              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeIssueDialog" />
-            </div>
-          </template>
+    <AssetIotBindingModal
+      v-model:open="iotBindingOpen"
+      :asset-id="iotBindingAssetId"
+      :asset-name="iotBindingAssetName"
+      @changed="onIotBindingChanged"
+    />
 
-          <div class="space-y-4">
-            <div class="grid gap-3 md:grid-cols-12">
-              <UFormField label="Registration Type" class="md:col-span-3">
-                <select
-                  v-model="issueKind"
-                  class="w-full max-w-[200px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                >
-                  <option value="ASSET">ASSET</option>
-                  <option value="SPARE_IOT">SPARE_IOT</option>
-                  <option value="SPARE_MACHINE">SPARE_MACHINE</option>
-                </select>
-              </UFormField>
+    <AssetMachineBindingModal
+      v-model:open="machineBindingOpen"
+      :asset-id="machineBindingAssetId"
+      :asset-name="machineBindingAssetName"
+      @changed="onMachineBindingChanged"
+    />
 
-              <UFormField label="Expire In" class="md:col-span-2">
-                <select
-                  v-model="issueExpireDays"
-                  class="w-full max-w-[130px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                >
-                  <option value="3">3 days</option>
-                  <option value="5">5 days</option>
-                  <option value="7">7 days</option>
-                </select>
-              </UFormField>
+    <AssetProductPromoModal
+      v-model:open="productPromoOpen"
+      :asset-id="productPromoAssetId"
+      :asset-name="productPromoAssetName"
+      @changed="onProductPromoChanged"
+    />
 
-              <UFormField label="Expire Time" class="md:col-span-2">
-                <select
-                  v-model="issueExpireTime"
-                  class="w-full max-w-[130px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                >
-                  <option v-for="h in 24" :key="h - 1" :value="`${String(h - 1).padStart(2, '0')}:00`">
-                    {{ String(h - 1).padStart(2, '0') }}:00
-                  </option>
-                </select>
-              </UFormField>
-
-              <UFormField label="Note (optional)" class="md:col-span-5">
-                <UInput v-model="issueNote" placeholder="e.g. Installer batch #1" class="w-full" :ui="{ base: 'bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100' }" />
-                <p class="mt-1 text-xs font-semibold text-red-600 dark:text-red-400">
-                  Expired At: {{ formatIssueDate(issueExpiresAtPreview) }}
-                </p>
-              </UFormField>
-            </div>
-
-            <div class="grid gap-3 md:grid-cols-3">
-              <UFormField label="Tenant">
-                <UInput :model-value="tenants.find(t => t.id === filters.tenantId)?.name || '-'" readonly :ui="{ base: 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100' }" />
-              </UFormField>
-
-              <UFormField label="Branch">
-                <UInput :model-value="issueKind === 'ASSET' ? (branches.find(b => b.id === filters.branchId)?.name || '-') : '-'" readonly :ui="{ base: 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100' }" />
-              </UFormField>
-
-              <UFormField label="Register Code">
-                <div class="flex items-center gap-2">
-                  <UInput :model-value="issuedCode || '-'" class="w-full" readonly :ui="{ base: 'bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 font-mono' }" />
-                  <CopyIconButton :value="issuedCode || ''" aria-label="Copy registration code" />
-                </div>
-              </UFormField>
-            </div>
-
-            <div class="rounded-lg border border-slate-200 dark:border-slate-700">
-              <div class="flex items-center justify-between border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                <span>Recent Issued Codes</span>
-                <span v-if="issuedCodesLoading">Loading...</span>
-              </div>
-              <div class="max-h-64 overflow-auto">
-                <table class="w-full text-xs">
-                  <thead class="bg-slate-100/70 dark:bg-slate-800/70">
-                    <tr class="text-left">
-                      <th class="px-3 py-2">Code</th>
-                      <th class="px-3 py-2">Status</th>
-                      <th class="px-3 py-2">Note</th>
-                      <th class="px-3 py-2">Expired At</th>
-                      <th class="px-3 py-2">Created</th>
-                      <th class="px-3 py-2 text-center">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="item in issuedCodes" :key="item.id" class="border-t border-slate-200 dark:border-slate-800">
-                      <td class="px-3 py-2">
-                        <div class="flex items-center gap-2">
-                          <span class="font-mono">{{ item.code }}</span>
-                          <CopyIconButton :value="item.code" aria-label="Copy registration code item" />
-                        </div>
-                      </td>
-                      <td class="px-3 py-2">{{ item.status }}</td>
-                      <td class="px-3 py-2">{{ item.note || '-' }}</td>
-                      <td class="px-3 py-2">{{ item.expiresAt ? formatIssueDate(item.expiresAt) : '-' }}</td>
-                      <td class="px-3 py-2">{{ formatIssueDate(item.createdAt) }}</td>
-                      <td class="px-3 py-2 text-center">
-                        <UButton
-                          v-if="isRegistrationExpired(item)"
-                          color="error"
-                          variant="soft"
-                          icon="i-lucide-trash-2"
-                          size="xs"
-                          @click="deleteExpiredRegistrationCode(item.id)"
-                        />
-                        <span v-else class="text-slate-400">-</span>
-                      </td>
-                    </tr>
-                    <tr v-if="!issuedCodesLoading && issuedCodes.length === 0">
-                      <td colspan="6" class="px-3 py-3 text-center text-slate-500">No issued code found</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <template #footer>
-            <div class="flex justify-end gap-2">
-              <UButton color="neutral" variant="soft" @click="closeIssueDialog">Close</UButton>
-              <UButton color="primary" class="text-white" :loading="issueLoading" @click="issueRegistrationCode">
-                Issue
-              </UButton>
-            </div>
-          </template>
-        </UCard>
-      </template>
-    </UModal>
   </section>
 </template>

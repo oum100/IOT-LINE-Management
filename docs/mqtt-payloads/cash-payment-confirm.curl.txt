@@ -1,0 +1,16 @@
+# 1) Send via MQTT webhook endpoint (server will auto map cash event)
+curl -X POST 'http://localhost:3001/api/mqtt/events' \
+  -H 'Content-Type: application/json' \
+  -H 'x-mqtt-secret: <MQTT_WEBHOOK_SECRET>' \
+  --data @docs/mqtt-payloads/cash-payment-confirm.mqtt-events.json
+
+# 2) Send directly to cash confirm endpoint
+curl -X POST 'http://localhost:3001/api/payments/cash-device-confirm' \
+  -H 'Content-Type: application/json' \
+  -H 'x-cash-device-secret: <CASH_DEVICE_WEBHOOK_SECRET_OR_MQTT_WEBHOOK_SECRET>' \
+  --data @docs/mqtt-payloads/cash-payment-confirm.direct-api.json
+
+# 0) Create order first (use returned orderNumber for cash confirm)
+curl -X POST 'http://localhost:3001/api/orders' \
+  -H 'Content-Type: application/json' \
+  --data @docs/mqtt-payloads/create-order.json

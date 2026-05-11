@@ -89,7 +89,7 @@ export default defineEventHandler(async (event) => {
         where: { orderId },
         select: { machineId: true }
       })
-      const machineIds = Array.from(new Set(orderItems.map(item => item.machineId)))
+      const machineIds = Array.from(new Set(orderItems.map(item => item.machineId).filter(Boolean) as string[]))
 
       await prisma.$transaction(async (tx) => {
         await tx.payment.update({
@@ -154,7 +154,7 @@ export default defineEventHandler(async (event) => {
           orderNumber: receiptOrder.orderNumber,
           totalAmount: receiptOrder.totalAmount,
           items: receiptOrder.items.map(item => ({
-            machineName: item.machine.name,
+            machineName: item.machine?.name || '-',
             durationMinutes: item.durationMinutes,
             amount: item.amount
           }))

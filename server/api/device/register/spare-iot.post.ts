@@ -14,22 +14,39 @@ export default defineEventHandler(async (event) => {
   const body = schema.parse(await readBody(event))
   const registration = await prisma.deviceRegistrationCode.findUnique({
     where: { code: body.registrationCode },
-    include: {
-      tenant: true
-    }
+    include: { tenant: true, merchantAccount: true, branch: true }
   })
   if (!registration) throw createError({ statusCode: 404, statusMessage: 'Invalid registration code' })
   if (registration.status !== 'READY') throw createError({ statusCode: 409, statusMessage: 'Registration code is not ready' })
   if (registration.expiresAt && registration.expiresAt.getTime() < Date.now()) {
     throw createError({ statusCode: 410, statusMessage: 'Registration code expired' })
   }
+  const scope = {
+    tenant: { code: registration.tenant.code, name: registration.tenant.name },
+    merchant: registration.merchantAccount ? { code: registration.merchantAccount.code, name: registration.merchantAccount.name } : null,
+    branch: registration.branch ? { code: registration.branch.code, name: registration.branch.name } : null
+  }
 
   const macAddress = normalizeMacAddress(body.macAddress)
   const deviceUid = macToDeviceUid(macAddress)
-
-  const device = await prisma.iotDevice.upsert({
+  const existing = await prisma.iotDevice.findUnique({
     where: { macAddress },
-    create: {
+    select: { id: true, macAddress: true, deviceUid: true, status: true, metadata: true, tenant: { select: { code: true } } }
+  })
+  if (existing) {
+    const metadata = (existing.metadata || {}) as Record<string, unknown>
+    return {
+      ok: true,
+      reused: true,
+      scope,
+      merchantCode: String(metadata.merchantCode || registration.merchantAccount?.code || '') || null,
+      branchCode: String(metadata.branchCode || registration.branch?.code || '') || null,
+      device: { id: existing.id, macAddress: existing.macAddress, deviceUid: existing.deviceUid, status: existing.status }
+    }
+  }
+
+  const device = await prisma.iotDevice.create({
+    data: {
       tenantId: registration.tenantId,
       macAddress,
       deviceUid,
@@ -38,34 +55,27 @@ export default defineEventHandler(async (event) => {
       fwVersion: body.fwVersion,
       status: 'SPARE',
       metadata: {
-        source: 'spare-iot-register-api'
+        source: 'register-iot-spare',
+        merchantAccountId: registration.merchantAccountId || null,
+        branchId: registration.branchId || null,
+        merchantCode: registration.merchantAccount?.code || null,
+        merchantName: registration.merchantAccount?.name || null,
+        branchCode: registration.branch?.code || null,
+        branchName: registration.branch?.name || null
       }
-    },
-    update: {
-      deviceUid,
-      name: body.name || undefined,
-      model: body.model || undefined,
-      fwVersion: body.fwVersion,
-      status: 'SPARE'
     }
   })
 
   await prisma.deviceRegistrationCode.update({
     where: { id: registration.id },
-    data: {
-      status: 'USED',
-      usedAt: new Date(),
-      usedByIotDeviceId: device.id
-    }
+    data: { status: 'USED', usedAt: new Date(), usedByIotDeviceId: device.id }
   })
 
   return {
     ok: true,
-    tenantCode: registration.tenant.code,
-    device: {
-      id: device.id,
-      macAddress: device.macAddress,
-      deviceUid: device.deviceUid
-    }
+    scope,
+    merchantCode: registration.merchantAccount?.code || null,
+    branchCode: registration.branch?.code || null,
+    device: { id: device.id, macAddress: device.macAddress, deviceUid: device.deviceUid, status: device.status }
   }
 })

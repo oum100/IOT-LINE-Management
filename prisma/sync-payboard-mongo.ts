@@ -202,15 +202,33 @@ async function main() {
 
     const kind = toMachineKind(mongo.type, api.device_type);
 
-    const machineUnit = await prisma.machineUnit.upsert({
+    const machine = await prisma.machine.upsert({
       where: { serialNo },
       create: {
         tenantId: tenant.id,
+        merchantAccountId: merchant.id,
+        branchId: branch.id,
+        assetId: asset.id,
+        code: machineCode,
+        name: machineName,
         serialNo,
+        kind,
+        status: statusFromMongo(mongo.status),
+        locationLabel: branch.name,
+        topic: `payboard/${uuid}`,
         metadata: { source: "payboard-api", uuid },
       },
       update: {
         tenantId: tenant.id,
+        merchantAccountId: merchant.id,
+        branchId: branch.id,
+        assetId: asset.id,
+        code: machineCode,
+        name: machineName,
+        kind,
+        status: statusFromMongo(mongo.status),
+        locationLabel: branch.name,
+        topic: `payboard/${uuid}`,
       },
     });
 
@@ -285,13 +303,13 @@ async function main() {
         data: {
           tenantId: tenant.id,
           assetId: asset.id,
-          machineUnitId: machineUnit.id,
+          machineId: machine.id,
           iotDeviceId: iotDevice.id,
           status: DeviceBindingStatus.ACTIVE,
           reason: "sync-from-mongo-api",
         },
       });
-    } else if (activeBinding.machineUnitId !== machineUnit.id || activeBinding.iotDeviceId !== iotDevice.id) {
+    } else if (activeBinding.machineId !== machine.id || activeBinding.iotDeviceId !== iotDevice.id) {
       await prisma.assetBinding.update({
         where: { id: activeBinding.id },
         data: {
@@ -304,40 +322,13 @@ async function main() {
         data: {
           tenantId: tenant.id,
           assetId: asset.id,
-          machineUnitId: machineUnit.id,
+          machineId: machine.id,
           iotDeviceId: iotDevice.id,
           status: DeviceBindingStatus.ACTIVE,
           reason: "sync-from-mongo-api",
         },
       });
     }
-
-    const machine = await prisma.machine.upsert({
-      where: { code: machineCode },
-      create: {
-        tenantId: tenant.id,
-        merchantAccountId: merchant.id,
-        branchId: branch.id,
-        assetId: asset.id,
-        code: machineCode,
-        name: machineName,
-        kind,
-        status: statusFromMongo(mongo.status),
-        locationLabel: branch.name,
-        topic: `payboard/${uuid}`,
-      },
-      update: {
-        tenantId: tenant.id,
-        merchantAccountId: merchant.id,
-        branchId: branch.id,
-        assetId: asset.id,
-        name: machineName,
-        kind,
-        status: statusFromMongo(mongo.status),
-        locationLabel: branch.name,
-        topic: `payboard/${uuid}`,
-      },
-    });
 
     await prisma.machinePrice.deleteMany({
       where: { machineId: machine.id },

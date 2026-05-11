@@ -7,7 +7,7 @@ import {
   lockDeviceForUpdate,
   readIotDeviceStatus,
   refreshIotDeviceStatus,
-  refreshMachineUnitStatus
+  refreshMachineStatus
 } from '../../../../utils/asset-lifecycle'
 
 const schema = z.object({
@@ -85,12 +85,12 @@ export default defineEventHandler(async (event) => {
     }
 
     const nextDeviceStatus = await readIotDeviceStatus(tx, newDevice.id)
-    if (nextDeviceStatus && nextDeviceStatus !== 'SPARE') {
-      throw createError({ statusCode: 409, statusMessage: `Only SPARE IoT device can be bound/replaced (current: ${nextDeviceStatus})` })
+    if (nextDeviceStatus && !['NEW', 'SPARE'].includes(nextDeviceStatus)) {
+      throw createError({ statusCode: 409, statusMessage: `Only NEW or SPARE IoT device can be bound/replaced (current: ${nextDeviceStatus})` })
     }
 
     const oldIotDeviceId = currentActive?.iotDeviceId || null
-    const oldMachineUnitId = currentActive?.machineUnitId || null
+    const oldMachineId = currentActive?.machineId || null
     if (currentActive) {
       await tx.assetBinding.updateMany({
         where: {
@@ -116,7 +116,7 @@ export default defineEventHandler(async (event) => {
       data: {
         tenantId: asset.tenantId,
         assetId: asset.id,
-        machineUnitId: currentActive?.machineUnitId || null,
+        machineId: currentActive?.machineId || null,
         iotDeviceId: newDevice.id,
         reason: body.reason,
         metadata: {
@@ -128,14 +128,18 @@ export default defineEventHandler(async (event) => {
     })
 
     if (oldIotDeviceId) {
-      await refreshIotDeviceStatus(tx, oldIotDeviceId)
+      await tx.$executeRaw`
+        UPDATE "iot_devices"
+        SET "status" = 'REPLACED'::"IotDeviceStatus"
+        WHERE "id" = ${oldIotDeviceId}
+      `
     }
-    if (oldMachineUnitId) {
-      await refreshMachineUnitStatus(tx, oldMachineUnitId)
+    if (oldMachineId) {
+      await refreshMachineStatus(tx, oldMachineId)
     }
     await refreshIotDeviceStatus(tx, newDevice.id)
-    if (created.machineUnitId) {
-      await refreshMachineUnitStatus(tx, created.machineUnitId)
+    if (created.machineId) {
+      await refreshMachineStatus(tx, created.machineId)
     }
 
     return {

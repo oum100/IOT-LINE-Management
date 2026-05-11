@@ -1,4 +1,11 @@
 <script setup lang="ts">
+import IotBindingModal from '~/components/asset/IotBindingModal.vue'
+import MachineBindingModal from '~/components/asset/MachineBindingModal.vue'
+import ProductBindModal from '~/components/asset/ProductBindModal.vue'
+import ProductUnbindModal from '~/components/asset/ProductUnbindModal.vue'
+import StaticThaiQrModal from '~/components/asset/StaticThaiQrModal.vue'
+import SetPromotionModal from '~/components/promotion/SetPromotionModal.vue'
+
 definePageMeta({
   middleware: "portal-auth",
 })
@@ -7,13 +14,13 @@ type DeviceOption = {
   id: string
   macAddress: string
   deviceUid?: string | null
-  status?: "SPARE" | "IN_USE" | "OFFLINE" | "DISABLED"
+  status?: "SPARE" | "BOUND" | "OFFLINE" | "DISABLED"
 }
 
-type MachineUnitOption = {
+type MachineOption = {
   id: string
   serialNo: string
-  status?: "SPARE" | "IN_USE" | "OFFLINE" | "DISABLED"
+  status?: "SPARE" | "BOUND" | "OFFLINE" | "DISABLED"
 }
 
 type ProductOffer = {
@@ -88,7 +95,7 @@ type AssetDetails = {
   activeBinding?: {
     id: string
     iotDevice?: { id: string; macAddress: string; deviceUid?: string | null } | null
-    machineUnit?: { id: string; serialNo: string } | null
+    machine?: { id: string; serialNo: string } | null
     startedAt: string
     reason?: string | null
   } | null
@@ -100,7 +107,7 @@ type AssetDetails = {
     reason?: string | null
     metadata?: Record<string, any> | null
     iotDevice?: { id: string; macAddress: string; deviceUid?: string | null } | null
-    machineUnit?: { id: string; serialNo: string } | null
+    machine?: { id: string; serialNo: string } | null
   }>
   offersTimeline?: {
     current: ProductOffer[]
@@ -110,18 +117,33 @@ type AssetDetails = {
 }
 
 type ProductDisplayRow = {
+  productId: string
+  code: string
+  name: string
+  kind: string
+  price: number
+  currency: string
+  service: string
+  serviceMode: string
+  serviceUnit: string
+  active: boolean
+}
+
+type BindableProduct = {
   id: string
-  productName: string
-  pricingType: string
-  updatedAt: string
-  amount: number
-  section: "CURRENT" | "UPCOMING" | "HISTORY"
+  code: string
+  name: string
+  kind: string
+  active: boolean
 }
 
 const route = useRoute()
 const loading = ref(false)
 const error = ref("")
 const saving = ref(false)
+const editSaving = ref(false)
+const editError = ref("")
+const editingField = ref<"name" | "kind" | "status" | "">("")
 const details = ref<AssetDetails | null>(null)
 const tabError = ref("")
 const tabMessage = ref("")
@@ -140,9 +162,42 @@ const selectedOrder = ref<OrderListItem | null>(null)
 const paymentTimeline = ref<PaymentTimelineEvent[]>([])
 const historyDialogOpen = ref(false)
 const historyDialogType = ref<"iot" | "machine">("iot")
+const bindProductOpen = ref(false)
+const bindProductLoading = ref(false)
+const bindProductSubmitting = ref(false)
+const bindProductError = ref("")
+const bindProductIds = ref<string[]>([])
+const bindableProducts = ref<BindableProduct[]>([])
+const boundProducts = ref<Array<{
+  id: string
+  code: string
+  name: string
+  kind: string
+  amount: number
+  quantity: number | null
+  serviceMode: string | null
+  serviceUnit: string | null
+  active: boolean
+}>>([])
+const quickBindOpen = ref(false)
+const quickBindSubmitting = ref(false)
+const quickBindError = ref("")
+const quickBindProductId = ref("")
+const unbindProductOpen = ref(false)
+const unbindProductSubmitting = ref(false)
+const unbindProductError = ref("")
+const staticQrOpen = ref(false)
+const staticQrLoading = ref(false)
+const staticQrError = ref("")
+const staticQrCopyDone = ref(false)
+const staticQrData = ref<any>(null)
+const promotionOpen = ref(false)
+const promotionSaving = ref(false)
+const promotionError = ref("")
+const actionTargetRow = ref<ProductDisplayRow | null>(null)
 
 const devices = ref<DeviceOption[]>([])
-const machineUnits = ref<MachineUnitOption[]>([])
+const machines = ref<MachineOption[]>([])
 const currentOffers = ref<ProductOffer[]>([])
 const upcomingOffers = ref<ProductOffer[]>([])
 const historyOffers = ref<ProductOffer[]>([])
@@ -153,19 +208,30 @@ const replaceDeviceForm = ref({
 })
 
 const replaceMachineForm = ref({
-  machineUnitId: "",
+  machineId: "",
   reason: "",
+})
+const editForm = ref({
+  name: "",
+  kind: "WASHER",
+  status: "ACTIVE" as "ACTIVE" | "INACTIVE" | "MAINTENANCE",
 })
 
 const id = computed(() => String(route.params.id || "").trim())
 const hasBoundIot = computed(() => Boolean(details.value?.activeBinding?.iotDevice?.id))
-const hasBoundMachine = computed(() => Boolean(details.value?.activeBinding?.machineUnit?.id))
-const iotBindingStatus = computed(() => (hasBoundIot.value ? "IN_USE" : "UNASSIGNED"))
-const machineBindingStatus = computed(() => (hasBoundMachine.value ? "IN_USE" : "UNASSIGNED"))
-const assignmentStatus = computed(() => details.value?.assignmentStatus || "UNASSIGNED")
-const assignmentToneClass = computed(() => {
-  if (assignmentStatus.value === "ASSIGNED") return "text-emerald-600 dark:text-emerald-300"
-  if (assignmentStatus.value === "PARTIAL_ASSIGNED") return "text-amber-600 dark:text-amber-300"
+const hasBoundMachine = computed(() => Boolean(details.value?.activeBinding?.machine?.id))
+const iotBindingStatus = computed(() => (hasBoundIot.value ? "BOUND" : "UNASSIGNED"))
+const machineBindingStatus = computed(() => (hasBoundMachine.value ? "BOUND" : "UNASSIGNED"))
+const readinessStatus = computed(() => {
+  const hasProduct = boundProducts.value.length > 0
+  if (!hasBoundIot.value) return "MISSING_DEVICE"
+  if (!hasBoundMachine.value) return "MISSING_MACHINE"
+  if (!hasProduct) return "MISSING_PRODUCT"
+  return "READY"
+})
+const readinessToneClass = computed(() => {
+  if (readinessStatus.value === "READY") return "text-emerald-700 dark:text-emerald-300"
+  if (readinessStatus.value === "MISSING_DEVICE" || readinessStatus.value === "MISSING_MACHINE") return "text-amber-600 dark:text-amber-300"
   return "text-rose-600 dark:text-rose-300"
 })
 const statusToneClass = computed(() => {
@@ -178,44 +244,32 @@ const statusToneClass = computed(() => {
 
 const deviceOptions = computed(() =>
   devices.value.map(item => ({
-    label: `MAC: ${item.macAddress}${item.deviceUid ? ` | UID: ${item.deviceUid}` : ""} | ${item.status || "SPARE"}`,
+    label: item.macAddress,
     value: item.id,
   }))
 )
 
-const machineUnitOptions = computed(() =>
-  machineUnits.value.map(item => ({
-    label: `${item.serialNo} [${item.status || "SPARE"}]`,
+const machineOptions = computed(() =>
+  machines.value.map(item => ({
+    label: `${item.serialNo} [${displayBindingStatus(item.status)}]`,
     value: item.id,
   }))
 )
 
-const productRows = computed<ProductDisplayRow[]>(() => [
-  ...currentOffers.value.map((offer) => ({
-    id: offer.id,
-    productName: offer.product?.name || offer.productId,
-    pricingType: offer.pricingType,
-    updatedAt: offer.updatedAt || offer.effectiveFrom,
-    amount: Number(offer.amount || 0),
-    section: "CURRENT" as const,
-  })),
-  ...upcomingOffers.value.map((offer) => ({
-    id: offer.id,
-    productName: offer.product?.name || offer.productId,
-    pricingType: offer.pricingType,
-    updatedAt: offer.updatedAt || offer.effectiveFrom,
-    amount: Number(offer.amount || 0),
-    section: "UPCOMING" as const,
-  })),
-  ...historyOffers.value.map((offer) => ({
-    id: offer.id,
-    productName: offer.product?.name || offer.productId,
-    pricingType: offer.pricingType,
-    updatedAt: offer.updatedAt || offer.effectiveFrom,
-    amount: Number(offer.amount || 0),
-    section: "HISTORY" as const,
-  })),
-])
+const productRows = computed<ProductDisplayRow[]>(() =>
+  boundProducts.value.map((item) => ({
+    productId: item.id,
+    code: item.code,
+    name: item.name,
+    kind: item.kind,
+    price: Number(item.amount || 0),
+    currency: 'THB',
+    service: item.quantity !== null && item.quantity !== undefined ? String(item.quantity) : '-',
+    serviceMode: item.serviceMode || '-',
+    serviceUnit: item.serviceUnit || '-',
+    active: Boolean(item.active)
+  }))
+)
 
 const orderStatusOptions = [
   { label: "All Order Status", value: "ALL" },
@@ -262,6 +316,45 @@ function setTabMessage(text: string) {
   tabMessage.value = text
 }
 
+function openEditAsset(focusField: "name" | "kind" | "status" = "name") {
+  if (!details.value) return
+  editingField.value = focusField
+  editError.value = ""
+  editForm.value = {
+    name: details.value.name || "",
+    kind: details.value.kind || "WASHER",
+    status: details.value.status || "ACTIVE",
+  }
+}
+
+function cancelEditAsset() {
+  editingField.value = ""
+  editError.value = ""
+}
+
+async function submitEditAsset() {
+  if (!id.value) return
+  editSaving.value = true
+  editError.value = ""
+  try {
+    await $fetch(`/api/admin/assets/${id.value}`, {
+      method: "PATCH",
+      body: {
+        name: editForm.value.name.trim(),
+        kind: editForm.value.kind,
+        status: editForm.value.status,
+      },
+    })
+    editingField.value = ""
+    setTabMessage("Asset updated.")
+    await loadDetails()
+  } catch (err) {
+    editError.value = err instanceof Error ? err.message : "Failed to update asset."
+  } finally {
+    editSaving.value = false
+  }
+}
+
 async function loadDetails() {
   if (!id.value) return
   loading.value = true
@@ -285,12 +378,12 @@ async function loadDeviceOptions() {
   }
 }
 
-async function loadMachineUnitOptions() {
+async function loadMachineOptions() {
   if (!id.value) return
-  const response = await $fetch<{ items: MachineUnitOption[] }>(`/api/admin/assets/${id.value}/available-machine-units`)
-  machineUnits.value = response.items || []
-  if (replaceMachineForm.value.machineUnitId && !machineUnits.value.some(item => item.id === replaceMachineForm.value.machineUnitId)) {
-    replaceMachineForm.value.machineUnitId = ""
+  const response = await $fetch<{ items: MachineOption[] }>(`/api/admin/assets/${id.value}/available-machine-units`)
+  machines.value = response.items || []
+  if (replaceMachineForm.value.machineId && !machines.value.some(item => item.id === replaceMachineForm.value.machineId)) {
+    replaceMachineForm.value.machineId = ""
   }
 }
 
@@ -312,6 +405,26 @@ async function loadProductData() {
     upcomingOffers.value = []
     historyOffers.value = []
     setTabError(err)
+  }
+}
+
+async function loadBoundProducts() {
+  if (!id.value) return
+  try {
+    const response = await $fetch<{ items: Array<{
+      id: string
+      code: string
+      name: string
+      kind: string
+      amount: number
+      quantity: number | null
+      serviceMode: string | null
+      serviceUnit: string | null
+      active: boolean
+    }> }>(`/api/admin/assets/${id.value}/products/bound`)
+    boundProducts.value = response.items || []
+  } catch {
+    boundProducts.value = []
   }
 }
 
@@ -410,10 +523,10 @@ async function replaceIotDevice() {
   }
 }
 
-async function replaceMachineUnit() {
+async function replaceMachine() {
   if (!id.value) return
-  if (!replaceMachineForm.value.machineUnitId) {
-    tabError.value = "Please select machine unit."
+  if (!replaceMachineForm.value.machineId) {
+    tabError.value = "Please select machine."
     return
   }
 
@@ -423,7 +536,7 @@ async function replaceMachineUnit() {
     await $fetch(`/api/admin/assets/${id.value}/replace-machine`, {
       method: "POST",
       body: {
-        machineUnitId: replaceMachineForm.value.machineUnitId,
+        machineId: replaceMachineForm.value.machineId,
         reason: replaceMachineForm.value.reason || (hasBoundMachine.value ? "replace-machine" : "bind-machine"),
       },
     })
@@ -436,12 +549,216 @@ async function replaceMachineUnit() {
   }
 }
 
+function onBindingChanged() {
+  setTabMessage("Asset binding updated.")
+  void loadDetails()
+}
+
 function onProductEdit(row: ProductDisplayRow) {
-  setTabMessage(`Edit product pricing for ${row.productName} is coming next.`)
+  actionTargetRow.value = row
+  promotionError.value = ""
+  promotionOpen.value = true
 }
 
 function onProductHistory(row: ProductDisplayRow) {
-  setTabMessage(`History view for ${row.productName} is coming next.`)
+  actionTargetRow.value = row
+  unbindProductError.value = ""
+  unbindProductOpen.value = true
+}
+
+const boundProductIds = computed(() => new Set(productRows.value.map(row => row.productId)))
+const isProductActiveBound = (row: ProductDisplayRow) => row.active
+const bindableProductOptions = computed(() =>
+  bindableProducts.value
+    .filter(item => !boundProductIds.value.has(item.id))
+    .map(item => ({ label: `${item.name} (${item.code})`, value: item.id }))
+)
+
+async function loadBindableProducts() {
+  if (!details.value) return
+  const response = await $fetch<{ items: BindableProduct[] }>("/api/admin/products", {
+    query: {
+      tenantId: details.value.tenantId,
+      page: 1,
+      pageSize: 200,
+    },
+  })
+  bindableProducts.value = response.items || []
+}
+
+async function openBindProductDialog() {
+  if (!details.value) return
+  bindProductOpen.value = true
+  bindProductLoading.value = true
+  bindProductError.value = ""
+  bindProductIds.value = []
+  try {
+    await loadBindableProducts()
+  } catch (err) {
+    bindProductError.value = err instanceof Error ? err.message : "Failed to load products."
+    bindableProducts.value = []
+  } finally {
+    bindProductLoading.value = false
+  }
+}
+
+async function openQuickBind(row: ProductDisplayRow) {
+  if (!details.value) return
+  actionTargetRow.value = row
+  quickBindError.value = ""
+  quickBindProductId.value = row.productId
+  quickBindOpen.value = true
+  try {
+    await loadBindableProducts()
+  } catch (err) {
+    quickBindError.value = err instanceof Error ? err.message : "Failed to load products."
+    bindableProducts.value = []
+  }
+}
+
+async function submitQuickBind() {
+  if (!details.value || !quickBindProductId.value) {
+    quickBindError.value = "Please select product."
+    return
+  }
+  const merchantAccountId = details.value.branch?.merchantAccount?.id
+  const branchId = details.value.branch?.id
+  if (!merchantAccountId || !branchId) {
+    quickBindError.value = "Missing merchant/branch context for this asset."
+    return
+  }
+  quickBindSubmitting.value = true
+  quickBindError.value = ""
+  try {
+    await $fetch(`/api/admin/products/${quickBindProductId.value}/bind`, {
+      method: "POST",
+      body: {
+        tenantId: details.value.tenantId,
+        merchantAccountId,
+        branchId,
+        assetId: details.value.id,
+      },
+    })
+    quickBindOpen.value = false
+    setTabMessage("Product bound successfully.")
+    await loadProductData()
+  } catch (err) {
+    quickBindError.value = err instanceof Error ? err.message : "Failed to bind product."
+  } finally {
+    quickBindSubmitting.value = false
+  }
+}
+
+async function submitUnbindProduct() {
+  if (!id.value || !actionTargetRow.value?.productId) return
+  unbindProductSubmitting.value = true
+  unbindProductError.value = ""
+  try {
+    await $fetch(`/api/admin/assets/${id.value}/products/${actionTargetRow.value.productId}`, {
+      method: "DELETE"
+    })
+    unbindProductOpen.value = false
+    setTabMessage(`Product unbound: ${actionTargetRow.value.name}`)
+    await loadProductData()
+    await loadBoundProducts()
+  } catch (err) {
+    unbindProductError.value = err instanceof Error ? err.message : "Failed to unbind product."
+  } finally {
+    unbindProductSubmitting.value = false
+  }
+}
+
+async function openStaticQr(row: ProductDisplayRow) {
+  if (!id.value || !row.productId) return
+  actionTargetRow.value = row
+  staticQrOpen.value = true
+  staticQrLoading.value = true
+  staticQrError.value = ""
+  staticQrData.value = null
+  staticQrCopyDone.value = false
+  try {
+    staticQrData.value = await $fetch(`/api/admin/assets/${id.value}/products/${row.productId}-static-qr`)
+  } catch (err) {
+    staticQrError.value = err instanceof Error ? err.message : "Failed to build static QR."
+  } finally {
+    staticQrLoading.value = false
+  }
+}
+
+async function copyStaticQrText() {
+  const text = staticQrData.value?.qrText
+  if (!text) return
+  await navigator.clipboard.writeText(text)
+  staticQrCopyDone.value = true
+  setTimeout(() => { staticQrCopyDone.value = false }, 1200)
+}
+
+async function submitPromotion(payload: {
+  productId: string
+  branchId: string
+  amount: number
+  effectiveFrom: string
+  effectiveTo: string | null
+  priority: number
+  replaceActive: boolean
+}) {
+  promotionSaving.value = true
+  promotionError.value = ""
+  try {
+    await $fetch('/api/admin/promotions', {
+      method: 'POST',
+      body: {
+        ...payload,
+        reason: 'admin-asset-promotion'
+      }
+    })
+    promotionOpen.value = false
+    setTabMessage(`Promotion set for ${actionTargetRow.value?.name || 'product'}`)
+    await loadProductData()
+    await loadBoundProducts()
+  } catch (err) {
+    promotionError.value = err instanceof Error ? err.message : 'Failed to set promotion.'
+  } finally {
+    promotionSaving.value = false
+  }
+}
+
+async function submitBindProduct() {
+  if (!details.value) return
+  if (!bindProductIds.value.length) {
+    bindProductError.value = "Please select at least one product."
+    return
+  }
+  const merchantAccountId = details.value.branch?.merchantAccount?.id
+  const branchId = details.value.branch?.id
+  if (!merchantAccountId || !branchId) {
+    bindProductError.value = "Missing merchant/branch context for this asset."
+    return
+  }
+  bindProductSubmitting.value = true
+  bindProductError.value = ""
+  try {
+    await Promise.all(
+      bindProductIds.value.map(productId =>
+        $fetch(`/api/admin/products/${productId}/bind`, {
+          method: "POST",
+          body: {
+            tenantId: details.value!.tenantId,
+            merchantAccountId,
+            branchId,
+            assetId: details.value!.id,
+          },
+        })
+      )
+    )
+    bindProductOpen.value = false
+    setTabMessage(`Products bound successfully (${bindProductIds.value.length}).`)
+    await loadProductData()
+  } catch (err) {
+    bindProductError.value = err instanceof Error ? err.message : "Failed to bind product."
+  } finally {
+    bindProductSubmitting.value = false
+  }
 }
 
 function backToAssets() {
@@ -477,8 +794,12 @@ function paymentStatusBadgeColor(status?: string | null) {
 }
 
 function bindingStatusClass(status: string) {
-  if (status === "IN_USE") return "text-emerald-600 dark:text-emerald-300"
+  if (status === "BOUND" || status === "BOUND") return "text-emerald-600 dark:text-emerald-300"
   return "text-amber-600 dark:text-amber-300"
+}
+
+function displayBindingStatus(status?: string | null) {
+  return status === "BOUND" ? "BOUND" : (status || "SPARE")
 }
 
 const timelineItems = computed(() =>
@@ -506,7 +827,7 @@ const bindingHistoryRows = computed(() => {
   if (historyDialogType.value === "iot") {
     return allRows.filter(item => Boolean(item.iotDevice?.id))
   }
-  return allRows.filter(item => Boolean(item.machineUnit?.id))
+  return allRows.filter(item => Boolean(item.machine?.id))
 })
 
 function openBindingHistory(type: "iot" | "machine") {
@@ -517,7 +838,7 @@ function openBindingHistory(type: "iot" | "machine") {
 async function searchAssetAndOpen() {
   const q = (assetSearch.value || "").trim()
   if (!q) {
-    tabError.value = "Please enter asset name, code, UUID, or ID."
+    tabError.value = "Please enter asset name, code, or ID."
     return
   }
 
@@ -557,8 +878,9 @@ async function searchAssetAndOpen() {
 async function loadAllSections() {
   await Promise.allSettled([
     loadDeviceOptions(),
-    loadMachineUnitOptions(),
+    loadMachineOptions(),
     loadProductData(),
+    loadBoundProducts(),
     loadAssetOrders(),
   ])
 }
@@ -576,7 +898,7 @@ watch(
   (value) => {
     if (!value) return
     replaceDeviceForm.value.iotDeviceId = ""
-    replaceMachineForm.value.machineUnitId = ""
+    replaceMachineForm.value.machineId = ""
     replaceDeviceForm.value.reason = ""
     replaceMachineForm.value.reason = ""
     void loadAllSections()
@@ -593,7 +915,7 @@ watch(
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">View linked IoT device, machine, products, orders and payments</p>
       </div>
       <div class="flex items-center gap-2">
-        <SearchInput v-model="assetSearch" placeholder="Search asset by name/code/UUID/ID" class="w-[320px]" @enter="searchAssetAndOpen" />
+        <SearchInput v-model="assetSearch" placeholder="Search asset by name/code/ID" class="w-[320px]" @enter="searchAssetAndOpen" />
         <UButton color="neutral" variant="soft" icon="i-lucide-arrow-left" @click="backToAssets">Back to Assets</UButton>
       </div>
     </div>
@@ -604,243 +926,213 @@ watch(
 
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <template #header>
-        <div class="flex items-center justify-between gap-3">
-          <h2 class="text-xl font-semibold text-slate-900 dark:text-white">{{ details?.name || "-" }}</h2>
-          <UButton color="primary" variant="soft" icon="i-lucide-refresh-cw" :loading="loading" @click="loadDetails">Refresh</UButton>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-8">
+            <h2 class="text-xl font-semibold text-slate-900 dark:text-white">{{ details?.name || "-" }}</h2>
+            <div class="flex flex-wrap items-center gap-4">
+              <p class="text-sm text-slate-600 dark:text-slate-300">Tenant: <span class="font-semibold text-slate-900 dark:text-slate-100">{{ details?.tenant?.name || "-" }}</span></p>
+              <p class="text-sm text-slate-600 dark:text-slate-300">Merchant: <span class="font-semibold text-slate-900 dark:text-slate-100">{{ details?.branch?.merchantAccount?.name || "-" }}</span></p>
+              <p class="text-sm text-slate-600 dark:text-slate-300">Branch: <span class="font-semibold text-slate-900 dark:text-slate-100">{{ details?.branch?.name || "-" }}</span></p>
+            </div>
+          </div>
+          <UButton color="neutral" variant="soft" class="text-slate-900 dark:text-slate-100" icon="i-lucide-refresh-cw" :loading="loading" @click="loadDetails">Refresh</UButton>
         </div>
       </template>
 
       <div v-if="loading && !details" class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Loading asset detail...</div>
 
       <div v-else-if="details" class="space-y-3">
-        <div class="grid grid-cols-2 gap-x-3 gap-y-1 md:grid-cols-4">
-          <div class="py-0.5">
-            <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Asset UUID</p>
-            <div class="mt-0.5 flex items-center gap-2">
-              <p class="text-sm font-semibold text-slate-900 dark:text-white">{{ details.assetUuid }}</p>
-              <CopyIconButton :value="details.assetUuid" aria-label="Copy Asset UUID" />
-            </div>
-          </div>
+        <div class="grid grid-cols-1 gap-x-3 gap-y-1 md:grid-cols-5">
           <div class="py-0.5">
             <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Asset Code</p>
             <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ details.code }}</p>
           </div>
           <div class="py-0.5">
+            <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Asset Name</p>
+            <div class="mt-1 flex items-center gap-2">
+              <template v-if="editingField === 'name'">
+                <UInput
+                  v-model="editForm.name"
+                  class="h-10 w-[260px]"
+                  :ui="{ base: 'h-10 bg-white text-slate-900 placeholder:text-slate-500 ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:ring-slate-500' }"
+                />
+                <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="editSaving" @click="submitEditAsset" />
+                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="cancelEditAsset" />
+              </template>
+              <template v-else>
+                <p class="text-sm font-semibold text-slate-900 dark:text-white">{{ details.name }}</p>
+                <UButton icon="i-lucide-pencil" size="xs" color="neutral" variant="ghost" class="text-slate-700 dark:text-slate-200" title="Edit Asset Name" aria-label="Edit Asset Name" @click="openEditAsset('name')" />
+              </template>
+            </div>
+          </div>
+          <div class="py-0.5">
             <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Type</p>
-            <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ details.kind }}</p>
+            <div class="mt-1 flex items-center gap-2">
+              <template v-if="editingField === 'kind'">
+                <select
+                  v-model="editForm.kind"
+                  class="h-10 w-[180px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  <option value="WASHER">WASHER</option>
+                  <option value="DRYER">DRYER</option>
+                  <option value="WATER">WATER</option>
+                  <option value="VENDING">VENDING</option>
+                </select>
+                <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="editSaving" @click="submitEditAsset" />
+                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="cancelEditAsset" />
+              </template>
+              <template v-else>
+                <p class="text-sm font-semibold text-slate-900 dark:text-white">{{ details.kind }}</p>
+                <UButton icon="i-lucide-pencil" size="xs" color="neutral" variant="ghost" class="text-slate-700 dark:text-slate-200" title="Edit Type" aria-label="Edit Type" @click="openEditAsset('kind')" />
+              </template>
+            </div>
           </div>
           <div class="py-0.5">
             <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Status</p>
-            <p class="mt-1 text-sm font-semibold" :class="statusToneClass">{{ details.status }}</p>
+            <div class="mt-1 flex items-center gap-2">
+              <template v-if="editingField === 'status'">
+                <select
+                  v-model="editForm.status"
+                  class="h-10 w-[180px] rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="INACTIVE">INACTIVE</option>
+                  <option value="MAINTENANCE">MAINTENANCE</option>
+                </select>
+                <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="editSaving" @click="submitEditAsset" />
+                <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="cancelEditAsset" />
+              </template>
+              <template v-else>
+                <p class="text-sm font-semibold" :class="statusToneClass">{{ details.status }}</p>
+                <UButton icon="i-lucide-pencil" size="xs" color="neutral" variant="ghost" class="text-slate-700 dark:text-slate-200" title="Edit Status" aria-label="Edit Status" @click="openEditAsset('status')" />
+              </template>
+            </div>
           </div>
           <div class="py-0.5">
-            <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Tenant</p>
-            <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ details.tenant?.name || "-" }}</p>
-          </div>
-          <div class="py-0.5">
-            <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Merchant (Brand)</p>
-            <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ details.branch?.merchantAccount?.name || "-" }}</p>
-          </div>
-          <div class="py-0.5">
-            <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Branch</p>
-            <p class="mt-1 text-sm font-semibold text-slate-900 dark:text-white">{{ details.branch?.name || "-" }}</p>
-          </div>
-          <div class="py-0.5">
-            <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Assignment</p>
-            <p class="mt-1 text-sm font-semibold" :class="assignmentToneClass">{{ assignmentStatus }}</p>
+            <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Readiness</p>
+            <p class="mt-1 text-sm font-semibold" :class="readinessToneClass">{{ readinessStatus }}</p>
           </div>
         </div>
+        <UAlert
+          v-if="editError"
+          class="mt-2"
+          color="error"
+          variant="soft"
+          icon="i-lucide-alert-triangle"
+          :title="editError"
+        />
 
         <div class="grid gap-3 lg:grid-cols-2">
-          <div class="h-full rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-            <h3 class="text-base font-semibold text-cyan-700 dark:text-cyan-300">IoT Device Binding</h3>
-            <div class="mt-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Current Binding</p>
-              <div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
-                <div>
-                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Bound IoT</p>
-                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.iotDevice?.macAddress || "Not bound" }}</p>
-                </div>
-                <div>
-                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Device UID</p>
-                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.iotDevice?.deviceUid || "-" }}</p>
-                </div>
-                <div>
-                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Binding At</p>
-                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ formatDate(details.activeBinding?.startedAt) }}</p>
-                </div>
-                <div>
-                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Status</p>
-                  <p class="mt-0.5 text-sm font-semibold" :class="bindingStatusClass(iotBindingStatus)">{{ iotBindingStatus }}</p>
-                </div>
-                <div class="col-span-2">
-                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Reason</p>
-                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.reason || "-" }}</p>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Bind / Replace</p>
-              <div class="mt-2 grid gap-2 md:grid-cols-2">
-                <USelect v-model="replaceDeviceForm.iotDeviceId" placeholder="Select spare IoT device" :items="deviceOptions" :ui="selectUi" class="min-w-0 w-full" />
-                <UInput v-model="replaceDeviceForm.reason" placeholder="Bind/replace reason (optional)" :ui="{ base: 'h-10 bg-white dark:bg-slate-900' }" class="min-w-0" />
-                <UButton color="primary" class="h-10 w-full justify-center text-white md:w-[132px]" :loading="saving" @click="replaceIotDevice">{{ hasBoundIot ? "Replace Now" : "Bind Now" }}</UButton>
-                <UButton color="neutral" variant="soft" class="h-10 w-full justify-center md:w-[132px]" icon="i-lucide-history" @click="openBindingHistory('iot')">History</UButton>
-              </div>
-            </div>
-          </div>
-
-          <div class="h-full rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-            <h3 class="text-base font-semibold text-indigo-700 dark:text-indigo-300">Machine Binding</h3>
-            <div class="mt-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Current Binding</p>
-              <div class="mt-2 grid grid-cols-2 gap-x-4 gap-y-2">
-                <div>
-                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Bound Machine</p>
-                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.machineUnit?.serialNo || "Not bound" }}</p>
-                </div>
-                <div>
-                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Machine Unit ID</p>
-                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.machineUnit?.id || "-" }}</p>
-                </div>
-                <div>
-                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Binding At</p>
-                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ formatDate(details.activeBinding?.startedAt) }}</p>
-                </div>
-                <div>
-                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Status</p>
-                  <p class="mt-0.5 text-sm font-semibold" :class="bindingStatusClass(machineBindingStatus)">{{ machineBindingStatus }}</p>
-                </div>
-                <div class="col-span-2">
-                  <p class="text-xs font-semibold text-slate-500 dark:text-slate-300">Reason</p>
-                  <p class="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">{{ details.activeBinding?.reason || "-" }}</p>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-2 rounded-md border border-slate-200 p-3 dark:border-slate-700">
-              <p class="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-300">Bind / Replace</p>
-              <div class="mt-2 grid gap-2 md:grid-cols-2">
-                <USelect v-model="replaceMachineForm.machineUnitId" placeholder="Select spare machine unit" :items="machineUnitOptions" :ui="selectUi" class="min-w-0 w-full" />
-                <UInput v-model="replaceMachineForm.reason" placeholder="Bind/replace reason (optional)" :ui="{ base: 'h-10 bg-white dark:bg-slate-900' }" class="min-w-0" />
-                <UButton color="primary" class="h-10 w-full justify-center text-white md:w-[132px]" :loading="saving" @click="replaceMachineUnit">{{ hasBoundMachine ? "Replace Now" : "Bind Now" }}</UButton>
-                <UButton color="neutral" variant="soft" class="h-10 w-full justify-center md:w-[132px]" icon="i-lucide-history" @click="openBindingHistory('machine')">History</UButton>
-              </div>
-            </div>
-          </div>
+          <IotBindingModal
+            embedded
+            :asset-id="id"
+            :asset-name="details?.name || details?.code || ''"
+            @changed="onBindingChanged"
+          />
+          <MachineBindingModal
+            embedded
+            :asset-id="id"
+            :asset-name="details?.name || details?.code || ''"
+            @changed="onBindingChanged"
+          />
         </div>
 
-        <div class="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-          <h3 class="text-base font-semibold text-slate-900 dark:text-white">Product Info</h3>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-2">
+              <h3 class="text-base font-semibold text-slate-900 dark:text-white">Product Info</h3>
+              <UButton color="primary" class="text-white" icon="i-lucide-link" @click="openBindProductDialog">Bind Product</UButton>
+            </div>
+          </template>
           <div class="mt-2 overflow-auto rounded-md border border-slate-200 dark:border-slate-700">
             <table class="w-full min-w-[780px] text-sm">
               <thead class="bg-slate-100/80 dark:bg-slate-800/80">
                 <tr class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-300">
-                  <th class="px-3 py-2">Product</th>
+                  <th class="px-3 py-2">Code</th>
+                  <th class="px-3 py-2">Name</th>
                   <th class="px-3 py-2">Type</th>
-                  <th class="px-3 py-2">Amount</th>
-                  <th class="px-3 py-2">Updated At</th>
-                  <th class="px-3 py-2">Set</th>
+                  <th class="px-3 py-2">Price</th>
+                  <th class="px-3 py-2">Currency</th>
+                  <th class="px-3 py-2">Service</th>
+                  <th class="px-3 py-2">Service Mode</th>
+                  <th class="px-3 py-2">Service Unit</th>
+                  <th class="px-3 py-2">Status</th>
                   <th class="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="row in productRows" :key="row.id" class="border-t border-slate-200 dark:border-slate-700">
-                  <td class="px-3 py-2 font-semibold text-slate-900 dark:text-white">{{ row.productName }}</td>
-                  <td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ row.pricingType }}</td>
-                  <td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ row.amount }}</td>
-                  <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{ formatDate(row.updatedAt) }}</td>
-                  <td class="px-3 py-2"><UBadge variant="soft" color="neutral">{{ row.section }}</UBadge></td>
+                <tr v-for="row in productRows" :key="row.productId" class="border-t border-slate-200 dark:border-slate-700">
+                  <td class="px-3 py-2 font-semibold text-slate-900 dark:text-white">{{ row.code }}</td>
+                  <td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ row.name }}</td>
+                  <td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ row.kind }}</td>
+                  <td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ row.price }}</td>
+                  <td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ row.currency }}</td>
+                  <td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ row.service }}</td>
+                  <td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ row.serviceMode }}</td>
+                  <td class="px-3 py-2 text-slate-700 dark:text-slate-200">{{ row.serviceUnit }}</td>
+                  <td class="px-3 py-2">
+                    <UBadge :color="row.active ? 'success' : 'error'" variant="soft">{{ row.active ? 'ACTIVE' : 'INACTIVE' }}</UBadge>
+                  </td>
                   <td class="px-3 py-2 text-right">
                     <div class="inline-flex items-center gap-1">
-                      <UButton size="xs" color="primary" variant="soft" icon="i-lucide-pencil" title="Edit" @click="onProductEdit(row)" />
-                      <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-history" title="History" @click="onProductHistory(row)" />
+                      <UButton size="xs" color="neutral" variant="ghost" class="text-amber-400 hover:text-amber-300" icon="i-lucide-percent" title="Set Promotion" @click="onProductEdit(row)" />
+                      <UButton size="xs" color="neutral" variant="ghost" class="text-sky-400 hover:text-sky-300" icon="i-lucide-qr-code" title="Static ThaiQR" @click="openStaticQr(row)" />
+                      <UButton
+                        v-if="isProductActiveBound(row)"
+                        size="xs"
+                        color="neutral"
+                        variant="ghost"
+                        class="text-rose-500 hover:text-rose-400"
+                        icon="i-lucide-unlink"
+                        title="Unbind Product"
+                        @click="onProductHistory(row)"
+                      />
+                      <UButton
+                        v-else
+                        size="xs"
+                        color="neutral"
+                        variant="ghost"
+                        class="text-emerald-500 hover:text-emerald-400"
+                        icon="i-lucide-link"
+                        title="Bind Product"
+                        @click="openQuickBind(row)"
+                      />
                     </div>
                   </td>
                 </tr>
                 <tr v-if="!productRows.length">
-                  <td colspan="6" class="px-3 py-5 text-center text-xs text-slate-500 dark:text-slate-400">No product offers found.</td>
+                  <td colspan="10" class="px-3 py-5 text-center text-xs text-slate-500 dark:text-slate-400">No bound products found.</td>
                 </tr>
               </tbody>
             </table>
           </div>
-        </div>
+        </UCard>
 
-        <div class="rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-          <h3 class="text-base font-semibold text-slate-900 dark:text-white">Order Info / Payment Info</h3>
-          <div class="mt-2 flex flex-wrap items-end gap-2">
-            <SearchInput v-model="orderSearch" placeholder="Search order no./customer/order id" class="w-[280px]" @input="applyOrderFilters" />
-            <USelect v-model="orderStatusFilter" class="w-[220px]" :items="orderStatusOptions" :ui="selectUi" @update:model-value="applyOrderFilters" />
-            <USelect v-model="paymentStatusFilter" class="w-[220px]" :items="paymentStatusOptions" :ui="selectUi" @update:model-value="applyOrderFilters" />
-          </div>
-
-          <div class="mt-2 grid gap-2 lg:grid-cols-[1.7fr_.7fr]">
-            <div class="rounded-md border border-slate-200 bg-white p-2.5 dark:border-slate-700 dark:bg-slate-900">
-              <div class="mb-2 flex items-center justify-between">
-                <h4 class="text-base font-semibold text-slate-900 dark:text-white">Order List</h4>
-                <p class="text-xs text-slate-500 dark:text-slate-400">{{ orderItems.length }} orders</p>
-              </div>
-              <div class="max-h-[340px] overflow-auto rounded-md border border-slate-200 dark:border-slate-700">
-                <table class="w-full min-w-[860px] text-xs">
-                  <thead class="sticky top-0 z-10 bg-slate-100/90 dark:bg-slate-800/90">
-                    <tr class="text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                      <th class="px-3 py-2">Order</th>
-                      <th class="px-3 py-2">Status</th>
-                      <th class="px-3 py-2">Payment</th>
-                      <th class="px-3 py-2">Customer</th>
-                      <th class="px-3 py-2">Amount</th>
-                      <th class="px-3 py-2 text-right">Created At</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="item in orderItems"
-                      :key="item.id"
-                      class="cursor-pointer border-t border-slate-200 transition-colors dark:border-slate-700"
-                      :class="selectedOrderId === item.id ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800/70'"
-                      @click="selectOrder(item)"
-                    >
-                      <td class="px-3 py-2 text-sm font-semibold text-slate-900 dark:text-white">{{ item.orderNumber }}</td>
-                      <td class="px-3 py-2"><UBadge variant="soft" :color="orderStatusBadgeColor(item.status)">{{ item.status }}</UBadge></td>
-                      <td class="px-3 py-2"><UBadge variant="soft" :color="paymentStatusBadgeColor(item.payment?.status || 'NO_PAYMENT')">{{ item.payment?.status || "NO_PAYMENT" }}</UBadge></td>
-                      <td class="px-3 py-2"><UBadge variant="soft" color="neutral">{{ item.customerName || "-" }}</UBadge></td>
-                      <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{ item.totalAmount }}</td>
-                      <td class="px-3 py-2 text-right text-slate-500 dark:text-slate-400">{{ formatDate(item.createdAt) }}</td>
-                    </tr>
-                    <tr v-if="!orderListLoading && !orderItems.length">
-                      <td colspan="6" class="px-3 py-6 text-center text-xs text-slate-500 dark:text-slate-400">No orders found for this asset.</td>
-                    </tr>
-                    <tr v-if="orderListLoading">
-                      <td colspan="6" class="px-3 py-6 text-center text-xs text-slate-500 dark:text-slate-400">Loading orders...</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div class="mt-2 flex items-center justify-between">
-                <p class="text-xs text-slate-500 dark:text-slate-400">Page {{ orderPage }} / {{ orderTotalPages }} ({{ orderTotal }} total)</p>
-                <div class="flex items-center gap-2">
-                  <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-chevrons-left" :disabled="!hasPrevOrderPage || orderListLoading" @click="goToOrderPage(1)" />
-                  <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-chevron-left" :disabled="!hasPrevOrderPage || orderListLoading" @click="goToOrderPage(orderPage - 1)" />
-                  <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-chevron-right" :disabled="!hasNextOrderPage || orderListLoading" @click="goToOrderPage(orderPage + 1)" />
-                  <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-chevrons-right" :disabled="!hasNextOrderPage || orderListLoading" @click="goToOrderPage(orderTotalPages)" />
-                </div>
-              </div>
-            </div>
-
-            <div class="rounded-md border border-slate-200 bg-white p-2.5 dark:border-slate-700 dark:bg-slate-900">
-              <div class="mb-2">
-                <h4 class="text-base font-semibold text-slate-900 dark:text-white">Payment Timeline</h4>
-                <p class="text-xs text-slate-500 dark:text-slate-400">{{ selectedOrder ? `Order ${selectedOrder.orderNumber}` : "Select an order from the left list" }}</p>
-              </div>
-              <div v-if="orderTimelineLoading" class="text-xs text-slate-500 dark:text-slate-400">Loading timeline...</div>
-              <div v-else class="max-h-[340px] overflow-auto pr-1">
-                <UTimeline :items="timelineItems" />
-                <p v-if="selectedOrder && !paymentTimeline.length" class="text-xs text-slate-500 dark:text-slate-400">No payment timeline events.</p>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AdminAssetOrderPaymentPanel
+          :order-search="orderSearch"
+          :order-status-filter="orderStatusFilter"
+          :payment-status-filter="paymentStatusFilter"
+          :order-status-options="orderStatusOptions"
+          :payment-status-options="paymentStatusOptions"
+          :order-items="orderItems"
+          :selected-order-id="selectedOrderId"
+          :order-list-loading="orderListLoading"
+          :order-page="orderPage"
+          :order-total-pages="orderTotalPages"
+          :order-total="orderTotal"
+          :has-prev-order-page="hasPrevOrderPage"
+          :has-next-order-page="hasNextOrderPage"
+          :selected-order="selectedOrder"
+          :order-timeline-loading="orderTimelineLoading"
+          :timeline-items="timelineItems"
+          :payment-timeline="paymentTimeline"
+          @update:order-search="orderSearch = $event"
+          @update:order-status-filter="orderStatusFilter = $event"
+          @update:payment-status-filter="paymentStatusFilter = $event"
+          @apply-filters="applyOrderFilters"
+          @select-order="selectOrder"
+          @go-to-order-page="goToOrderPage"
+        />
       </div>
     </UCard>
 
@@ -860,10 +1152,10 @@ watch(
             <tbody>
               <tr v-for="row in bindingHistoryRows" :key="row.id" class="border-t border-slate-200 dark:border-slate-700">
                 <td class="px-3 py-2 font-semibold text-slate-900 dark:text-white">
-                  {{ historyDialogType === "iot" ? (row.iotDevice?.macAddress || "-") : (row.machineUnit?.serialNo || "-") }}
+                  {{ historyDialogType === "iot" ? (row.iotDevice?.macAddress || "-") : (row.machine?.serialNo || "-") }}
                 </td>
-                <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{ formatDate(row.startedAt) }}</td>
-                <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{ formatDate(row.endedAt || undefined) }}</td>
+                <td class="px-3 py-2 text-slate-600 dark:text-slate-300"><DateTimeTwoLine :value="row.startedAt" /></td>
+                <td class="px-3 py-2 text-slate-600 dark:text-slate-300"><DateTimeTwoLine :value="row.endedAt || undefined" /></td>
                 <td class="px-3 py-2">
                   <UBadge variant="soft" :color="row.status === 'ACTIVE' ? 'success' : 'neutral'">{{ row.status }}</UBadge>
                 </td>
@@ -882,5 +1174,102 @@ watch(
         </div>
       </template>
     </UModal>
+
+    <UModal v-model:open="bindProductOpen" :ui="{ content: 'sm:max-w-2xl' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Bind Product to Asset</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="bindProductOpen = false" />
+            </div>
+          </template>
+
+          <div class="space-y-3">
+            <UAlert v-if="bindProductError" color="error" variant="soft" :title="bindProductError" />
+
+            <UFormField label="Asset">
+              <UInput
+                :model-value="`${details?.name || '-'} (${details?.code || '-'})`"
+                readonly
+                class="w-full"
+                :ui="{ base: 'h-10 w-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200' }"
+              />
+            </UFormField>
+
+            <UFormField label="Product">
+              <USelectMenu
+                v-model="bindProductIds"
+                class="w-full"
+                :items="bindableProductOptions"
+                value-key="value"
+                multiple
+                searchable
+                :disabled="bindProductLoading"
+                placeholder="Select one or more products"
+                :ui="{
+                  base: 'min-h-10 bg-white text-slate-900 ring-1 ring-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-500',
+                  placeholder: 'text-slate-500 dark:text-slate-400',
+                  content: 'bg-white dark:bg-slate-800',
+                  item: 'text-slate-900 dark:text-slate-100'
+                }"
+              />
+              <p v-if="!bindProductLoading && !bindableProductOptions.length" class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                No available product to bind (already bound or no active product with matching type).
+              </p>
+            </UFormField>
+          </div>
+
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="bindProductOpen = false">Cancel</UButton>
+              <UButton color="primary" class="text-white" icon="i-lucide-link" :loading="bindProductSubmitting" :disabled="!bindProductIds.length || bindProductLoading" @click="submitBindProduct">Bind Product</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <ProductBindModal
+      v-model:open="quickBindOpen"
+      v-model="quickBindProductId"
+      :loading="quickBindSubmitting"
+      :error="quickBindError"
+      :options="bindableProducts"
+      @submit="submitQuickBind"
+    />
+
+    <ProductUnbindModal
+      v-model:open="unbindProductOpen"
+      :loading="unbindProductSubmitting"
+      :error="unbindProductError"
+      :product-name="actionTargetRow?.name || ''"
+      :product-code="actionTargetRow?.code || ''"
+      @confirm="submitUnbindProduct"
+    />
+
+    <StaticThaiQrModal
+      v-model:open="staticQrOpen"
+      :loading="staticQrLoading"
+      :error="staticQrError"
+      :data="staticQrData"
+      :copy-done="staticQrCopyDone"
+      @copy="copyStaticQrText"
+    />
+
+    <SetPromotionModal
+      v-model:open="promotionOpen"
+      :saving="promotionSaving"
+      :error="promotionError"
+      :asset="{ name: details?.name || '-', code: details?.code || '-' }"
+      :product="actionTargetRow ? { id: actionTargetRow.productId, code: actionTargetRow.code, name: actionTargetRow.name, amount: actionTargetRow.price } : null"
+      :tenants="details?.tenant ? [{ id: details.tenant.id, code: details.tenant.code, name: details.tenant.name }] : []"
+      :merchants="details?.branch?.merchantAccount ? [{ id: details.branch.merchantAccount.id, code: details.branch.merchantAccount.code, name: details.branch.merchantAccount.name }] : []"
+      :branches="details?.branch ? [{ id: details.branch.id, code: details.branch.code, name: details.branch.name, merchantAccountId: details.branch.merchantAccount?.id }] : []"
+      :default-merchant-id="details?.branch?.merchantAccount?.id"
+      :default-branch-id="details?.branch?.id"
+      @submit="submitPromotion"
+    />
+
   </section>
 </template>

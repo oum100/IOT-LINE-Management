@@ -18,6 +18,7 @@ export default defineEventHandler(async (event) => {
       ? {
           OR: [
             { code: { contains: q, mode: 'insensitive' as const } },
+            { serialNo: { contains: q, mode: 'insensitive' as const } },
             { name: { contains: q, mode: 'insensitive' as const } }
           ]
         }

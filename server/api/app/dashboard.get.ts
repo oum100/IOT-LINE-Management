@@ -7,15 +7,37 @@ type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 export default defineEventHandler(async (event) => {
   await assertPermission(event, 'portal.dashboard.read')
   const session = await getServerSession(event)
-  const user = session?.user as {
+  const sessionUser = session?.user as {
     id?: string
     role?: Role
     tenantId?: string | null
     merchantAccountId?: string | null
   } | undefined
 
-  if (!user?.id) {
+  if (!sessionUser?.id) {
     throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  }
+
+  const dbUser = await prisma.user.findUnique({
+    where: { id: sessionUser.id },
+    select: {
+      id: true,
+      role: true,
+      tenantId: true,
+      merchantAccountId: true,
+      isActive: true
+    }
+  })
+
+  if (!dbUser || !dbUser.isActive) {
+    throw createError({ statusCode: 401, statusMessage: 'User session is invalid. Please sign in again.' })
+  }
+
+  const user = {
+    id: dbUser.id,
+    role: dbUser.role as Role,
+    tenantId: dbUser.tenantId,
+    merchantAccountId: dbUser.merchantAccountId
   }
 
   try {
@@ -65,6 +87,31 @@ export default defineEventHandler(async (event) => {
       ...(scope.allowedBranchIds !== null ? { branchId: { in: scope.allowedBranchIds } } : {}),
       ...(merchantScope ? { branch: { merchantAccountId: merchantScope } } : {})
     }
+    const merchantIdFilter = merchantScope
+      ? [merchantScope]
+      : (scope.allowedMerchantIds !== null ? scope.allowedMerchantIds : null)
+    const scopedBindingWhere = (merchantIdFilter !== null || scope.allowedBranchIds !== null)
+      ? {
+          bindings: {
+            some: {
+              status: 'ACTIVE' as const,
+              endedAt: null,
+              asset: {
+                ...(merchantIdFilter !== null ? { branch: { merchantAccountId: { in: merchantIdFilter } } } : {}),
+                ...(scope.allowedBranchIds !== null ? { branchId: { in: scope.allowedBranchIds } } : {}),
+              }
+            }
+          }
+        }
+      : {}
+    const deviceWhere = {
+      ...tenantWhere,
+      ...scopedBindingWhere
+    }
+    const machineWhere = {
+      ...tenantWhere,
+      ...scopedBindingWhere
+    }
     const orderWhere = {
       ...where
     }
@@ -74,7 +121,9 @@ export default defineEventHandler(async (event) => {
     const insightOrderScope = {
       createdAt: { gte: insightStart, lte: insightEnd },
       ...(tenantScope ? { tenantId: tenantScope } : {}),
-      ...(merchantScope ? { merchantAccountId: merchantScope } : {})
+      ...(merchantScope ? { merchantAccountId: merchantScope } : {}),
+      ...(scope.allowedMerchantIds !== null ? { merchantAccountId: { in: scope.allowedMerchantIds } } : {}),
+      ...(scope.allowedBranchIds !== null ? { branchId: { in: scope.allowedBranchIds } } : {})
     }
 
     const [
@@ -119,14 +168,14 @@ export default defineEventHandler(async (event) => {
       prisma.asset.count({ where: { ...assetWhere, status: 'ACTIVE' } }),
       prisma.asset.count({ where: { ...assetWhere, status: 'MAINTENANCE' } }),
       prisma.asset.count({ where: { ...assetWhere, status: 'INACTIVE' } }),
-      prisma.iotDevice.count({ where: tenantWhere }),
-      prisma.iotDevice.count({ where: { ...tenantWhere, status: 'IN_USE' } }),
-      prisma.iotDevice.count({ where: { ...tenantWhere, status: 'SPARE' } }),
-      prisma.iotDevice.count({ where: { ...tenantWhere, status: 'OFFLINE' } }),
-      prisma.machineUnit.count({ where: tenantWhere }),
-      prisma.machineUnit.count({ where: { ...tenantWhere, status: 'IN_USE' } }),
-      prisma.machineUnit.count({ where: { ...tenantWhere, status: 'SPARE' } }),
-      prisma.machineUnit.count({ where: { ...tenantWhere, status: 'OFFLINE' } }),
+      prisma.iotDevice.count({ where: deviceWhere }),
+      prisma.iotDevice.count({ where: { ...deviceWhere, status: 'BOUND' } }),
+      prisma.iotDevice.count({ where: { ...deviceWhere, status: 'SPARE' } }),
+      prisma.iotDevice.count({ where: { ...deviceWhere, status: 'OFFLINE' } }),
+      prisma.machine.count({ where: machineWhere }),
+      prisma.machine.count({ where: { ...machineWhere, status: 'BOUND' } }),
+      prisma.machine.count({ where: { ...machineWhere, status: 'SPARE' } }),
+      prisma.machine.count({ where: { ...machineWhere, status: 'OFFLINE' } }),
       prisma.order.count({ where: orderWhere }),
       prisma.order.count({ where: { ...orderWhere, status: 'PENDING_PAYMENT' } }),
       prisma.order.count({ where: { ...orderWhere, status: 'IN_PROGRESS' } }),
@@ -153,7 +202,6 @@ export default defineEventHandler(async (event) => {
       prisma.orderItem.groupBy({
         by: ['assetId'],
         where: {
-          assetId: { not: null },
           order: { is: insightOrderScope }
         },
         _count: { _all: true },

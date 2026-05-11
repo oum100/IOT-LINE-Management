@@ -67,6 +67,7 @@ export default defineEventHandler(async (event) => {
   await prisma.user.update({
     where: { id: user.id },
     data: {
+      role: 'OWNER',
       tenantId: created.id,
       merchantAccountId: null
     }

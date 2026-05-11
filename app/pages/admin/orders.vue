@@ -32,6 +32,8 @@ type OrderItem = {
   items?: Array<{
     id: string
     priceLabel: string
+    amount: number
+    durationMinutes?: number
     asset?: { code?: string | null; name?: string | null } | null
     product?: { code?: string | null; name?: string | null } | null
   }>
@@ -89,6 +91,34 @@ type RefundContext = {
   }>
 }
 type RefundTransitionAction = "APPROVE" | "REJECT" | "PROCESS" | "COMPLETE" | "FAIL"
+type PaymentTimelineEvent = {
+  id: string
+  at?: string | Date | null
+  title: string
+  note?: string
+  tone: "neutral" | "primary" | "success" | "warning" | "error"
+}
+
+type PaymentDetail = {
+  id: string
+  status: string
+  amount: number
+  providerCode?: string | null
+  providerReference?: string | null
+  qrPayload?: string | null
+  slipCount?: number
+  order?: { id: string; orderNumber: string; customerName: string } | null
+}
+type PaymentTraceItem = {
+  id: string
+  stage: string
+  direction: string
+  providerCode?: string | null
+  statusCode?: number | null
+  mappedStatus?: string | null
+  note?: string | null
+  createdAt: string
+}
 
 const loading = ref(false)
 const error = ref("")
@@ -127,6 +157,15 @@ const refundAmounts = ref<Record<string, number>>({})
 const refundTransitionBusy = ref<Record<string, boolean>>({})
 const refundTransitionNotes = ref<Record<string, string>>({})
 const refundProviderRefs = ref<Record<string, string>>({})
+const detailOpen = ref(false)
+const detailOrder = ref<OrderItem | null>(null)
+const paymentFlowOpen = ref(false)
+const paymentFlowLoading = ref(false)
+const paymentFlowError = ref("")
+const paymentFlowOrder = ref<OrderItem | null>(null)
+const paymentFlowPayment = ref<PaymentDetail | null>(null)
+const paymentFlowTraces = ref<PaymentTraceItem[]>([])
+const paymentFlowEvents = ref<PaymentTimelineEvent[]>([])
 const summary = ref<OrderSummary>({
   totalCount: 0,
   pendingPaymentCount: 0,
@@ -176,7 +215,7 @@ function paymentStatusClass(status?: string) {
 function itemSummary(item: OrderItem) {
   const rows = item.items || []
   if (!rows.length) {
-    return { assets: "-", products: "-" }
+    return { assets: "-", products: "-", primaryAsset: "-", primaryProduct: "-" }
   }
   const assetSet = new Set<string>()
   const productSet = new Set<string>()
@@ -186,11 +225,74 @@ function itemSummary(item: OrderItem) {
     if (assetName) assetSet.add(assetName)
     if (productName) productSet.add(productName)
   }
+  const assets = Array.from(assetSet)
+  const products = Array.from(productSet)
   return {
-    assets: Array.from(assetSet).join(", ") || "-",
-    products: Array.from(productSet).join(", ") || "-"
+    assets: assets.join(", ") || "-",
+    products: products.join(", ") || "-",
+    primaryAsset: assets[0] || "-",
+    primaryProduct: products[0] || "-"
   }
 }
+
+function scopeTooltip(item: OrderItem) {
+  const tenant = item.tenant?.name || "-"
+  const merchant = item.merchantAccount?.name || "-"
+  return `${tenant} : ${merchant}`
+}
+
+function openOrderDetailDialog(item: OrderItem) {
+  detailOrder.value = item
+  detailOpen.value = true
+}
+
+function closeOrderDetailDialog() {
+  detailOpen.value = false
+  detailOrder.value = null
+}
+
+async function openPaymentFlowDialog(item: OrderItem) {
+  if (!item.payment?.id) {
+    paymentFlowError.value = "Payment not found for this order"
+    paymentFlowOpen.value = true
+    return
+  }
+  paymentFlowOpen.value = true
+  paymentFlowOrder.value = item
+  paymentFlowPayment.value = null
+  paymentFlowLoading.value = true
+  paymentFlowError.value = ""
+  paymentFlowEvents.value = []
+  paymentFlowTraces.value = []
+  try {
+    const response = await $fetch<{ payment: PaymentDetail; events: PaymentTimelineEvent[]; traces?: PaymentTraceItem[] }>(`/api/admin/payments/${item.payment.id}/detail`)
+    paymentFlowPayment.value = response.payment || null
+    paymentFlowEvents.value = response.events || []
+    paymentFlowTraces.value = response.traces || []
+  } catch (err) {
+    paymentFlowError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || "Failed to load payment flow"
+  } finally {
+    paymentFlowLoading.value = false
+  }
+}
+
+function closePaymentFlowDialog() {
+  paymentFlowOpen.value = false
+  paymentFlowOrder.value = null
+  paymentFlowPayment.value = null
+  paymentFlowEvents.value = []
+  paymentFlowTraces.value = []
+  paymentFlowError.value = ""
+}
+
+const paymentFlowTimelineItems = computed(() =>
+  paymentFlowEvents.value.map((event) => ({
+    date: event.at ? new Date(event.at).toLocaleString() : "-",
+    title: event.title,
+    description: event.note || "-",
+    color: event.tone
+  }))
+)
 
 async function loadTenants() {
   const response = await $fetch<PagingResponse<Tenant>>("/api/admin/tenants", {
@@ -512,11 +614,10 @@ onMounted(async () => {
             <tr>
               <th class="px-3 py-2">Order</th>
               <th class="px-3 py-2">Customer</th>
-              <th class="px-3 py-2 text-center">Status / Payment</th>
+              <th class="px-3 py-2 text-center">Status</th>
+              <th class="px-3 py-2 text-center">Payment</th>
               <th class="px-3 py-2">Amount</th>
               <th class="px-3 py-2">Asset / Product</th>
-              <th class="px-3 py-2">Tenant</th>
-              <th class="px-3 py-2">Machine</th>
               <th class="px-3 py-2">Branch</th>
               <th class="px-3 py-2">Created</th>
               <th class="px-3 py-2">Actions</th>
@@ -527,31 +628,46 @@ onMounted(async () => {
               <td class="px-3 py-2 font-medium">{{ item.orderNumber }}</td>
               <td class="px-3 py-2">{{ item.customerName }}</td>
               <td class="px-3 py-2 text-center">
-                <div class="space-y-0.5">
-                  <p :class="orderStatusClass(item.status)">{{ item.status }}</p>
-                  <p :class="['text-xs', paymentStatusClass(item.payment?.status)]">{{ item.payment?.status || "-" }}</p>
-                </div>
+                <p :class="['text-xs font-medium', orderStatusClass(item.status)]">{{ item.status }}</p>
+              </td>
+              <td class="px-3 py-2 text-center">
+                <p class="flex items-center justify-center gap-1" :class="['text-xs', paymentStatusClass(item.payment?.status)]">
+                  <span>{{ item.payment?.status || "-" }}</span>
+                  <button
+                    type="button"
+                    class="inline-flex items-center text-blue-600 transition hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                    title="payment details"
+                    @click="openPaymentFlowDialog(item)"
+                  >
+                    <UIcon name="i-lucide-list" class="size-3.5" />
+                  </button>
+                </p>
               </td>
               <td class="px-3 py-2">{{ item.totalAmount }}</td>
               <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
                 <div class="space-y-0.5">
-                  <p class="flex items-center gap-1.5">
+                  <p class="flex items-center gap-1.5 text-slate-900 dark:text-slate-100">
                     <span class="inline-flex h-4 min-w-4 items-center justify-center rounded-sm bg-slate-200 px-1 text-[10px] font-semibold leading-none text-slate-700 dark:bg-slate-700 dark:text-slate-100">A</span>
-                    <span>{{ itemSummary(item).assets }}</span>
+                    <span class="truncate">{{ itemSummary(item).primaryAsset }}</span>
                   </p>
                   <p class="flex items-center gap-1.5">
                     <span class="inline-flex h-4 min-w-4 items-center justify-center rounded-sm bg-slate-200 px-1 text-[10px] font-semibold leading-none text-slate-700 dark:bg-slate-700 dark:text-slate-100">P</span>
-                    <span>{{ itemSummary(item).products }}</span>
+                    <span class="truncate">{{ itemSummary(item).primaryProduct }}</span>
+                    <button
+                      type="button"
+                      class="ml-1 inline-flex items-center text-blue-600 transition hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                      title="View detail"
+                      @click="openOrderDetailDialog(item)"
+                    >
+                      <UIcon name="i-lucide-list" class="size-4" />
+                    </button>
                   </p>
                 </div>
               </td>
-              <td class="px-3 py-2">{{ item.tenant?.name || "-" }}</td>
-              <td class="px-3 py-2">{{ item.merchantAccount?.name || "-" }}</td>
-              <td class="px-3 py-2">{{ item.branch?.name || "-" }}</td>
+              <td class="px-3 py-2" :title="scopeTooltip(item)">{{ item.branch?.name || "-" }}</td>
               <td class="px-3 py-2">
                 <div class="space-y-0.5">
-                  <p>{{ formatDateOnly(item.createdAt) }}</p>
-                  <p class="text-xs text-slate-500 dark:text-slate-400">{{ formatTimeOnly(item.createdAt) }}</p>
+                  <DateTimeTwoLine :value="item.createdAt" />
                 </div>
               </td>
               <td class="px-3 py-2">
@@ -560,15 +676,14 @@ onMounted(async () => {
                   size="xs"
                   color="warning"
                   variant="soft"
+                  title="refund"
                   :disabled="!canManageOrder || item.payment?.status !== 'VERIFIED'"
                   @click="openRefundDialog(item)"
-                >
-                  Refund
-                </UButton>
+                />
               </td>
             </tr>
             <tr v-if="!loading && items.length === 0">
-              <td colspan="10" class="px-3 py-6 text-center text-slate-500">No orders found</td>
+              <td colspan="9" class="px-3 py-6 text-center text-slate-500">No orders found</td>
             </tr>
           </tbody>
         </table>
@@ -583,6 +698,146 @@ onMounted(async () => {
         </div>
       </div>
     </UCard>
+
+    <UModal
+      v-model:open="paymentFlowOpen"
+      :ui="{ content: 'sm:max-w-5xl' }"
+    >
+      <template #content>
+        <UCard :ui="{ root: 'bg-slate-900 ring-1 ring-slate-700 text-slate-100', body: 'space-y-4' }">
+          <template #header>
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <h3 class="text-base font-semibold text-slate-100">Payment Details</h3>
+                <p class="text-xs text-slate-300">
+                  {{ paymentFlowOrder?.orderNumber || "-" }} · {{ paymentFlowOrder?.customerName || "-" }}
+                </p>
+              </div>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closePaymentFlowDialog" />
+            </div>
+          </template>
+
+          <UAlert v-if="paymentFlowError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="paymentFlowError" />
+
+          <div class="grid gap-3 md:grid-cols-2">
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Order</p>
+              <p class="font-medium text-slate-100">{{ paymentFlowOrder?.orderNumber || "-" }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Customer</p>
+              <p class="font-medium text-slate-100">{{ paymentFlowOrder?.customerName || "-" }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Status</p>
+              <p class="font-medium" :class="paymentStatusClass(paymentFlowPayment?.status || paymentFlowOrder?.payment?.status)">{{ paymentFlowPayment?.status || paymentFlowOrder?.payment?.status || "-" }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Amount</p>
+              <p class="font-medium text-slate-100">{{ paymentFlowPayment?.amount ?? paymentFlowOrder?.payment?.amount ?? "-" }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Provider Ref</p>
+              <p class="font-medium text-slate-100">{{ paymentFlowPayment?.providerReference || "-" }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+              <p class="text-xs text-slate-300">Slip Count</p>
+              <p class="font-medium text-slate-100">{{ paymentFlowPayment?.slipCount ?? 0 }}</p>
+            </div>
+            <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3 md:col-span-2">
+              <p class="text-xs text-slate-300">QR Payload</p>
+              <p class="break-all font-mono text-xs text-slate-100">{{ paymentFlowPayment?.qrPayload || "-" }}</p>
+            </div>
+          </div>
+
+          <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+            <p class="mb-2 text-sm font-semibold text-slate-100">Payment Flow</p>
+            <div v-if="paymentFlowLoading" class="py-6 text-center text-sm text-slate-300">Loading payment timeline...</div>
+            <UTimeline v-else :items="paymentFlowTimelineItems" />
+            <p v-if="!paymentFlowLoading && !paymentFlowEvents.length" class="py-6 text-center text-sm text-slate-300">
+              No payment flow events.
+            </p>
+          </div>
+
+          <div class="rounded-lg border border-slate-700 bg-slate-800/70 p-3">
+            <p class="mb-2 text-sm font-semibold text-slate-100">Provider Trace</p>
+            <div v-if="!paymentFlowTraces.length" class="py-4 text-center text-sm text-slate-300">No trace logs</div>
+            <div v-else class="overflow-x-auto rounded-lg border border-slate-700">
+              <table class="min-w-full text-xs">
+                <thead class="bg-slate-700/60 text-slate-100">
+                  <tr>
+                    <th class="px-2 py-2 text-left">At</th>
+                    <th class="px-2 py-2 text-left">Stage</th>
+                    <th class="px-2 py-2 text-left">Direction</th>
+                    <th class="px-2 py-2 text-left">Status</th>
+                    <th class="px-2 py-2 text-left">Mapped</th>
+                    <th class="px-2 py-2 text-left">Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="trace in paymentFlowTraces" :key="trace.id" class="border-t border-slate-700">
+                    <td class="px-2 py-2 text-slate-200">{{ new Date(trace.createdAt).toLocaleString() }}</td>
+                    <td class="px-2 py-2 text-slate-200">{{ trace.stage }}</td>
+                    <td class="px-2 py-2 text-slate-200">{{ trace.direction }}</td>
+                    <td class="px-2 py-2 text-slate-200">{{ trace.statusCode ?? "-" }}</td>
+                    <td class="px-2 py-2 text-slate-200">{{ trace.mappedStatus || "-" }}</td>
+                    <td class="px-2 py-2 text-slate-200">{{ trace.note || "-" }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="detailOpen" :ui="{ content: 'sm:max-w-3xl' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Order Item Details</h3>
+                <p class="text-xs text-slate-500 dark:text-slate-400">
+                  {{ detailOrder?.orderNumber || "-" }} · {{ detailOrder?.customerName || "-" }}
+                </p>
+              </div>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeOrderDetailDialog" />
+            </div>
+          </template>
+
+          <div class="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+            <table class="min-w-full text-sm">
+              <thead class="bg-slate-100 text-left text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                <tr>
+                  <th class="px-3 py-2">Asset</th>
+                  <th class="px-3 py-2">Product</th>
+                  <th class="px-3 py-2">Duration</th>
+                  <th class="px-3 py-2">Price</th>
+                  <th class="px-3 py-2">Qty</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="row in (detailOrder?.items || [])"
+                  :key="row.id"
+                  class="border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/40"
+                >
+                  <td class="px-3 py-2">{{ row.asset?.name || row.asset?.code || "-" }}</td>
+                  <td class="px-3 py-2">{{ row.product?.name || row.product?.code || "-" }}</td>
+                  <td class="px-3 py-2">{{ row.durationMinutes ? `${row.durationMinutes} min` : "-" }}</td>
+                  <td class="px-3 py-2">{{ row.amount }}</td>
+                  <td class="px-3 py-2">1</td>
+                </tr>
+                <tr v-if="!(detailOrder?.items || []).length">
+                  <td colspan="5" class="px-3 py-6 text-center text-slate-500">No item detail</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </UCard>
+      </template>
+    </UModal>
 
     <UModal v-model:open="refundOpen" :ui="{ content: 'sm:max-w-4xl' }">
       <template #content>

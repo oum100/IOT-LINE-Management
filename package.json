@@ -20,6 +20,8 @@
     "admin:delete": "bun --env-file=.env scripts/delete-admin.ts",
     "db:import:payboard": "bun prisma/import-payboard.ts",
     "db:sync:payboard-mongo": "bun prisma/sync-payboard-mongo.ts",
+    "guard:standards": "node scripts/guard-standards.mjs",
+    "guard:standards:strict": "STRICT_UI=1 node scripts/guard-standards.mjs",
     "lint:types": "nuxt typecheck"
   },
   "dependencies": {
@@ -33,6 +35,7 @@
     "@prisma/client": "6.19.2",
     "@sidebase/nuxt-auth": "^1.2.0",
     "@tailwindcss/vite": "^4.2.2",
+    "@vue-flow/core": "^1.48.2",
     "apexcharts": "^5.10.6",
     "bullmq": "^5.12.7",
     "ioredis": "5.10.1",

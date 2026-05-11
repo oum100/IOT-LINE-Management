@@ -1,12 +1,17 @@
 export type MachineWithPrices = {
   id: string
+  assetId?: string | null
   code: string
   name: string
   kind: 'WASHER' | 'DRYER'
-  status: 'AVAILABLE' | 'RESERVED' | 'RUNNING' | 'MAINTENANCE'
+  status: 'AVAILABLE' | 'RESERVED' | 'RUNNING' | 'MAINTENANCE' | 'OFFLINE'
+  runtimeStatus?: 'AVAILABLE' | 'RESERVED' | 'BUSY' | 'OFFLINE' | 'MAINTENANCE' | 'INACTIVE'
   assetStatus?: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE'
+  iotStatus?: 'SPARE' | 'BOUND' | 'OFFLINE' | 'DISABLED' | null
+  machineStatus?: 'AVAILABLE' | 'RESERVED' | 'RUNNING' | 'MAINTENANCE' | 'SPARE' | 'BOUND' | 'OFFLINE' | 'DISABLED'
   locationLabel: string
   remainingMinutes?: number | null
+  remainingMin?: number | null
   prices: Array<{
     id: string
     machinePriceId?: string

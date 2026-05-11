@@ -43,7 +43,7 @@ export default defineEventHandler(async (event) => {
         continue
       }
 
-      const machineIds = Array.from(new Set(expired.items.map(item => item.machineId)))
+      const machineIds = Array.from(new Set(expired.items.map(item => item.machineId).filter(Boolean) as string[]))
 
       await prisma.$transaction(async (tx) => {
         await tx.payment.update({
@@ -111,6 +111,29 @@ export default defineEventHandler(async (event) => {
             code: true,
             name: true,
             status: true,
+            bindings: {
+              where: {
+                status: 'ACTIVE',
+                endedAt: null
+              },
+              orderBy: {
+                startedAt: 'desc'
+              },
+              take: 1,
+              select: {
+                machine: {
+                  select: {
+                    status: true,
+                    remainingMinutes: true
+                  }
+                },
+                iotDevice: {
+                  select: {
+                    status: true
+                  }
+                }
+              }
+            },
             prices: {
               where: { active: true },
               orderBy: { sortOrder: 'asc' },
@@ -142,6 +165,9 @@ export default defineEventHandler(async (event) => {
 
     return machines.map((machine) => {
       const asset = machine.asset
+      const activeBinding = asset?.bindings?.[0]
+      const bindingMachineStatus = activeBinding?.machine?.status || null
+      const bindingIotStatus = activeBinding?.iotDevice?.status || null
       const assetPrices = asset?.prices || []
       const prices = (machine.prices || []).map((price, idx) => {
         const mapped =
@@ -161,18 +187,51 @@ export default defineEventHandler(async (event) => {
         }
       })
       const assetStatus = asset?.status || 'INACTIVE'
+      const machineStatus = machine.status
+      const remainingMin = Math.max(
+        0,
+        Number(activeBinding?.machine?.remainingMinutes ?? machine.remainingMinutes ?? 0)
+      )
+
+      const isAssetInactive = assetStatus === 'INACTIVE'
+      const isAssetMaintenance = assetStatus === 'MAINTENANCE'
+      const isOffline =
+        bindingIotStatus === 'OFFLINE' ||
+        bindingIotStatus === 'DISABLED' ||
+        machineStatus === MachineStatus.OFFLINE ||
+        machineStatus === MachineStatus.DISABLED ||
+        bindingMachineStatus === MachineStatus.OFFLINE ||
+        bindingMachineStatus === MachineStatus.DISABLED
+      const isBusy =
+        machineStatus === MachineStatus.RUNNING ||
+        bindingMachineStatus === MachineStatus.RUNNING
+      const isReserved = machineStatus === MachineStatus.RESERVED || bindingMachineStatus === MachineStatus.RESERVED
+
+      let runtimeStatus: 'AVAILABLE' | 'RESERVED' | 'BUSY' | 'OFFLINE' | 'MAINTENANCE' | 'INACTIVE' = 'AVAILABLE'
+      if (isAssetMaintenance) runtimeStatus = 'MAINTENANCE'
+      else if (isAssetInactive) runtimeStatus = 'INACTIVE'
+      else if (isOffline) runtimeStatus = 'OFFLINE'
+      else if (isBusy) runtimeStatus = 'BUSY'
+      else if (isReserved) runtimeStatus = 'RESERVED'
+
       const mappedStatus =
-        assetStatus === 'ACTIVE'
-          ? 'AVAILABLE'
-          : assetStatus === 'MAINTENANCE'
-            ? 'MAINTENANCE'
-            : 'RESERVED'
+        runtimeStatus === 'BUSY'
+          ? 'RUNNING'
+          : runtimeStatus === 'INACTIVE'
+            ? 'RESERVED'
+            : runtimeStatus
+
       return {
         ...machine,
+        assetId: asset?.id || null,
         name: asset?.name || machine.name,
         code: asset?.code || machine.code,
         status: mappedStatus,
+        runtimeStatus,
         assetStatus,
+        iotStatus: bindingIotStatus,
+        machineStatus,
+        remainingMin,
         prices
       }
     })

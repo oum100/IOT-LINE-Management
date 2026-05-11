@@ -18,6 +18,14 @@ type ProviderQrResult = {
   qrPayload: string
   providerPaymentIntentId: string | null
   providerReference: string | null
+  trace: {
+    endpoint: string
+    method: string
+    requestHeaders: Record<string, string>
+    requestBody: Record<string, unknown> | null
+    responseStatus: number
+    responseBody: unknown
+  }
 }
 
 function readCredentialString(credentials: Record<string, unknown> | null | undefined, key: string) {
@@ -111,6 +119,13 @@ export async function issueProviderQr(input: IssueProviderQrInput): Promise<Prov
     }
   }
 
+  const traceRequestHeaders = Object.fromEntries(
+    Object.entries(headers).map(([key, val]) => {
+      if (key.toLowerCase() === 'authorization') return [key, val ? '***' : '']
+      return [key, val]
+    })
+  )
+
   const response = await fetch(endpoint, {
     method: issueMethod === 'GET' ? 'GET' : 'POST',
     headers,
@@ -167,6 +182,14 @@ export async function issueProviderQr(input: IssueProviderQrInput): Promise<Prov
   return {
     qrPayload,
     providerPaymentIntentId,
-    providerReference
+    providerReference,
+    trace: {
+      endpoint,
+      method: issueMethod,
+      requestHeaders: traceRequestHeaders,
+      requestBody: issueMethod === 'GET' ? null : requestBody,
+      responseStatus: response.status,
+      responseBody: json
+    }
   }
 }

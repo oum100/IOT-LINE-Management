@@ -3,6 +3,7 @@ import { createError, getHeader, readBody } from 'h3'
 import { z } from 'zod'
 import { prisma } from '../../utils/prisma'
 import { startOrderMachines } from '../../utils/order-workflow'
+import { logPaymentTrace } from '../../utils/payment-trace'
 
 const callbackSchema = z.object({
   providerCode: z.string().trim().min(1).optional(),
@@ -208,6 +209,27 @@ export default defineEventHandler(async (event) => {
   }
 
   const normalizedStatus = mapped.normalizedStatus
+  const callbackHeaders = event.node.req.headers || {}
+
+  await logPaymentTrace({
+    paymentId: payment.id,
+    orderId: payment.orderId,
+    stage: 'PAYMENT_CONFIRM_CALLBACK',
+    direction: 'INBOUND',
+    providerCode: mapped.providerCode || payment.providerCode || null,
+    requestHeaders: callbackHeaders,
+    requestBody: rawBody,
+    responseBody: {
+      providerPaymentIntentId: mapped.providerPaymentIntentId || null,
+      providerReference: mapped.providerReference || null,
+      orderNumber: mapped.orderNumber || null,
+      rawStatus: mapped.rawStatus || null,
+      normalizedStatus
+    },
+    mappedStatus: normalizedStatus,
+    note: 'Callback received'
+  })
+
   const ackConfig =
     payment.billerProfile?.providerConnection?.credentials &&
     typeof payment.billerProfile.providerConnection.credentials === 'object' &&
@@ -262,7 +284,7 @@ export default defineEventHandler(async (event) => {
     return reply({ success: true, idempotent: true })
   }
 
-  const machineIds = Array.from(new Set(payment.order.items.map((item) => item.machineId)))
+  const machineIds = Array.from(new Set(payment.order.items.map((item) => item.machineId).filter(Boolean) as string[]))
 
   await prisma.$transaction(async (tx) => {
     await tx.payment.update({

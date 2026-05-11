@@ -12,9 +12,11 @@ const password = ref('')
 const confirmPassword = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
+const showPassword = ref(false)
+const showConfirmPassword = ref(false)
 
 const inputUi = {
-  base: 'bg-white text-slate-900 placeholder:text-slate-500 ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:ring-slate-500'
+  base: 'h-12 px-4 text-base bg-white text-slate-900 placeholder:text-slate-500 ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:ring-slate-500'
 }
 
 const { data: bootstrapStatus } = await useFetch<{ hasPlatformAdmin: boolean; allowBootstrap: boolean }>('/api/platform/bootstrap-status')
@@ -50,20 +52,13 @@ async function createPlatformAdmin() {
       }
     })
 
-    const result = await signIn('credentials', {
+    await signIn('credentials', {
       email: trimmedEmail.value,
       password: password.value,
       callbackUrl: '/platform/dashboard',
-      redirect: false
+      redirect: true
     })
-
-    const authResult = result as { url?: string | null; error?: string | null; ok?: boolean } | undefined
-    if (authResult?.error || authResult?.ok === false) {
-      await navigateTo('/auth/signin')
-      return
-    }
-
-    await navigateTo(authResult?.url || '/platform/dashboard')
+    return
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : 'Unable to create platform admin.'
   } finally {
@@ -74,7 +69,7 @@ async function createPlatformAdmin() {
 
 <template>
   <div class="flex min-h-[calc(100vh-120px)] items-start justify-center px-4 pt-6 pb-16 sm:px-6 lg:px-8">
-    <div class="w-full max-w-3xl">
+    <div class="w-full max-w-5xl">
       <UCard :ui="{ root: 'rounded-[28px] bg-white/96 shadow-2xl shadow-slate-400/15 ring-1 ring-slate-200/80 dark:bg-slate-900/92 dark:ring-slate-700/80 dark:shadow-slate-950/45' }">
         <div class="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <div class="space-y-5">
@@ -110,6 +105,7 @@ async function createPlatformAdmin() {
               <template #label><span>Name <span class="text-rose-500">*</span></span></template>
               <UInput
                 v-model="name"
+                class="w-full"
                 placeholder="Platform owner"
                 :ui="inputUi"
               />
@@ -120,6 +116,7 @@ async function createPlatformAdmin() {
               <UInput
                 v-model="email"
                 type="email"
+                class="w-full"
                 placeholder="admin@company.com"
                 :ui="inputUi"
               />
@@ -129,10 +126,22 @@ async function createPlatformAdmin() {
               <template #label><span>Password <span class="text-rose-500">*</span></span></template>
               <UInput
                 v-model="password"
-                type="password"
+                :type="showPassword ? 'text' : 'password'"
+                class="w-full"
                 placeholder="At least 8 characters"
                 :ui="inputUi"
-              />
+              >
+                <template #trailing>
+                  <UButton
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    :icon="showPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'"
+                    :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                    @click="showPassword = !showPassword"
+                  />
+                </template>
+              </UInput>
               <template #help>
                 <p class="text-sm text-slate-500 dark:text-slate-400">Use at least 8 characters with 1 uppercase, 1 number, and 1 special character.</p>
               </template>
@@ -142,10 +151,22 @@ async function createPlatformAdmin() {
               <template #label><span>Confirm Password <span class="text-rose-500">*</span></span></template>
               <UInput
                 v-model="confirmPassword"
-                type="password"
+                :type="showConfirmPassword ? 'text' : 'password'"
+                class="w-full"
                 placeholder="Repeat password"
                 :ui="inputUi"
-              />
+              >
+                <template #trailing>
+                  <UButton
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    :icon="showConfirmPassword ? 'i-lucide-eye-off' : 'i-lucide-eye'"
+                    :aria-label="showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'"
+                    @click="showConfirmPassword = !showConfirmPassword"
+                  />
+                </template>
+              </UInput>
             </UFormField>
 
             <UButton

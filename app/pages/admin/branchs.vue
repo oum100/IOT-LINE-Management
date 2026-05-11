@@ -74,23 +74,35 @@ const createOpen = ref(false)
 const createForm = ref({
   tenantId: "",
   merchantAccountId: "",
-  code: "",
   name: "",
   status: "ACTIVE" as BranchStatus,
 })
 
-const editingNameId = ref("")
-const nameEditValue = ref("")
-const editingStatusId = ref("")
-const statusEditValue = ref<BranchStatus>("ACTIVE")
 
 const metadataOpen = ref(false)
 const metadataTitle = ref("")
 const metadataBranchId = ref("")
 const metadataRaw = ref("")
+const editOpen = ref(false)
+const deleteOpen = ref(false)
+const saving = ref(false)
+const deleting = ref(false)
+const editTargetId = ref("")
+const deleteTargetId = ref("")
+const editForm = ref({
+  name: "",
+  status: "ACTIVE" as BranchStatus,
+})
 
 const inputUi = {
-  base: "bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ring-1 ring-slate-300 dark:ring-slate-600",
+  base: "bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ring-1 ring-slate-300 dark:ring-slate-600",
+}
+const selectUi = {
+  base: "bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600",
+  content: "bg-white dark:bg-slate-800",
+  item: "text-slate-900 dark:text-slate-100",
+  value: "text-slate-900 dark:text-slate-100",
+  placeholder: "text-slate-500 dark:text-slate-400",
 }
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
@@ -259,23 +271,6 @@ async function onSearch() {
   await loadBranches()
 }
 
-async function suggestNextBranchCode(tenantId: string) {
-  const response = await $fetch<{ items: BranchRecord[] }>("/api/admin/branches", {
-    query: {
-      tenantId,
-      page: 1,
-      pageSize: 200,
-    },
-  })
-  const list = response.items || []
-  const maxCodeNumber = list.reduce((max, branch) => {
-    const match = branch.code?.match(/(\d+)$/)
-    if (!match) return max
-    return Math.max(max, Number(match[1]))
-  }, 0)
-  return `BR-${String(maxCodeNumber + 1).padStart(5, "0")}`
-}
-
 function refreshBranches() {
   void loadBranches()
   if (selectedBranchId.value) {
@@ -301,7 +296,6 @@ async function openCreateDialog() {
     createForm.value = {
       tenantId,
       merchantAccountId: merchantId,
-      code: await suggestNextBranchCode(tenantId),
       name: "",
       status: "ACTIVE",
     }
@@ -317,19 +311,16 @@ function onCreateTenantChange() {
   void (async () => {
     createForm.value.merchantAccountId = ""
     await loadMerchantsByTenant(createForm.value.tenantId)
-    createForm.value.code = await suggestNextBranchCode(createForm.value.tenantId)
   })()
 }
 
 async function createBranch() {
   await run(async () => {
     const tenantId = (createForm.value.tenantId || "").trim()
-    const code = (createForm.value.code || "").trim()
     const name = (createForm.value.name || "").trim()
     const merchantAccountId = (createForm.value.merchantAccountId || "").trim()
 
     if (!tenantId) throw new Error("Tenant is required.")
-    if (!code) throw new Error("Branch code is required.")
     if (!name) throw new Error("Branch name is required.")
 
     await $fetch("/api/admin/branches", {
@@ -337,65 +328,16 @@ async function createBranch() {
       body: {
         tenantId,
         merchantAccountId: merchantAccountId || null,
-        code,
         name,
         status: createForm.value.status,
       },
     })
 
-    setMessage(`Branch created: ${code}`)
+    setMessage("Branch created.")
     closeCreateDialog()
     selectedTenantFilter.value = tenantId
     selectedMerchantFilter.value = merchantAccountId
     await loadMerchantsByTenant(selectedTenantFilter.value)
-    await loadBranches()
-  })
-}
-
-function startEditName(item: BranchRecord) {
-  editingNameId.value = item.id
-  nameEditValue.value = item.name
-}
-
-function cancelEditName() {
-  editingNameId.value = ""
-  nameEditValue.value = ""
-}
-
-async function saveName(item: BranchRecord) {
-  await run(async () => {
-    const name = (nameEditValue.value || "").trim()
-    if (!name) throw new Error("Branch name is required.")
-
-    await $fetch(`/api/admin/branches/${item.id}`, {
-      method: "PATCH",
-      body: { name },
-    })
-
-    setMessage(`Branch name updated: ${item.code}`)
-    cancelEditName()
-    await loadBranches()
-  })
-}
-
-function startEditStatus(item: BranchRecord) {
-  editingStatusId.value = item.id
-  statusEditValue.value = item.status
-}
-
-function cancelEditStatus() {
-  editingStatusId.value = ""
-}
-
-async function saveStatus(item: BranchRecord) {
-  await run(async () => {
-    await $fetch(`/api/admin/branches/${item.id}`, {
-      method: "PATCH",
-      body: { status: statusEditValue.value },
-    })
-
-    setMessage(`Branch status updated: ${item.code}`)
-    cancelEditStatus()
     await loadBranches()
   })
 }
@@ -428,6 +370,61 @@ async function saveMetadata() {
     setMessage("Branch details updated.")
     await loadBranches()
   })
+}
+
+function openEditDialog(item: BranchRecord) {
+  editTargetId.value = item.id
+  editForm.value = {
+    name: item.name,
+    status: item.status,
+  }
+  editOpen.value = true
+}
+
+async function saveEditDialog() {
+  if (!editTargetId.value) return
+  saving.value = true
+  error.value = ""
+  try {
+    const name = editForm.value.name.trim()
+    if (!name) throw new Error("Branch name is required.")
+    await $fetch(`/api/admin/branches/${editTargetId.value}`, {
+      method: "PATCH",
+      body: {
+        name,
+        status: editForm.value.status,
+      },
+    })
+    editOpen.value = false
+    setMessage("Branch updated.")
+    await loadBranches()
+  } catch (err) {
+    setError(err)
+  } finally {
+    saving.value = false
+  }
+}
+
+function openDeleteDialog(item: BranchRecord) {
+  deleteTargetId.value = item.id
+  deleteOpen.value = true
+}
+
+async function confirmDeleteBranch() {
+  if (!deleteTargetId.value) return
+  deleting.value = true
+  error.value = ""
+  try {
+    await $fetch(`/api/admin/branches/${deleteTargetId.value}`, { method: "DELETE" })
+    deleteOpen.value = false
+    deleteTargetId.value = ""
+    setMessage("Branch deleted.")
+    await loadBranches()
+  } catch (err) {
+    setError(err)
+  } finally {
+    deleting.value = false
+  }
 }
 
 async function goToBranchArea(area: "asset" | "device_machine" | "payment" | "order") {
@@ -596,7 +593,7 @@ watch(
           <div class="flex items-center gap-2">
             <select
               v-model="selectedTenantFilter"
-              class="w-[280px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              class="w-[280px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               @change="onTenantFilterChange"
             >
               <option value="">All tenants</option>
@@ -607,7 +604,7 @@ watch(
 
             <select
               v-model="selectedMerchantFilter"
-              class="w-[260px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              class="w-[260px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               @change="onMerchantFilterChange"
             >
               <option value="">All merchant (brand)</option>
@@ -664,47 +661,15 @@ watch(
                 </span>
               </td>
               <td class="px-3 py-2">
-                <div class="flex items-center gap-2">
-                  <template v-if="editingNameId === item.id">
-                    <UInput
-                      v-model="nameEditValue"
-                      placeholder="Branch name"
-                      class="w-full"
-                      :ui="inputUi"
-                    />
-                    <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="loading" @click="saveName(item)" />
-                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="cancelEditName" />
-                  </template>
-                  <template v-else>
-                    <span class="truncate">{{ item.name }}</span>
-                    <UButton size="xs" color="primary" variant="ghost" icon="i-lucide-pencil" @click="startEditName(item)" />
-                  </template>
-                </div>
+                <span class="truncate">{{ item.name }}</span>
               </td>
               <td class="px-3 py-2 text-xs text-slate-700 dark:text-slate-300">
                 {{ merchantLabel(item.merchantAccountId) }}
               </td>
               <td class="px-3 py-2">
-                <div class="flex items-center gap-2">
-                  <template v-if="editingStatusId === item.id">
-                    <select
-                      v-model="statusEditValue"
-                      class="w-[140px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
-                    >
-                      <option value="ACTIVE">ACTIVE</option>
-                      <option value="SUSPENDED">SUSPENDED</option>
-                      <option value="DISABLED">DISABLED</option>
-                    </select>
-                    <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="loading" @click="saveStatus(item)" />
-                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="cancelEditStatus" />
-                  </template>
-                  <template v-else>
-                    <span class="text-xs font-semibold" :class="branchStatusClass(item.status)">
-                      {{ item.status }}
-                    </span>
-                    <UButton size="xs" color="primary" variant="ghost" icon="i-lucide-pencil" @click="startEditStatus(item)" />
-                  </template>
-                </div>
+                <span class="text-xs font-semibold" :class="branchStatusClass(item.status)">
+                  {{ item.status }}
+                </span>
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-2">
@@ -734,15 +699,15 @@ watch(
                 </div>
               </td>
               <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
-                {{ formatDate(item.createdAt) }}
+                <DateTimeTwoLine :value="item.createdAt" />
               </td>
               <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
-                {{ formatDate(item.updatedAt) }}
+                <DateTimeTwoLine :value="item.updatedAt" />
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
-                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-package" @click.stop="goToBranchArea('asset')" />
-                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-cpu" @click.stop="goToBranchArea('device_machine')" />
+                  <UButton size="xs" color="primary" variant="ghost" icon="i-lucide-pencil" @click.stop="openEditDialog(item)" />
+                  <UButton size="xs" color="error" variant="ghost" icon="i-lucide-trash-2" @click.stop="openDeleteDialog(item)" />
                 </div>
               </td>
             </tr>
@@ -799,6 +764,60 @@ watch(
       </div>
     </UCard>
 
+    <UModal v-model:open="editOpen" :ui="{ content: 'sm:max-w-lg' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Edit Branch</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="editOpen = false" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UFormField label="Branch Name">
+              <UInput v-model="editForm.name" :ui="inputUi" />
+            </UFormField>
+            <UFormField label="Status">
+              <USelect
+                v-model="editForm.status"
+                :ui="selectUi"
+                :options="[
+                  { label: 'ACTIVE', value: 'ACTIVE' },
+                  { label: 'SUSPENDED', value: 'SUSPENDED' },
+                  { label: 'DISABLED', value: 'DISABLED' },
+                ]"
+              />
+            </UFormField>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="editOpen = false">Cancel</UButton>
+              <UButton color="primary" class="text-white" :loading="saving" @click="saveEditDialog">Save</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="deleteOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Delete Branch</h3>
+          </template>
+          <p class="text-sm text-slate-600 dark:text-slate-300">
+            Confirm delete branch? If linked data exists, system will block delete.
+          </p>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="deleteOpen = false">Cancel</UButton>
+              <UButton color="error" :loading="deleting" @click="confirmDeleteBranch">Delete</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
     <UModal v-model:open="createOpen" :ui="{ content: 'sm:max-w-lg' }">
       <template #content>
         <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
@@ -813,7 +832,7 @@ watch(
             <UFormField label="Tenant">
               <select
                 v-model="createForm.tenantId"
-                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
                 @change="onCreateTenantChange"
               >
                 <option value="">Select tenant</option>
@@ -826,21 +845,13 @@ watch(
             <UFormField label="Merchant (Brand)">
               <select
                 v-model="createForm.merchantAccountId"
-                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               >
                 <option value="">No merchant (brand)</option>
                 <option v-for="merchant in merchants" :key="merchant.id" :value="merchant.id">
                   {{ merchant.name }}
                 </option>
               </select>
-            </UFormField>
-
-            <UFormField label="Code">
-              <UInput
-                v-model="createForm.code"
-                placeholder="BR-00001"
-                :ui="inputUi"
-              />
             </UFormField>
 
             <UFormField label="Name">
@@ -854,7 +865,7 @@ watch(
             <UFormField label="Status">
               <select
                 v-model="createForm.status"
-                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
               >
                 <option value="ACTIVE">ACTIVE</option>
                 <option value="SUSPENDED">SUSPENDED</option>

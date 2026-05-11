@@ -18,6 +18,14 @@ function stripLocalePrefix(path: string) {
 }
 
 const layoutName = computed(() => {
+  if (route.meta?.layout === false) {
+    return false
+  }
+
+  if (typeof route.meta?.layout === 'string' && route.meta.layout.length > 0) {
+    return route.meta.layout
+  }
+
   const path = stripLocalePrefix(route.path)
   if (path.startsWith('/auth') || path === '/login' || path === '/signup') {
     return 'auth'
@@ -33,7 +41,8 @@ const layoutName = computed(() => {
 </script>
 
 <template>
-  <NuxtLayout :name="layoutName">
+  <NuxtLayout v-if="layoutName !== false" :name="layoutName">
     <NuxtPage />
   </NuxtLayout>
+  <NuxtPage v-else />
 </template>

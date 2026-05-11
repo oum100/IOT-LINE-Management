@@ -65,7 +65,7 @@ async function clearAllData() {
   await prisma.billerProfile.deleteMany()
   await prisma.asset.deleteMany()
   await prisma.iotDevice.deleteMany()
-  await prisma.machineUnit.deleteMany()
+  await prisma.machine.deleteMany()
   await prisma.product.deleteMany()
   if (preservedIds.length) {
     await prisma.session.deleteMany({ where: { userId: { notIn: preservedIds } } })
@@ -286,10 +286,18 @@ async function seedMockData() {
           ]
         })
 
-        const machineUnit = await prisma.machineUnit.create({
+        const machine = await prisma.machine.create({
           data: {
             tenantId: tenant.id,
-            serialNo: `SN-${tenantCode}-${machineSeq}`
+            merchantAccountId: merchant.id,
+            branchId: branch.id,
+            assetId: asset.id,
+            code: code('MC', machineSeq, 5),
+            name: `Machine ${machineSeq}`,
+            serialNo: `SN-${tenantCode}-${machineSeq}`,
+            kind,
+            status: 'BOUND',
+            locationLabel: branch.name
           }
         })
         machineSeq += 1
@@ -311,7 +319,7 @@ async function seedMockData() {
             data: {
               tenantId: tenant.id,
               assetId: asset.id,
-              machineUnitId: machineUnit.id,
+              machineId: machine.id,
               iotDeviceId: iotDevice.id,
               status: bindingStatus,
               endedAt: bindingStatus === DeviceBindingStatus.INACTIVE ? randomDateWithinLastYear() : null

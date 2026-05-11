@@ -4,6 +4,7 @@ import { getPlatformState, isPlatformInitialized } from '../../utils/platform-st
 import { ensureSystemSetting, listSystemSettings } from '../../utils/system-settings'
 import { SYSTEM_SETTINGS_CATALOG, SYSTEM_SETTING_KEYS } from '../../../shared/system-settings-catalog'
 import {
+  resolveDefaultNewUserPassword,
   resolveEmailVerificationExpiryMinutes,
   resolvePasswordResetExpiryMinutes
 } from '../../utils/system-config'
@@ -11,8 +12,9 @@ import {
 export default defineEventHandler(async (event) => {
   await assertAdminAccess(event)
 
-  const [paymentExpiryMinutes, emailVerificationExpiryMinutes, passwordResetExpiryMinutes, platformState, platformInitialized] = await Promise.all([
+  const [paymentExpiryMinutes, defaultNewUserPassword, emailVerificationExpiryMinutes, passwordResetExpiryMinutes, platformState, platformInitialized] = await Promise.all([
     resolvePaymentExpiryMinutes(event),
+    resolveDefaultNewUserPassword(),
     resolveEmailVerificationExpiryMinutes(event),
     resolvePasswordResetExpiryMinutes(event),
     getPlatformState(),
@@ -21,6 +23,7 @@ export default defineEventHandler(async (event) => {
 
   await Promise.all([
     ensureSystemSetting(SYSTEM_SETTING_KEYS.paymentExpiryMinutes, paymentExpiryMinutes),
+    ensureSystemSetting(SYSTEM_SETTING_KEYS.defaultNewUserPassword, defaultNewUserPassword),
     ensureSystemSetting(SYSTEM_SETTING_KEYS.emailVerificationExpiryMinutes, emailVerificationExpiryMinutes),
     ensureSystemSetting(SYSTEM_SETTING_KEYS.passwordResetExpiryMinutes, passwordResetExpiryMinutes),
     ensureSystemSetting(SYSTEM_SETTING_KEYS.platformInitialized, platformInitialized)
@@ -30,6 +33,7 @@ export default defineEventHandler(async (event) => {
 
   return {
     paymentExpiryMinutes,
+    defaultNewUserPassword,
     emailVerificationExpiryMinutes,
     passwordResetExpiryMinutes,
     platformInitialized,

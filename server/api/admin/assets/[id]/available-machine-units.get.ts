@@ -19,9 +19,9 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Asset not found' })
   }
 
-  let items: Array<{ id: string; serialNo: string; status?: string }> = []
+  let items: Array<{ id: string; serialNo: string | null; status?: string; brand?: string | null; model?: string | null }> = []
   try {
-    items = await prisma.machineUnit.findMany({
+    items = await prisma.machine.findMany({
       where: {
         tenantId: asset.tenantId,
         status: 'SPARE',
@@ -35,12 +35,14 @@ export default defineEventHandler(async (event) => {
       select: {
         id: true,
         serialNo: true,
-        status: true
+        status: true,
+        brand: true,
+        model: true
       },
       orderBy: [{ createdAt: 'desc' }]
     })
   } catch {
-    items = await prisma.machineUnit.findMany({
+    items = await prisma.machine.findMany({
       where: {
         tenantId: asset.tenantId,
         bindings: {
@@ -52,7 +54,9 @@ export default defineEventHandler(async (event) => {
       },
       select: {
         id: true,
-        serialNo: true
+        serialNo: true,
+        brand: true,
+        model: true
       },
       orderBy: [{ createdAt: 'desc' }]
     })

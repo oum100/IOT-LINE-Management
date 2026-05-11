@@ -10,6 +10,7 @@ export default defineEventHandler(async (event) => {
   const tenantId = String(query.tenantId || '').trim()
   const merchantAccountId = String(query.merchantAccountId || '').trim()
   const branchId = String(query.branchId || '').trim()
+  const assetType = String(query.assetType || '').trim().toUpperCase()
 
   const { q, skip, take, page, pageSize } = withPaging(query)
   const where = {
@@ -22,12 +23,12 @@ export default defineEventHandler(async (event) => {
         }
       : {}),
     ...(branchId ? { branchId } : {}),
+    ...(assetType ? { kind: assetType } : {}),
     ...(q
       ? {
           OR: [
             { code: { contains: q, mode: 'insensitive' as const } },
             { name: { contains: q, mode: 'insensitive' as const } },
-            { assetUuid: { contains: q, mode: 'insensitive' as const } },
             { id: { contains: q, mode: 'insensitive' as const } }
           ]
         }
@@ -38,14 +39,37 @@ export default defineEventHandler(async (event) => {
     prisma.asset.findMany({
       where,
       include: {
-        branch: true,
-        machines: {
+        tenant: {
           select: {
             id: true,
+            code: true,
             name: true
+          }
+        },
+        branch: {
+          include: {
+            merchantAccount: {
+              select: {
+                id: true,
+                code: true,
+                name: true
+              }
+            }
+          }
+        },
+        prices: {
+          where: { active: true },
+          select: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                code: true
+              }
+            }
           },
           orderBy: { updatedAt: 'desc' },
-          take: 1
+          take: 20
         },
         bindings: {
           where: {
@@ -54,7 +78,7 @@ export default defineEventHandler(async (event) => {
           },
           select: {
             iotDeviceId: true,
-            machineUnitId: true,
+            machineId: true,
             iotDevice: {
               select: {
                 id: true,
@@ -63,9 +87,10 @@ export default defineEventHandler(async (event) => {
                 name: true
               }
             },
-            machineUnit: {
+            machine: {
               select: {
                 id: true,
+                name: true,
                 serialNo: true,
                 model: true
               }
@@ -88,7 +113,7 @@ export default defineEventHandler(async (event) => {
       ...item,
       assignmentStatus: resolveAssignmentStatus({
         hasIotDevice: Boolean(active?.iotDeviceId),
-        hasMachineUnit: Boolean(active?.machineUnitId)
+        hasMachine: Boolean(active?.machineId)
       }),
       iot: active?.iotDevice
         ? {
@@ -98,18 +123,22 @@ export default defineEventHandler(async (event) => {
             macAddress: active.iotDevice.macAddress || null
           }
         : null,
-      machine: item.machines[0]
+      machine: active?.machine
         ? {
-            id: item.machines[0].id,
-            name: item.machines[0].name
+            id: active.machine.id,
+            name: active.machine.name || active.machine.serialNo,
+            serialNo: active.machine.serialNo,
+            model: active.machine.model || null
           }
-        : active?.machineUnit
-        ? {
-            id: active.machineUnit.id,
-            serialNo: active.machineUnit.serialNo,
-            model: active.machineUnit.model || null
-          }
-        : null
+        : null,
+      products: item.prices
+        .map(row => row.product)
+        .filter(Boolean)
+        .map((product: { id: string; name: string; code: string } | null) => ({
+          id: product?.id || '',
+          name: product?.name || '',
+          code: product?.code || ''
+        }))
     }
   })
 

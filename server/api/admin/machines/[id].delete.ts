@@ -9,11 +9,11 @@ export default defineEventHandler(async (event) => {
 
   const machine = await prisma.machine.findUnique({
     where: { id },
-    select: { id: true, name: true, code: true }
+    select: { id: true, name: true, serialNo: true, code: true }
   })
   if (!machine) throw createError({ statusCode: 404, statusMessage: 'Machine not found' })
 
-  await requireDeleteConfirm(event, machine.name || machine.code)
+  await requireDeleteConfirm(event, machine.serialNo || machine.name || machine.code)
 
   const [orderItemCount, commandCount] = await Promise.all([
     prisma.orderItem.count({ where: { machineId: id } }),

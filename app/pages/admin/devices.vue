@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue"
+import { CalendarDate, getLocalTimeZone } from "@internationalized/date"
 
 definePageMeta({
   middleware: "portal-auth",
@@ -23,7 +24,7 @@ type DeviceItem = {
   deviceUid: string | null
   name?: string | null
   model?: string | null
-  status: "SPARE" | "IN_USE" | "OFFLINE" | "DISABLED"
+  status: "NEW" | "SPARE" | "BOUND" | "REPLACED" | "OFFLINE" | "DISABLED"
   tenant?: { id: string; name: string; code: string } | null
   bindings?: Array<{
     asset?: {
@@ -37,16 +38,41 @@ type DeviceItem = {
       } | null
     } | null
   }>
+  metadata?: Record<string, unknown> | null
   updatedAt: string
+}
+type DeviceKeyItem = {
+  id: string
+  keyPrefix: string
+  label?: string | null
+  status: "ACTIVE" | "REVOKED"
+  expiresAt?: string | null
+  lastUsedAt?: string | null
+  createdAt: string
 }
 
 const loading = ref(false)
 const creating = ref(false)
+const editing = ref(false)
 const deletingId = ref("")
 const error = ref("")
 const createError = ref("")
 const createMessage = ref("")
 const createOpen = ref(false)
+const editOpen = ref(false)
+const keyModalOpen = ref(false)
+const keyModalLoading = ref(false)
+const keyCreating = ref(false)
+const keyRevokingId = ref("")
+const keyDeletingId = ref("")
+const keyGenerated = ref("")
+const keyExpiresCalendarOpen = ref(false)
+const keySelectedDevice = ref<DeviceItem | null>(null)
+const keyItems = ref<DeviceKeyItem[]>([])
+const keyForm = ref({
+  label: "",
+})
+const keyExpiresDate = ref<CalendarDate | null>(null)
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
@@ -55,6 +81,7 @@ const filters = ref({
   tenantId: "",
   merchantAccountId: "",
   branchId: "",
+  status: "",
 })
 
 const tenants = ref<Tenant[]>([])
@@ -73,9 +100,30 @@ const createForm = ref({
   fwVersion: "",
   name: "",
   model: "",
+  status: "SPARE" as DeviceItem["status"],
+})
+const editForm = ref({
+  id: "",
+  deviceUid: "",
+  fwVersion: "",
+  name: "",
+  model: "",
+  status: "SPARE" as DeviceItem["status"],
 })
 const createInputUi = {
-  base: "bg-slate-900 text-slate-100 placeholder:text-slate-400 ring-1 ring-slate-600",
+  base: "h-10 bg-white text-slate-900 placeholder:text-slate-500 ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:ring-slate-500",
+}
+
+function formatCalendarInput(v: CalendarDate | null) {
+  if (!v) return ""
+  return `${String(v.month).padStart(2, "0")}/${String(v.day).padStart(2, "0")}/${String(v.year)}`
+}
+
+function toIsoEndOfDay(v: CalendarDate | null) {
+  if (!v) return undefined
+  const base = v.toDate(getLocalTimeZone())
+  base.setHours(23, 59, 59, 999)
+  return base.toISOString()
 }
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
@@ -90,16 +138,42 @@ function formatDate(date: string) {
   return new Date(date).toLocaleString()
 }
 
+function formatDateOnly(date: string) {
+  return new Date(date).toLocaleDateString()
+}
+
+function formatTimeOnly(date: string) {
+  return new Date(date).toLocaleTimeString()
+}
+
 function firstBinding(item: DeviceItem) {
   return item.bindings?.[0]
 }
 
+function merchantName(item: DeviceItem) {
+  return firstBinding(item)?.asset?.branch?.merchantAccount?.name
+    || String(item.metadata?.merchantName || "")
+    || "-"
+}
+
+function branchName(item: DeviceItem) {
+  return firstBinding(item)?.asset?.branch?.name
+    || String(item.metadata?.branchName || "")
+    || "-"
+}
+
 function deviceStatusClass(status: DeviceItem["status"]) {
-  if (status === "IN_USE") return "text-emerald-600 dark:text-emerald-400 font-semibold"
+  if (status === "BOUND") return "text-emerald-600 dark:text-emerald-400 font-semibold"
+  if (status === "NEW") return "text-sky-600 dark:text-sky-400 font-semibold"
   if (status === "SPARE") return "text-cyan-600 dark:text-cyan-400 font-semibold"
+  if (status === "REPLACED") return "text-violet-600 dark:text-violet-400 font-semibold"
   if (status === "OFFLINE") return "text-amber-600 dark:text-amber-400 font-semibold"
   if (status === "DISABLED") return "text-rose-600 dark:text-rose-400 font-semibold"
   return "text-slate-700 dark:text-slate-200 font-semibold"
+}
+
+function deviceStatusLabel(status: DeviceItem["status"]) {
+  return status === "BOUND" ? "BOUND" : status
 }
 
 async function loadTenants() {
@@ -144,6 +218,7 @@ async function loadData() {
       ...(filters.value.tenantId ? { tenantId: filters.value.tenantId } : {}),
       ...(filters.value.merchantAccountId ? { merchantAccountId: filters.value.merchantAccountId } : {}),
       ...(filters.value.branchId ? { branchId: filters.value.branchId } : {}),
+      ...(filters.value.status ? { status: filters.value.status } : {}),
     }
     const [listRes, summaryRes] = await Promise.all([
       $fetch<PagingResponse<DeviceItem>>("/api/admin/devices", {
@@ -185,6 +260,7 @@ function openCreateDialog() {
     fwVersion: "",
     name: "",
     model: "",
+    status: "SPARE",
   }
   createOpen.value = true
 }
@@ -193,6 +269,7 @@ function closeCreateDialog() {
   createError.value = ""
   createOpen.value = false
 }
+
 
 async function createDevice() {
   if (!filters.value.tenantId) {
@@ -223,6 +300,7 @@ async function createDevice() {
         fwVersion: createForm.value.fwVersion.trim(),
         name: createForm.value.name.trim() || null,
         model: createForm.value.model.trim() || null,
+        status: createForm.value.status,
       },
     })
     createMessage.value = `Device created successfully (${created.deviceUid || created.macAddress})`
@@ -237,16 +315,57 @@ async function createDevice() {
   }
 }
 
+function openEditDialog(item: DeviceItem) {
+  createError.value = ""
+  editForm.value = {
+    id: item.id,
+    deviceUid: item.deviceUid || "",
+    fwVersion: "",
+    name: item.name || "",
+    model: item.model || "",
+    status: item.status,
+  }
+  editOpen.value = true
+}
+
+async function saveEditDevice() {
+  if (!editForm.value.id) return
+  editing.value = true
+  error.value = ""
+  createError.value = ""
+  try {
+    await $fetch(`/api/admin/devices/${editForm.value.id}`, {
+      method: "PATCH",
+      body: {
+        deviceUid: editForm.value.deviceUid.trim() || null,
+        fwVersion: editForm.value.fwVersion.trim() || null,
+        name: editForm.value.name.trim() || null,
+        model: editForm.value.model.trim() || null,
+        status: editForm.value.status,
+      },
+    })
+    editOpen.value = false
+    await loadData()
+  } catch (err) {
+    createError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || "Failed to update device"
+  } finally {
+    editing.value = false
+  }
+}
+
 async function deleteDevice(item: DeviceItem) {
-  if (item.status !== "SPARE") {
-    error.value = "Delete is allowed only for SPARE devices."
+  const allowedDeleteStatuses: DeviceItem["status"][] = ["NEW", "SPARE", "REPLACED", "OFFLINE", "DISABLED"]
+  if (!allowedDeleteStatuses.includes(item.status)) {
+    error.value = "Delete is allowed only for unbound device statuses."
     return
   }
-  const expectedName = (item.deviceUid || item.macAddress).trim()
-  const typed = window.prompt(`Type device id to confirm delete:\n${expectedName}`, "")
+  const typed = window.prompt(
+    `Type DELETE to confirm delete:\nDevice UID: ${item.deviceUid || "-"}\nDevice Name: ${item.name || "-"}\nMAC: ${item.macAddress}`,
+    "",
+  )
   if (typed === null) return
-  if (typed.trim() !== expectedName) {
-    error.value = "Device id does not match. Delete cancelled."
+  if (typed.trim().toUpperCase() !== "DELETE") {
+    error.value = "Delete cancelled. Confirmation text must be DELETE."
     return
   }
 
@@ -258,15 +377,96 @@ async function deleteDevice(item: DeviceItem) {
       method: "delete",
       body: {
         confirmText: "DELETE",
-        confirmName: expectedName,
       },
     } as any)
-    createMessage.value = `Device deleted: ${expectedName}`
+    createMessage.value = `Device deleted: ${item.deviceUid || item.macAddress}`
     await loadData()
   } catch (err) {
     error.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || "Failed to delete device"
   } finally {
     deletingId.value = ""
+  }
+}
+
+async function loadDeviceKeys() {
+  if (!keySelectedDevice.value?.id) {
+    keyItems.value = []
+    return
+  }
+  keyModalLoading.value = true
+  try {
+    const rows = await $fetch<DeviceKeyItem[]>("/api/admin/device-keys", {
+      query: { iotDeviceId: keySelectedDevice.value.id }
+    })
+    keyItems.value = rows || []
+  } catch (err) {
+    keyItems.value = []
+    error.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || "Failed to load device keys"
+  } finally {
+    keyModalLoading.value = false
+  }
+}
+
+async function openDeviceKeyModal(item: DeviceItem) {
+  keySelectedDevice.value = item
+  keyGenerated.value = ""
+  keyForm.value.label = ""
+  keyExpiresDate.value = null
+  keyModalOpen.value = true
+  await loadDeviceKeys()
+}
+
+async function createDeviceKey() {
+  if (!keySelectedDevice.value?.id) return
+  keyCreating.value = true
+  try {
+    const created = await $fetch<{ plainKey: string }>("/api/admin/device-keys", {
+      method: "POST",
+      body: {
+        iotDeviceId: keySelectedDevice.value.id,
+        label: keyForm.value.label.trim() || undefined,
+        expiresAt: toIsoEndOfDay(keyExpiresDate.value)
+      }
+    })
+    keyGenerated.value = created.plainKey || ""
+    await loadDeviceKeys()
+  } catch (err) {
+    error.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || "Failed to create device key"
+  } finally {
+    keyCreating.value = false
+  }
+}
+
+async function revokeDeviceKey(item: DeviceKeyItem) {
+  keyRevokingId.value = item.id
+  try {
+    await $fetch(`/api/admin/device-keys/${item.id}`, {
+      method: "PATCH",
+      body: { status: "REVOKED" }
+    })
+    await loadDeviceKeys()
+  } catch (err) {
+    error.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || "Failed to revoke device key"
+  } finally {
+    keyRevokingId.value = ""
+  }
+}
+
+async function deleteDeviceKey(item: DeviceKeyItem) {
+  const typed = window.prompt(`Type DELETE to confirm delete key ${item.keyPrefix}`, "")
+  if (typed === null) return
+  if (typed.trim().toUpperCase() !== "DELETE") return
+  keyDeletingId.value = item.id
+  try {
+    await $fetch(`/api/admin/device-keys/${item.id}`, {
+      method: "DELETE",
+      body: { confirmText: "DELETE" }
+    } as any)
+    await loadDeviceKeys()
+  } catch (err) {
+    error.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || "Failed to delete device key"
+  } finally {
+    keyDeletingId.value = ""
   }
 }
 
@@ -288,6 +488,21 @@ watch(
     applyFilters()
   },
 )
+
+watch(
+  () => filters.value.branchId,
+  () => {
+    applyFilters()
+  },
+)
+
+watch(
+  () => filters.value.status,
+  () => {
+    applyFilters()
+  },
+)
+
 
 onMounted(async () => {
   try {
@@ -311,7 +526,7 @@ onMounted(async () => {
 
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <template #header>
-        <div class="grid gap-3 md:grid-cols-[220px_220px_220px_1fr_auto_auto_auto] md:items-end">
+        <div class="grid gap-3 md:grid-cols-[220px_220px_220px_180px_1fr_auto_auto_auto] md:items-end">
           <div class="flex flex-col gap-1">
             <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Tenant</label>
             <select v-model="filters.tenantId" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
@@ -331,6 +546,18 @@ onMounted(async () => {
             <select v-model="filters.branchId" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
               <option value="">All branches</option>
               <option v-for="branch in branches" :key="branch.id" :value="branch.id">{{ branch.name }}</option>
+            </select>
+          </div>
+          <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Status</label>
+            <select v-model="filters.status" class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
+              <option value="">All status</option>
+              <option value="NEW">NEW</option>
+              <option value="SPARE">SPARE</option>
+              <option value="BOUND">BOUND</option>
+              <option value="REPLACED">REPLACED</option>
+              <option value="OFFLINE">OFFLINE</option>
+              <option value="DISABLED">DISABLED</option>
             </select>
           </div>
           <SearchInput
@@ -375,23 +602,47 @@ onMounted(async () => {
               <td class="px-3 py-2">{{ item.model || "-" }}</td>
               <td class="px-3 py-2">{{ item.macAddress }}</td>
               <td class="px-3 py-2">
-                <span :class="deviceStatusClass(item.status)">{{ item.status }}</span>
+                <span :class="deviceStatusClass(item.status)">{{ deviceStatusLabel(item.status) }}</span>
               </td>
               <td class="px-3 py-2">{{ item.tenant?.name || "-" }}</td>
-              <td class="px-3 py-2">{{ firstBinding(item)?.asset?.branch?.merchantAccount?.name || "-" }}</td>
-              <td class="px-3 py-2">{{ firstBinding(item)?.asset?.branch?.name || "-" }}</td>
+              <td class="px-3 py-2">{{ merchantName(item) }}</td>
+              <td class="px-3 py-2">{{ branchName(item) }}</td>
               <td class="px-3 py-2">{{ firstBinding(item)?.asset?.name || "-" }}</td>
-              <td class="px-3 py-2">{{ formatDate(item.updatedAt) }}</td>
               <td class="px-3 py-2">
-                <UButton
-                  icon="i-lucide-trash-2"
-                  size="xs"
-                  color="error"
-                  variant="soft"
-                  :disabled="item.status !== 'SPARE' || deletingId === item.id"
-                  :loading="deletingId === item.id"
-                  @click="deleteDevice(item)"
-                />
+                <DateTimeTwoLine :value="item.updatedAt" />
+              </td>
+              <td class="px-3 py-2">
+                <div class="flex items-center gap-1">
+                  <UButton
+                    icon="i-lucide-pencil"
+                    size="xs"
+                    color="neutral"
+                    variant="soft"
+                    title="Edit Device"
+                    aria-label="Edit Device"
+                    @click="openEditDialog(item)"
+                  />
+                  <UButton
+                    icon="i-lucide-key-round"
+                    size="xs"
+                    color="warning"
+                    variant="soft"
+                    title="Manage Device Keys"
+                    aria-label="Manage Device Keys"
+                    @click="openDeviceKeyModal(item)"
+                  />
+                  <UButton
+                    icon="i-lucide-trash-2"
+                    size="xs"
+                    color="error"
+                    variant="soft"
+                    :disabled="!['NEW', 'SPARE', 'REPLACED', 'OFFLINE', 'DISABLED'].includes(item.status) || deletingId === item.id"
+                    :loading="deletingId === item.id"
+                    title="Delete Device"
+                    aria-label="Delete Device"
+                    @click="deleteDevice(item)"
+                  />
+                </div>
               </td>
             </tr>
             <tr v-if="!loading && items.length === 0">
@@ -404,9 +655,25 @@ onMounted(async () => {
       <div class="mt-4 flex items-center justify-between text-sm">
         <p class="text-slate-500 dark:text-slate-400">Showing {{ items.length }} of {{ total }} devices</p>
         <div class="flex items-center gap-2">
-          <UButton icon="i-lucide-chevron-left" color="neutral" variant="soft" :disabled="page <= 1" @click="page -= 1; loadData()" />
+          <UButton
+            icon="i-lucide-chevron-left"
+            color="neutral"
+            variant="soft"
+            :disabled="page <= 1"
+            title="Previous Page"
+            aria-label="Previous Page"
+            @click="page -= 1; loadData()"
+          />
           <span class="text-xs text-slate-500 dark:text-slate-400">Page {{ page }} / {{ totalPages }}</span>
-          <UButton icon="i-lucide-chevron-right" color="neutral" variant="soft" :disabled="page >= totalPages" @click="page += 1; loadData()" />
+          <UButton
+            icon="i-lucide-chevron-right"
+            color="neutral"
+            variant="soft"
+            :disabled="page >= totalPages"
+            title="Next Page"
+            aria-label="Next Page"
+            @click="page += 1; loadData()"
+          />
         </div>
       </div>
     </UCard>
@@ -417,7 +684,7 @@ onMounted(async () => {
           <template #header>
             <div class="flex items-center justify-between gap-3">
               <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Create Device</h3>
-              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeCreateDialog" />
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" title="Close" aria-label="Close" @click="closeCreateDialog" />
             </div>
           </template>
 
@@ -429,31 +696,51 @@ onMounted(async () => {
                 <template #label>
                   <span>MAC Address <span class="text-rose-500">*</span></span>
                 </template>
-                <UInput v-model="createForm.macAddress" placeholder="3C:E9:0E:54:C5:54" :ui="createInputUi" />
+                <UInput v-model="createForm.macAddress" class="h-10 w-full" placeholder="3C:E9:0E:54:C5:54" :ui="createInputUi" />
               </UFormField>
               <UFormField>
                 <template #label>
                   <span>Device UID (Auto)</span>
                 </template>
-                <UInput :model-value="generatedDeviceUid" readonly :ui="createInputUi" />
+                <UInput :model-value="generatedDeviceUid" class="h-10 w-full" readonly :ui="createInputUi" />
               </UFormField>
             </div>
 
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <UFormField label="Device Name (optional)">
-                <UInput v-model="createForm.name" placeholder="IOT-Washer-01" :ui="createInputUi" />
+                <UInput v-model="createForm.name" class="h-10 w-full" placeholder="IOT-Washer-01" :ui="createInputUi" />
               </UFormField>
               <UFormField label="Device Model (optional)">
-                <UInput v-model="createForm.model" placeholder="ESP32-S3" :ui="createInputUi" />
+                <UInput v-model="createForm.model" class="h-10 w-full" placeholder="ESP32-S3" :ui="createInputUi" />
               </UFormField>
             </div>
 
-            <UFormField>
-              <template #label>
-                <span>FW Version <span class="text-rose-500">*</span></span>
-              </template>
-              <UInput v-model="createForm.fwVersion" placeholder="1.0.0" :ui="createInputUi" />
-            </UFormField>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <UFormField>
+                <template #label>
+                  <span>FW Version <span class="text-rose-500">*</span></span>
+                </template>
+                <UInput v-model="createForm.fwVersion" class="h-10 w-full" placeholder="1.0.0" :ui="createInputUi" />
+              </UFormField>
+              <div />
+            </div>
+
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <UFormField label="Status">
+                <select
+                  v-model="createForm.status"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  <option value="NEW">NEW</option>
+                  <option value="SPARE">SPARE</option>
+                  <option value="BOUND">BOUND</option>
+                  <option value="REPLACED">REPLACED</option>
+                  <option value="OFFLINE">OFFLINE</option>
+                  <option value="DISABLED">DISABLED</option>
+                </select>
+              </UFormField>
+              <div />
+            </div>
           </div>
 
           <template #footer>
@@ -465,5 +752,168 @@ onMounted(async () => {
         </UCard>
       </template>
     </UModal>
+
+    <UModal v-model:open="editOpen" :ui="{ content: 'sm:max-w-xl' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Edit Device</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" title="Close" aria-label="Close" @click="editOpen = false" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UAlert v-if="createError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="createError" />
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <UFormField label="Device UID">
+                <UInput v-model="editForm.deviceUid" class="h-10 w-full" :ui="createInputUi" />
+              </UFormField>
+              <UFormField label="FW Version">
+                <UInput v-model="editForm.fwVersion" class="h-10 w-full" :ui="createInputUi" />
+              </UFormField>
+            </div>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <UFormField label="Name">
+                <UInput v-model="editForm.name" class="h-10 w-full" :ui="createInputUi" />
+              </UFormField>
+              <UFormField label="Model">
+                <UInput v-model="editForm.model" class="h-10 w-full" :ui="createInputUi" />
+              </UFormField>
+            </div>
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <UFormField label="Status">
+                <select
+                  v-model="editForm.status"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                >
+                  <option value="NEW">NEW</option>
+                  <option value="SPARE">SPARE</option>
+                  <option value="BOUND">BOUND</option>
+                  <option value="REPLACED">REPLACED</option>
+                  <option value="OFFLINE">OFFLINE</option>
+                  <option value="DISABLED">DISABLED</option>
+                </select>
+              </UFormField>
+              <div />
+            </div>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="editOpen = false">Cancel</UButton>
+              <UButton color="primary" class="text-white" :loading="editing" @click="saveEditDevice">Save</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="keyModalOpen" :ui="{ content: 'sm:max-w-5xl' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Device Keys</h3>
+                <p class="text-sm text-slate-600 dark:text-slate-300">
+                  {{ keySelectedDevice?.name || "-" }} ({{ keySelectedDevice?.macAddress || "-" }})
+                </p>
+              </div>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" title="Close" aria-label="Close" @click="keyModalOpen = false" />
+            </div>
+          </template>
+
+          <div class="space-y-3">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <UFormField label="Label (optional)">
+                <UInput v-model="keyForm.label" class="h-10 w-full" :ui="createInputUi" />
+              </UFormField>
+              <UFormField label="Expire Date">
+                <UPopover v-model:open="keyExpiresCalendarOpen">
+                  <UInput
+                    :model-value="formatCalendarInput(keyExpiresDate)"
+                    readonly
+                    placeholder="Select date"
+                    icon="i-lucide-calendar"
+                    class="h-10 w-full"
+                    :ui="createInputUi"
+                  />
+                  <template #content>
+                    <div class="bg-white p-2 dark:bg-slate-900">
+                      <UCalendar v-model="keyExpiresDate" @update:model-value="keyExpiresCalendarOpen = false" />
+                    </div>
+                  </template>
+                </UPopover>
+              </UFormField>
+              <div class="flex items-end">
+                <UButton color="primary" class="text-white" :loading="keyCreating" @click="createDeviceKey">Create Key</UButton>
+              </div>
+            </div>
+
+            <p v-if="keyGenerated" class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 font-mono text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+              {{ keyGenerated }}
+            </p>
+
+            <div class="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+              <table class="min-w-full text-sm">
+                <thead class="bg-slate-100 text-left text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                  <tr>
+                    <th class="px-3 py-2">Key Prefix</th>
+                    <th class="px-3 py-2">Label</th>
+                    <th class="px-3 py-2">Status</th>
+                    <th class="px-3 py-2">Expires At</th>
+                    <th class="px-3 py-2">Last Used</th>
+                    <th class="px-3 py-2">Created</th>
+                    <th class="px-3 py-2 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="key in keyItems" :key="key.id" class="border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/40">
+                    <td class="px-3 py-2 font-mono">{{ key.keyPrefix }}</td>
+                    <td class="px-3 py-2">{{ key.label || "-" }}</td>
+                    <td class="px-3 py-2">
+                      <span :class="key.status === 'ACTIVE' ? 'font-semibold text-emerald-600 dark:text-emerald-400' : 'font-semibold text-rose-600 dark:text-rose-400'">
+                        {{ key.status }}
+                      </span>
+                    </td>
+                    <td class="px-3 py-2"><DateTimeTwoLine :value="key.expiresAt || null" /></td>
+                    <td class="px-3 py-2"><DateTimeTwoLine :value="key.lastUsedAt || null" /></td>
+                    <td class="px-3 py-2"><DateTimeTwoLine :value="key.createdAt" /></td>
+                    <td class="px-3 py-2">
+                      <div class="flex items-center justify-center gap-1">
+                        <UButton
+                          v-if="key.status === 'ACTIVE'"
+                          icon="i-lucide-ban"
+                          size="xs"
+                          color="warning"
+                          variant="soft"
+                          :loading="keyRevokingId === key.id"
+                          title="Revoke Key"
+                          aria-label="Revoke Key"
+                          @click="revokeDeviceKey(key)"
+                        />
+                        <UButton
+                          icon="i-lucide-trash-2"
+                          size="xs"
+                          color="error"
+                          variant="soft"
+                          :loading="keyDeletingId === key.id"
+                          title="Delete Key"
+                          aria-label="Delete Key"
+                          @click="deleteDeviceKey(key)"
+                        />
+                      </div>
+                    </td>
+                  </tr>
+                  <tr v-if="!keyModalLoading && keyItems.length === 0">
+                    <td colspan="7" class="px-3 py-6 text-center text-slate-500">No keys found</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </UCard>
+      </template>
+    </UModal>
+
   </section>
 </template>

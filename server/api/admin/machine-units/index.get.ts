@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
   }
 
   const [items, total] = await Promise.all([
-    prisma.machineUnit.findMany({
+    prisma.machine.findMany({
       where,
       include: {
         bindings: {
@@ -38,7 +38,7 @@ export default defineEventHandler(async (event) => {
       skip,
       take
     }),
-    prisma.machineUnit.count({ where })
+    prisma.machine.count({ where })
   ])
 
   return { items, total, page, pageSize }

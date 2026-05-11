@@ -26,41 +26,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Asset not found' })
   }
 
-  try {
-    const now = new Date()
-    const offers = await prisma.assetProductOffer.findMany({
-      where: {
-        tenantId: asset.tenantId,
-        assetId: asset.id
-      },
-      include: {
-        product: true
-      },
-      orderBy: [
-        { active: 'desc' },
-        { effectiveFrom: 'desc' },
-        { priority: 'asc' }
-      ]
-    })
-
-    const current = offers
-      .filter(item => item.active && item.effectiveFrom <= now && (!item.effectiveTo || item.effectiveTo >= now))
-      .sort((a, b) => {
-        const priorityDiff = a.priority - b.priority
-        if (priorityDiff !== 0) return priorityDiff
-        return pricingTypeRank(a.pricingType) - pricingTypeRank(b.pricingType)
-      })
-    const upcoming = offers.filter(item => item.active && item.effectiveFrom > now)
-    const history = offers.filter(item => !item.active || (item.effectiveTo && item.effectiveTo < now))
-
-    return {
-      asset,
-      resolvedCurrent: current[0] || null,
-      current,
-      upcoming,
-      history
-    }
-  } catch {
+  const fallbackFromLegacyPrices = async () => {
     const fallback = await prisma.assetProductPrice.findMany({
       where: {
         tenantId: asset.tenantId,
@@ -94,5 +60,47 @@ export default defineEventHandler(async (event) => {
       upcoming: [],
       history: []
     }
+  }
+
+  try {
+    const now = new Date()
+    const offers = await prisma.assetProductOffer.findMany({
+      where: {
+        tenantId: asset.tenantId,
+        assetId: asset.id
+      },
+      include: {
+        product: true
+      },
+      orderBy: [
+        { active: 'desc' },
+        { effectiveFrom: 'desc' },
+        { priority: 'asc' }
+      ]
+    })
+
+    if (!offers.length) {
+      return await fallbackFromLegacyPrices()
+    }
+
+    const current = offers
+      .filter(item => item.active && item.effectiveFrom <= now && (!item.effectiveTo || item.effectiveTo >= now))
+      .sort((a, b) => {
+        const priorityDiff = a.priority - b.priority
+        if (priorityDiff !== 0) return priorityDiff
+        return pricingTypeRank(a.pricingType) - pricingTypeRank(b.pricingType)
+      })
+    const upcoming = offers.filter(item => item.active && item.effectiveFrom > now)
+    const history = offers.filter(item => !item.active || (item.effectiveTo && item.effectiveTo < now))
+
+    return {
+      asset,
+      resolvedCurrent: current[0] || null,
+      current,
+      upcoming,
+      history
+    }
+  } catch {
+    return await fallbackFromLegacyPrices()
   }
 })

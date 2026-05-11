@@ -50,7 +50,7 @@ type TenantDetailResponse = {
     model: string | null
     canDelete: boolean
   }>
-  machineUnits: Array<{
+  machines: Array<{
     id: string
     serialNo: string
     brand: string | null
@@ -65,18 +65,12 @@ type TenantDetailResponse = {
     kind: string
     amount: number | null
     durationMinutes: number | null
-    serviceMode?: 'TIME' | 'QUANTITY'
-    serviceUnit?: 'MINUTE' | 'GRAM' | 'LITER' | 'PIECE' | 'SLOT' | 'UNIT'
+    serviceMode?: string
+    serviceUnit?: string
     quantity?: number | null
     active: boolean
     locked: boolean
     updatedAt: string
-  }>
-  machineKinds: Array<{
-    code: string
-    name: string
-    active: boolean
-    canDelete: boolean
   }>
   selectedAsset?: {
     id: string
@@ -99,8 +93,8 @@ type TenantDetailResponse = {
       id: string
       amount: number
       durationMinutes: number
-      serviceMode?: 'TIME' | 'QUANTITY'
-      serviceUnit?: 'MINUTE' | 'GRAM' | 'LITER' | 'PIECE' | 'SLOT' | 'UNIT'
+      serviceMode?: string
+      serviceUnit?: string
       quantity?: number | null
       sortOrder: number
       active: boolean
@@ -113,8 +107,8 @@ type TenantDetailResponse = {
         active: boolean
         amount: number | null
         durationMinutes: number | null
-        serviceMode?: 'TIME' | 'QUANTITY'
-        serviceUnit?: 'MINUTE' | 'GRAM' | 'LITER' | 'PIECE' | 'SLOT' | 'UNIT'
+        serviceMode?: string
+        serviceUnit?: string
         quantity?: number | null
       } | null
     }>
@@ -132,7 +126,7 @@ type TenantDetailResponse = {
       status: string
       fwVersion: string | null
     } | null
-    machineUnit: {
+    machine: {
       id: string
       serialNo: string
       brand: string | null
@@ -217,15 +211,6 @@ const machineCreateSaving = ref(false)
 const machineCreateError = ref('')
 const machineDeleteSavingId = ref('')
 const machineDeleteError = ref('')
-const machineKindFormOpen = ref(false)
-const machineKindEditCode = ref('')
-const machineKindCode = ref('')
-const machineKindName = ref('')
-const machineKindStatus = ref<'ACTIVE' | 'DISABLED'>('ACTIVE')
-const machineKindFormSaving = ref(false)
-const machineKindFormError = ref('')
-const machineKindDeleteSavingCode = ref('')
-const machineKindDeleteError = ref('')
 const merchantEditOpen = ref(false)
 const merchantEditId = ref('')
 const merchantEditName = ref('')
@@ -278,8 +263,8 @@ const productCreateName = ref('')
 const productCreateKind = ref('')
 const productCreateAmount = ref<number | null>(null)
 const productCreateDurationMinutes = ref<number | null>(null)
-const productCreateServiceMode = ref<'TIME' | 'QUANTITY'>('TIME')
-const productCreateServiceUnit = ref<'MINUTE' | 'GRAM' | 'LITER' | 'PIECE' | 'SLOT' | 'UNIT'>('MINUTE')
+const productCreateServiceMode = ref('TIME')
+const productCreateServiceUnit = ref('MINUTE')
 const productCreateQuantity = ref<number | null>(null)
 const productCreateStatus = ref<'ACTIVE' | 'DISABLED'>('ACTIVE')
 const productEditId = ref('')
@@ -298,7 +283,7 @@ const bindMachineOpen = ref(false)
 const bindMachineSaving = ref(false)
 const bindMachineError = ref('')
 const bindMachineId = ref('')
-const availableMachineUnits = ref<Array<{ id: string; serialNo: string; brand: string | null; model: string | null }>>([])
+const availableMachines = ref<Array<{ id: string; serialNo: string; brand: string | null; model: string | null }>>([])
 const { data: authData } = useAuth()
 
 type AppPermission =
@@ -306,13 +291,17 @@ type AppPermission =
   | 'portal.user.manage'
   | 'portal.merchant.manage'
   | 'portal.branch.manage'
-  | 'portal.asset.manage'
+  | 'portal.asset.read'
+  | 'portal.asset.manage.global'
+  | 'portal.asset.manage.scoped'
 const rolePermissionMap: Record<string, AppPermission[]> = {
-  OWNER: ['portal.settings.manage', 'portal.user.manage', 'portal.merchant.manage', 'portal.branch.manage', 'portal.asset.manage'],
-  MANAGER: ['portal.asset.manage'],
-  STAFF: ['portal.asset.manage']
+  ADMIN: ['portal.settings.manage', 'portal.user.manage', 'portal.merchant.manage', 'portal.branch.manage', 'portal.asset.read', 'portal.asset.manage.global'],
+  OWNER: ['portal.settings.manage', 'portal.user.manage', 'portal.merchant.manage', 'portal.branch.manage', 'portal.asset.read', 'portal.asset.manage.global', 'portal.asset.manage.scoped'],
+  MANAGER: ['portal.asset.read', 'portal.asset.manage.scoped'],
+  STAFF: ['portal.asset.read', 'portal.asset.manage.scoped']
 }
-const roleKey = computed(() => String(authData.value?.user?.role || '').toUpperCase())
+const roleKey = computed(() => String(authData.value?.user?.role || '').trim().toUpperCase())
+const isScopedRole = computed(() => roleKey.value === 'MANAGER' || roleKey.value === 'STAFF')
 function can(permission: AppPermission) {
   return (rolePermissionMap[roleKey.value] || []).includes(permission)
 }
@@ -320,7 +309,14 @@ const canManageSettings = computed(() => can('portal.settings.manage'))
 const canManageUsers = computed(() => can('portal.user.manage'))
 const canManageMerchant = computed(() => can('portal.merchant.manage'))
 const canManageBranch = computed(() => can('portal.branch.manage'))
-const canManageAsset = computed(() => can('portal.asset.manage'))
+const canManageAssetGlobal = computed(() => can('portal.asset.manage.global'))
+const canManageAssetScoped = computed(() => can('portal.asset.manage.scoped'))
+const canManageAsset = computed(() => canManageAssetGlobal.value || canManageAssetScoped.value)
+const assetAccessLabel = computed(() => {
+  if (canManageAssetGlobal.value) return 'Global'
+  if (canManageAssetScoped.value) return 'Scoped'
+  return 'Read-only'
+})
 
 const queryParams = computed(() => ({
   merchantAccountId: selectedMerchantId.value || undefined,
@@ -333,6 +329,11 @@ const { data, pending, error, refresh } = await useFetch<TenantDetailResponse>('
   query: queryParams
 })
 const { data: governanceData, pending: governancePending, refresh: refreshGovernance } = await useFetch<GovernanceResponse>('/api/app/governance')
+const { data: taxonomyData } = await useFetch<{
+  productTypes: Array<{ code: string; name: string }>
+  serviceModes: Array<{ code: string; name: string }>
+  serviceUnits: Array<{ code: string; name: string; symbol?: string | null }>
+}>('/api/app/products/taxonomy')
 
 const tenantName = computed(() => data.value?.tenant?.name || '-')
 const tenantCode = computed(() => data.value?.tenant?.code || '-')
@@ -340,10 +341,8 @@ const merchants = computed(() => data.value?.merchants || [])
 const branches = computed(() => data.value?.branches || [])
 const assets = computed(() => data.value?.assets || [])
 const devices = computed(() => data.value?.devices || [])
-const machineUnits = computed(() => data.value?.machineUnits || [])
+const machines = computed(() => data.value?.machines || [])
 const products = computed(() => data.value?.products || [])
-const machineKinds = computed(() => data.value?.machineKinds || [])
-const activeMachineKinds = computed(() => machineKinds.value.filter(item => item.active))
 const assetTypes = computed(() => data.value?.assetTypes || [])
 const selectedAsset = computed(() => data.value?.selectedAsset || null)
 const activeBinding = computed(() => data.value?.activeBinding || null)
@@ -378,7 +377,7 @@ const deviceColumns = [
   { accessorKey: 'status', header: 'Status' },
   { accessorKey: 'actions', header: 'Action' }
 ]
-const machineUnitColumns = [
+const machineColumns = [
   { accessorKey: 'serialNo', header: 'Serial No' },
   { accessorKey: 'modelLabel', header: 'Model' },
   { accessorKey: 'status', header: 'Status' },
@@ -391,12 +390,6 @@ const productColumns = [
   { accessorKey: 'serviceLabel', header: 'Service' },
   { accessorKey: 'statusLabel', header: 'Status' },
   { accessorKey: 'lockLabel', header: 'Lock' },
-  { accessorKey: 'actions', header: 'Action' }
-]
-const machineKindColumns = [
-  { accessorKey: 'name', header: 'Name' },
-  { accessorKey: 'code', header: 'Code' },
-  { accessorKey: 'statusLabel', header: 'Status' },
   { accessorKey: 'actions', header: 'Action' }
 ]
 const billerColumns = [
@@ -422,18 +415,16 @@ const governanceUserColumns = [
   { accessorKey: 'createdAtLabel', header: 'CreatedAt' },
   { accessorKey: 'updatedAtLabel', header: 'UpdatedAt' }
 ]
-const machineUnitRows = computed(() => machineUnits.value.map(item => ({
+const machineRows = computed(() => machines.value.map(item => ({
   ...item,
   modelLabel: `${item.brand || '-'} / ${item.model || '-'}`
 })))
-const serviceUnitOptions = [
-  { value: 'MINUTE', label: 'Minute (min)' },
-  { value: 'GRAM', label: 'Gram (g)' },
-  { value: 'LITER', label: 'Liter (L)' },
-  { value: 'PIECE', label: 'Piece' },
-  { value: 'SLOT', label: 'Slot' },
-  { value: 'UNIT', label: 'Unit' }
-]
+const serviceModeOptions = computed(() => (taxonomyData.value?.serviceModes || []).map(item => ({ value: item.code, label: item.name || item.code })))
+const serviceUnitOptions = computed(() => (taxonomyData.value?.serviceUnits || []).map(item => ({
+  value: item.code,
+  label: item.symbol ? `${item.name} (${item.symbol})` : item.name || item.code
+})))
+const productTypeOptions = computed(() => (taxonomyData.value?.productTypes || []).map(item => ({ value: item.code, label: item.name || item.code })))
 function serviceUnitLabel(unit?: string | null) {
   const normalized = String(unit || '').toUpperCase()
   if (normalized === 'MINUTE') return 'min'
@@ -454,10 +445,6 @@ const productRows = computed(() => products.value.map(item => ({
   serviceLabel: productServiceText(item),
   statusLabel: item.active ? 'ACTIVE' : 'DISABLED',
   lockLabel: item.locked ? 'LOCKED' : '-'
-})))
-const machineKindRows = computed(() => machineKinds.value.map(item => ({
-  ...item,
-  statusLabel: item.active ? 'ACTIVE' : 'DISABLED'
 })))
 const governanceBillerRows = computed(() => governanceBillers.value.map(item => ({
   ...item,
@@ -514,6 +501,10 @@ const branchRows = computed(() => {
   }
   return rows
 })
+const filterBranchOptions = computed(() => {
+  if (!selectedMerchantId.value) return branches.value
+  return branches.value.filter(item => item.merchantAccountId === selectedMerchantId.value)
+})
 
 watch(() => governanceData.value?.paymentExpiryMinutes, (v) => {
   if (typeof v === 'number' && Number.isFinite(v)) paymentExpiryInput.value = v
@@ -539,13 +530,27 @@ watch(merchants, (rows) => {
   if (selectedMerchantId.value && !rows.some(item => item.id === selectedMerchantId.value)) {
     selectedMerchantId.value = ''
   }
+  if (isScopedRole.value && !selectedMerchantId.value && rows.length) {
+    selectedMerchantId.value = rows[0].id
+  }
 }, { immediate: true })
 
 watch(branches, (rows) => {
   if (selectedBranchId.value && !rows.some(item => item.id === selectedBranchId.value)) {
     selectedBranchId.value = ''
   }
+  if (isScopedRole.value && selectedMerchantId.value && !selectedBranchId.value) {
+    const scoped = rows.filter(item => item.merchantAccountId === selectedMerchantId.value)
+    if (scoped.length) selectedBranchId.value = scoped[0].id
+  }
 }, { immediate: true })
+
+watch(selectedMerchantId, (merchantId) => {
+  if (!merchantId) return
+  if (selectedBranchId.value && !filterBranchOptions.value.some(item => item.id === selectedBranchId.value)) {
+    selectedBranchId.value = ''
+  }
+})
 
 watch(assets, (rows) => {
   if (selectedAssetId.value && !rows.some(item => item.id === selectedAssetId.value)) {
@@ -553,15 +558,15 @@ watch(assets, (rows) => {
   }
 }, { immediate: true })
 
-watch(machineKinds, (rows) => {
-  if (productCreateKind.value && !rows.some(item => item.code === productCreateKind.value)) {
+watch(productTypeOptions, (rows) => {
+  if (productCreateKind.value && !rows.some(item => item.value === productCreateKind.value)) {
     productCreateKind.value = ''
   }
 }, { immediate: true })
 
 function statusTextClass(status?: string | null) {
   const s = String(status || '').toUpperCase()
-  if (s === 'ACTIVE' || s === 'VERIFIED' || s === 'IN_USE') return 'text-emerald-600 dark:text-emerald-400'
+  if (s === 'ACTIVE' || s === 'VERIFIED' || s === 'BOUND') return 'text-emerald-600 dark:text-emerald-400'
   if (s === 'SUSPENDED' || s === 'MAINTENANCE' || s === 'SPARE') return 'text-amber-600 dark:text-amber-400'
   if (s === 'DISABLED' || s === 'INACTIVE' || s === 'OFFLINE') return 'text-rose-600 dark:text-rose-400'
   return 'text-slate-700 dark:text-slate-200'
@@ -911,7 +916,7 @@ async function submitCreateMachine() {
     await refresh()
     closeCreateMachine()
   } catch (err) {
-    machineCreateError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to create machine unit'
+    machineCreateError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to create machine'
   } finally {
     machineCreateSaving.value = false
   }
@@ -920,7 +925,7 @@ async function submitCreateMachine() {
 async function deleteMachine(item: { id: string; canDelete: boolean }) {
   if (!canManageAsset.value) return
   if (!item.canDelete) return
-  const ok = globalThis.confirm?.('Delete this machine unit?') ?? false
+  const ok = globalThis.confirm?.('Delete this machine?') ?? false
   if (!ok) return
   machineDeleteSavingId.value = item.id
   machineDeleteError.value = ''
@@ -928,90 +933,9 @@ async function deleteMachine(item: { id: string; canDelete: boolean }) {
     await $fetch(`/api/app/machine-units/${item.id}`, { method: 'DELETE' })
     await refresh()
   } catch (err) {
-    machineDeleteError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to delete machine unit'
+    machineDeleteError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to delete machine'
   } finally {
     machineDeleteSavingId.value = ''
-  }
-}
-
-function openCreateMachineKind() {
-  if (!canManageAsset.value) return
-  machineKindFormError.value = ''
-  machineKindEditCode.value = ''
-  machineKindCode.value = ''
-  machineKindName.value = ''
-  machineKindStatus.value = 'ACTIVE'
-  machineKindFormOpen.value = true
-}
-
-function openEditMachineKind(item: { code: string; name: string; active: boolean }) {
-  if (!canManageAsset.value) return
-  machineKindFormError.value = ''
-  machineKindEditCode.value = item.code
-  machineKindCode.value = item.code
-  machineKindName.value = item.name
-  machineKindStatus.value = item.active ? 'ACTIVE' : 'DISABLED'
-  machineKindFormOpen.value = true
-}
-
-function closeMachineKindForm() {
-  machineKindFormOpen.value = false
-  machineKindFormSaving.value = false
-  machineKindFormError.value = ''
-}
-
-async function submitMachineKindForm() {
-  if (!canManageAsset.value) return
-  machineKindFormSaving.value = true
-  machineKindFormError.value = ''
-  try {
-    const code = machineKindCode.value.trim()
-    const name = machineKindName.value.trim()
-    if (!code) throw new Error('Machine kind code is required.')
-    if (!name) throw new Error('Machine kind name is required.')
-
-    if (machineKindEditCode.value) {
-      await $fetch(`/api/app/machine-kinds/${encodeURIComponent(machineKindEditCode.value)}`, {
-        method: 'PATCH',
-        body: {
-          name,
-          status: machineKindStatus.value
-        }
-      })
-    } else {
-      await $fetch('/api/app/machine-kinds', {
-        method: 'POST',
-        body: {
-          code,
-          name,
-          status: machineKindStatus.value
-        }
-      })
-    }
-
-    await refresh()
-    closeMachineKindForm()
-  } catch (err) {
-    machineKindFormError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to save machine kind'
-  } finally {
-    machineKindFormSaving.value = false
-  }
-}
-
-async function deleteMachineKind(item: { code: string; canDelete: boolean }) {
-  if (!canManageAsset.value) return
-  if (!item.canDelete) return
-  const ok = globalThis.confirm?.(`Delete machine kind ${item.code}?`) ?? false
-  if (!ok) return
-  machineKindDeleteSavingCode.value = item.code
-  machineKindDeleteError.value = ''
-  try {
-    await $fetch(`/api/app/machine-kinds/${encodeURIComponent(item.code)}`, { method: 'DELETE' })
-    await refresh()
-  } catch (err) {
-    machineKindDeleteError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to delete machine kind'
-  } finally {
-    machineKindDeleteSavingCode.value = ''
   }
 }
 
@@ -1181,7 +1105,7 @@ async function openBindDeviceModal() {
     bindDeviceId.value = availableIotDevices.value[0]?.id || ''
     bindDeviceOpen.value = true
   } catch (err) {
-    bindDeviceError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to load spare IoT devices'
+    bindDeviceError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to load NEW/SPARE IoT devices'
   } finally {
     bindDeviceSaving.value = false
   }
@@ -1222,11 +1146,11 @@ async function openBindMachineModal() {
   bindMachineError.value = ''
   try {
     const result = await $fetch<{ items: Array<{ id: string; serialNo: string; brand: string | null; model: string | null }> }>(`/api/app/assets/${selectedAssetId.value}/available-machine-units`)
-    availableMachineUnits.value = result.items || []
-    bindMachineId.value = availableMachineUnits.value[0]?.id || ''
+    availableMachines.value = result.items || []
+    bindMachineId.value = availableMachines.value[0]?.id || ''
     bindMachineOpen.value = true
   } catch (err) {
-    bindMachineError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to load spare machine units'
+    bindMachineError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to load NEW/SPARE machines'
   } finally {
     bindMachineSaving.value = false
   }
@@ -1247,14 +1171,14 @@ async function submitBindMachine() {
     await $fetch(`/api/app/assets/${selectedAssetId.value}/replace-machine`, {
       method: 'POST',
       body: {
-        machineUnitId: bindMachineId.value,
-        reason: activeBinding.value?.machineUnit ? 'portal-replace-machine' : 'portal-bind-machine'
+        machineId: bindMachineId.value,
+        reason: activeBinding.value?.machine ? 'portal-replace-machine' : 'portal-bind-machine'
       }
     })
     await refresh()
     closeBindMachineModal()
   } catch (err) {
-    bindMachineError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to bind machine unit'
+    bindMachineError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || (err as Error).message || 'Failed to bind machine'
   } finally {
     bindMachineSaving.value = false
   }
@@ -1272,7 +1196,7 @@ async function openCreateProduct() {
   if (!canManageAsset.value) return
   productEditId.value = ''
   productCreateName.value = ''
-  productCreateKind.value = machineKinds.value[0]?.code || ''
+  productCreateKind.value = productTypeOptions.value[0]?.value || ''
   productCreateAmount.value = null
   productCreateDurationMinutes.value = null
   productCreateServiceMode.value = 'TIME'
@@ -1283,7 +1207,7 @@ async function openCreateProduct() {
   productCreateOpen.value = true
 }
 
-function openEditProduct(product: { id: string; name: string; kind: string; amount: number | null; durationMinutes: number | null; serviceMode?: 'TIME' | 'QUANTITY'; serviceUnit?: 'MINUTE' | 'GRAM' | 'LITER' | 'PIECE' | 'SLOT' | 'UNIT'; quantity?: number | null; active: boolean }) {
+function openEditProduct(product: { id: string; name: string; kind: string; amount: number | null; durationMinutes: number | null; serviceMode?: string; serviceUnit?: string; quantity?: number | null; active: boolean }) {
   if (!canManageAsset.value) return
   productEditId.value = product.id
   productCreateName.value = product.name
@@ -1425,6 +1349,7 @@ async function submitCreateProduct() {
         <h2 class="text-2xl font-semibold text-slate-900 dark:text-white">{{ tenantName }}</h2>
         <div class="flex items-center gap-2">
           <p class="text-xs text-slate-500 dark:text-slate-400">Tenant: {{ tenantCode }} ({{ tenantName }})</p>
+          <UBadge color="info" variant="soft" size="md" class="font-semibold">Asset Access: {{ assetAccessLabel }}</UBadge>
           <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" size="xs" :disabled="!canManageSettings" @click="openTenantEdit" />
         </div>
       </div>
@@ -1433,9 +1358,10 @@ async function submitCreateProduct() {
           <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Merchant</label>
           <select
             v-model="selectedMerchantId"
+            :disabled="isScopedRole && merchants.length <= 1"
             class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
           >
-            <option value="">All merchants</option>
+            <option v-if="!isScopedRole" value="">All merchants</option>
             <option v-for="item in merchants" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </div>
@@ -1444,10 +1370,11 @@ async function submitCreateProduct() {
           <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Branch</label>
           <select
             v-model="selectedBranchId"
+            :disabled="isScopedRole && filterBranchOptions.length <= 1"
             class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
           >
-            <option value="">All branches</option>
-            <option v-for="item in branches" :key="item.id" :value="item.id">{{ item.name }}</option>
+            <option v-if="!isScopedRole" value="">All branches</option>
+            <option v-for="item in filterBranchOptions" :key="item.id" :value="item.id">{{ item.name }}</option>
           </select>
         </div>
 
@@ -1479,7 +1406,7 @@ async function submitCreateProduct() {
             <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Merchant List</p>
             <div class="flex items-center gap-2">
               <p class="text-xs text-slate-500 dark:text-slate-400">{{ merchantRows.length }} items</p>
-              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" :disabled="!canManageMerchant" @click="openCreateMerchant" />
+              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" class="text-white" :disabled="!canManageMerchant" @click="openCreateMerchant" />
             </div>
           </div>
           <div v-if="merchantDeleteError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
@@ -1522,7 +1449,7 @@ async function submitCreateProduct() {
             <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Device List</p>
             <div class="flex items-center gap-2">
               <p class="text-xs text-slate-500 dark:text-slate-400">{{ devices.length }} items</p>
-              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" :disabled="!canManageAsset" @click="openCreateDevice" />
+              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" class="text-white" :disabled="!canManageAsset" @click="openCreateDevice" />
             </div>
           </div>
           <div v-if="deviceDeleteError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
@@ -1562,7 +1489,7 @@ async function submitCreateProduct() {
             <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Branch List</p>
             <div class="flex items-center gap-2">
               <p class="text-xs text-slate-500 dark:text-slate-400">{{ branchRows.length }} items</p>
-              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" :disabled="!canManageBranch" @click="openCreateBranch" />
+              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" class="text-white" :disabled="!canManageBranch" @click="openCreateBranch" />
             </div>
           </div>
           <div v-if="branchDeleteError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
@@ -1604,17 +1531,17 @@ async function submitCreateProduct() {
           <div class="mb-3 flex items-center justify-between">
             <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Machine List</p>
             <div class="flex items-center gap-2">
-              <p class="text-xs text-slate-500 dark:text-slate-400">{{ machineUnits.length }} items</p>
-              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" :disabled="!canManageAsset" @click="openCreateMachine" />
+              <p class="text-xs text-slate-500 dark:text-slate-400">{{ machines.length }} items</p>
+              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" class="text-white" :disabled="!canManageAsset" @click="openCreateMachine" />
             </div>
           </div>
           <div v-if="machineDeleteError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
             {{ machineDeleteError }}
           </div>
           <div v-if="pending" class="py-4 text-center text-sm text-slate-500 dark:text-slate-400">Loading...</div>
-          <div v-else-if="!machineUnits.length" class="py-4 text-center text-sm text-slate-500 dark:text-slate-400">No machines.</div>
+          <div v-else-if="!machines.length" class="py-4 text-center text-sm text-slate-500 dark:text-slate-400">No machines.</div>
           <div v-else class="flex-1 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-            <UTable :data="machineUnitRows" :columns="machineUnitColumns" sticky="header" class="tenant-utable h-full overflow-auto min-w-full text-sm">
+            <UTable :data="machineRows" :columns="machineColumns" sticky="header" class="tenant-utable h-full overflow-auto min-w-full text-sm">
               <template #status-cell="{ row }"><span class="text-sm font-semibold" :class="statusTextClass(row.original.status)">{{ row.original.status }}</span></template>
               <template #actions-cell="{ row }">
                 <div class="text-center">
@@ -1625,7 +1552,7 @@ async function submitCreateProduct() {
                     size="xs"
                     :loading="machineDeleteSavingId === row.original.id"
                     :disabled="!canManageAsset || !row.original.canDelete"
-                    :title="row.original.canDelete ? 'Delete' : 'Only SPARE and never-bound machine unit can be deleted'"
+                    :title="row.original.canDelete ? 'Delete' : 'Only SPARE and never-bound machine can be deleted'"
                     @click="deleteMachine(row.original)"
                   />
                 </div>
@@ -1639,7 +1566,7 @@ async function submitCreateProduct() {
             <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Product List</p>
             <div class="flex items-center gap-2">
               <p class="text-xs text-slate-500 dark:text-slate-400">{{ products.length }} items</p>
-              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" :disabled="!canManageAsset" @click="openCreateProduct" />
+              <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" class="text-white" :disabled="!canManageAsset" @click="openCreateProduct" />
             </div>
           </div>
           <div v-if="pending" class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">Loading...</div>
@@ -1661,42 +1588,6 @@ async function submitCreateProduct() {
             </UTable>
           </div>
         </UCard>
-
-        <div class="lg:col-span-3 lg:order-6 grid h-[240px] grid-rows-1 gap-3">
-          <UCard :ui="{ root: 'h-full bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700', body: 'h-full p-3 flex flex-col' }">
-            <div class="mb-2 flex items-center justify-between">
-              <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Machine Kind</p>
-              <div class="flex items-center gap-2">
-                <p class="text-xs text-slate-500 dark:text-slate-400">{{ machineKinds.length }} total</p>
-                <UButton icon="i-lucide-plus" color="primary" variant="soft" size="xs" :disabled="!canManageAsset" @click="openCreateMachineKind" />
-              </div>
-            </div>
-            <div v-if="machineKindDeleteError" class="mb-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">{{ machineKindDeleteError }}</div>
-            <div class="flex-1 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700">
-              <div v-if="!machineKinds.length" class="py-4 text-center text-xs text-slate-500 dark:text-slate-400">No data.</div>
-              <UTable v-else :data="machineKindRows" :columns="machineKindColumns" sticky="header" class="tenant-utable h-full overflow-auto min-w-full text-sm">
-                <template #name-cell="{ row }"><span class="text-sm font-medium text-slate-800 dark:text-slate-100">{{ row.original.name }}</span></template>
-                <template #code-cell="{ row }"><span class="text-sm text-slate-700 dark:text-slate-200">{{ row.original.code }}</span></template>
-                <template #statusLabel-cell="{ row }"><span class="text-sm font-semibold" :class="statusTextClass(row.original.statusLabel)">{{ row.original.statusLabel }}</span></template>
-                <template #actions-cell="{ row }">
-                  <div class="text-center">
-                    <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" size="xs" :disabled="!canManageAsset" @click="openEditMachineKind(row.original)" />
-                    <UButton
-                      icon="i-lucide-trash-2"
-                      color="error"
-                      variant="ghost"
-                      size="xs"
-                      :loading="machineKindDeleteSavingCode === row.original.code"
-                      :disabled="!canManageAsset || !row.original.canDelete"
-                      :title="row.original.canDelete ? 'Delete' : 'Cannot delete: in use by assets/products/machines'"
-                      @click="deleteMachineKind(row.original)"
-                    />
-                  </div>
-                </template>
-              </UTable>
-            </div>
-          </UCard>
-        </div>
 
       </div>
     </div>
@@ -1812,7 +1703,7 @@ async function submitCreateProduct() {
           <template #footer>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="closeCreateMerchant">Cancel</UButton>
-              <UButton color="primary" :loading="merchantCreateSaving" :disabled="!canManageMerchant" @click="submitCreateMerchant">Create Merchant</UButton>
+              <UButton color="primary" class="text-white" :loading="merchantCreateSaving" :disabled="!canManageMerchant" @click="submitCreateMerchant">Create Merchant</UButton>
             </div>
           </template>
         </UCard>
@@ -1905,7 +1796,7 @@ async function submitCreateProduct() {
           <template #footer>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="closeCreateBranch">Cancel</UButton>
-              <UButton color="primary" :loading="branchCreateSaving" :disabled="!canManageBranch" @click="submitCreateBranch">Create Branch</UButton>
+              <UButton color="primary" class="text-white" :loading="branchCreateSaving" :disabled="!canManageBranch" @click="submitCreateBranch">Create Branch</UButton>
             </div>
           </template>
         </UCard>
@@ -2035,7 +1926,7 @@ async function submitCreateProduct() {
           <template #footer>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="closeCreateDevice">Cancel</UButton>
-              <UButton color="primary" :loading="deviceCreateSaving" :disabled="!canManageAsset" @click="submitCreateDevice">Create Device</UButton>
+              <UButton color="primary" class="text-white" :loading="deviceCreateSaving" :disabled="!canManageAsset" @click="submitCreateDevice">Create Device</UButton>
             </div>
           </template>
         </UCard>
@@ -2047,7 +1938,7 @@ async function submitCreateProduct() {
         <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
           <template #header>
             <div class="flex items-center justify-between gap-3">
-              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Create Machine Unit</h3>
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Create Machine</h3>
               <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeCreateMachine" />
             </div>
           </template>
@@ -2086,64 +1977,7 @@ async function submitCreateProduct() {
           <template #footer>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="closeCreateMachine">Cancel</UButton>
-              <UButton color="primary" :loading="machineCreateSaving" :disabled="!canManageAsset" @click="submitCreateMachine">Create Machine</UButton>
-            </div>
-          </template>
-        </UCard>
-      </template>
-    </UModal>
-
-    <UModal v-model:open="machineKindFormOpen" :ui="{ content: 'sm:max-w-md' }">
-      <template #content>
-        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
-          <template #header>
-            <div class="flex items-center justify-between gap-3">
-              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{{ machineKindEditCode ? 'Edit Machine Kind' : 'Create Machine Kind' }}</h3>
-              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeMachineKindForm" />
-            </div>
-          </template>
-          <div class="space-y-3">
-            <UAlert v-if="machineKindFormError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="machineKindFormError" />
-            <UFormField>
-              <template #label>
-                <span>Machine Kind Code <span class="text-rose-500">*</span></span>
-              </template>
-              <UInput
-                v-model="machineKindCode"
-                :readonly="Boolean(machineKindEditCode)"
-                placeholder="e.g. WASHER"
-                class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
-                :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
-              />
-            </UFormField>
-            <UFormField>
-              <template #label>
-                <span>Machine Kind Name <span class="text-rose-500">*</span></span>
-              </template>
-              <UInput
-                v-model="machineKindName"
-                placeholder="e.g. Washer"
-                class="text-slate-900 placeholder:text-slate-500 dark:text-slate-100 dark:placeholder:text-slate-400"
-                :ui="{ base: 'bg-white ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:ring-slate-500' }"
-              />
-            </UFormField>
-            <UFormField>
-              <template #label>
-                <span>Status <span class="text-rose-500">*</span></span>
-              </template>
-              <select
-                v-model="machineKindStatus"
-                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
-              >
-                <option value="ACTIVE">ACTIVE</option>
-                <option value="DISABLED">DISABLED</option>
-              </select>
-            </UFormField>
-          </div>
-          <template #footer>
-            <div class="flex justify-end gap-2">
-              <UButton color="neutral" variant="soft" @click="closeMachineKindForm">Cancel</UButton>
-              <UButton color="primary" :loading="machineKindFormSaving" :disabled="!canManageAsset" @click="submitMachineKindForm">Save</UButton>
+              <UButton color="primary" class="text-white" :loading="machineCreateSaving" :disabled="!canManageAsset" @click="submitCreateMachine">Create Machine</UButton>
             </div>
           </template>
         </UCard>
@@ -2190,8 +2024,8 @@ async function submitCreateProduct() {
                 class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
               >
                 <option value="">Select type</option>
-                <option v-for="kind in activeMachineKinds" :key="kind.code" :value="kind.code">
-                  {{ kind.name }} ({{ kind.code }})
+                <option v-for="kind in productTypeOptions" :key="kind.value" :value="kind.value">
+                  {{ kind.label }} ({{ kind.value }})
                 </option>
               </select>
             </UFormField>
@@ -2220,8 +2054,9 @@ async function submitCreateProduct() {
                   v-model="productCreateServiceMode"
                   class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
                 >
-                  <option value="TIME">TIME</option>
-                  <option value="QUANTITY">QUANTITY</option>
+                  <option v-for="option in serviceModeOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </option>
                 </select>
               </UFormField>
             </div>
@@ -2274,7 +2109,7 @@ async function submitCreateProduct() {
           <template #footer>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="closeCreateProduct">Cancel</UButton>
-              <UButton color="primary" :loading="productCreateSaving" :disabled="!canManageAsset || (isProductEditMode && isEditingProductLocked)" @click="submitCreateProduct">{{ isProductEditMode ? 'Save Product' : 'Create Product' }}</UButton>
+              <UButton color="primary" class="text-white" :loading="productCreateSaving" :disabled="!canManageAsset || (isProductEditMode && isEditingProductLocked)" @click="submitCreateProduct">{{ isProductEditMode ? 'Save Product' : 'Create Product' }}</UButton>
             </div>
           </template>
         </UCard>
@@ -2364,7 +2199,7 @@ async function submitCreateProduct() {
         <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
           <template #header>
             <div class="flex items-center justify-between gap-3">
-              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{{ activeBinding?.machineUnit ? 'Replace Machine Unit' : 'Bind Machine Unit' }}</h3>
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">{{ activeBinding?.machine ? 'Replace Machine' : 'Bind Machine' }}</h3>
               <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="closeBindMachineModal" />
             </div>
           </template>
@@ -2372,24 +2207,24 @@ async function submitCreateProduct() {
             <UAlert v-if="bindMachineError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="bindMachineError" />
             <UFormField>
               <template #label>
-                <span>Select Spare Machine Unit <span class="text-rose-500">*</span></span>
+                <span>Select Spare Machine <span class="text-rose-500">*</span></span>
               </template>
               <select
                 v-model="bindMachineId"
                 class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/40 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
               >
-                <option value="">Select machine unit</option>
-                <option v-for="item in availableMachineUnits" :key="item.id" :value="item.id">
+                <option value="">Select machine</option>
+                <option v-for="item in availableMachines" :key="item.id" :value="item.id">
                   {{ item.serialNo }}{{ item.brand || item.model ? ` · ${item.brand || '-'} / ${item.model || '-'}` : '' }}
                 </option>
               </select>
             </UFormField>
-            <p v-if="!availableMachineUnits.length" class="text-xs text-slate-500 dark:text-slate-400">No spare machine units available.</p>
+            <p v-if="!availableMachines.length" class="text-xs text-slate-500 dark:text-slate-400">No spare machines available.</p>
           </div>
           <template #footer>
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="closeBindMachineModal">Cancel</UButton>
-              <UButton color="primary" :loading="bindMachineSaving" :disabled="!canManageAsset || !bindMachineId" @click="submitBindMachine">{{ activeBinding?.machineUnit ? 'Replace' : 'Bind' }}</UButton>
+              <UButton color="primary" :loading="bindMachineSaving" :disabled="!canManageAsset || !bindMachineId" @click="submitBindMachine">{{ activeBinding?.machine ? 'Replace' : 'Bind' }}</UButton>
             </div>
           </template>
         </UCard>

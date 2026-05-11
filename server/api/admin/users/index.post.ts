@@ -3,6 +3,7 @@ import { AppUserRole, UserScopeType } from '@prisma/client'
 import { prisma } from '../../../utils/prisma'
 import { assertAdminAccess } from '../../../utils/admin-auth'
 import { hashPassword } from '../../../utils/password'
+import { resolveDefaultNewUserPassword } from '../../../utils/system-config'
 
 const scopeSchema = z.object({
   merchantIds: z.array(z.string().min(1)).default([]),
@@ -11,7 +12,7 @@ const scopeSchema = z.object({
 
 const schema = z.object({
   email: z.string().trim().email(),
-  password: z.string().min(8),
+  password: z.string().min(8).optional(),
   name: z.string().trim().nullable().optional(),
   role: z.nativeEnum(AppUserRole),
   isActive: z.boolean().default(true),
@@ -73,7 +74,7 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const passwordHash = await hashPassword(body.password)
+  const passwordHash = await hashPassword((body.password && body.password.trim()) ? body.password : await resolveDefaultNewUserPassword())
 
   const created = await prisma.$transaction(async (tx) => {
     const user = await tx.user.create({

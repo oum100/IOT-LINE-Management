@@ -7,7 +7,7 @@ definePageMeta({
   middleware: 'portal-auth'
 })
 
-type PeriodPreset = '24h' | 'week' | 'month' | 'year' | 'custom'
+type PeriodPreset = 'day' | 'week' | 'month' | 'year' | 'custom'
 type GroupBy = 'tenant' | 'merchant' | 'branch'
 type Metric = 'revenue' | 'orders' | 'payments'
 type Mode = 'all' | 'top5' | 'top10' | 'custom'
@@ -15,6 +15,7 @@ type Mode = 'all' | 'top5' | 'top10' | 'custom'
 type TenantOption = { id: string; code: string; name: string }
 type MerchantOption = { id: string; code: string; name: string; tenantId: string }
 type BranchOption = { id: string; code: string; name: string; tenantId: string; merchantAccountId: string }
+type DeviceTypeOption = { code: string; name: string }
 
 type ExplorerResponse = {
   filters: {
@@ -42,6 +43,23 @@ type ExplorerResponse = {
     paymentCount: number
     paymentAmount: number
   }>
+  timeline: {
+    categories: string[]
+    series: Array<{
+      id: string
+      name: string
+      data: number[]
+    }>
+  }
+  deviceTypeTimeline?: {
+    categories: string[]
+    series: Array<{
+      id: string
+      name: string
+      data: number[]
+    }>
+  }
+  deviceTypeOptions?: DeviceTypeOption[]
 }
 
 const ApexChart = defineAsyncComponent(async () => (await import('vue3-apexcharts')).default)
@@ -54,10 +72,13 @@ const period = ref<PeriodPreset>('month')
 const startDate = ref('')
 const endDate = ref('')
 const selectedMonth = ref(new Date().toISOString().slice(0, 7))
-const selectedWeekOfMonth = ref(1)
+const selectedYear = ref(String(new Date().getFullYear()))
+const selectedDayInMonth = ref(new Date().getDate())
 const selectedTenantIds = ref<string[]>([])
 const selectedMerchantIds = ref<string[]>([])
 const selectedBranchIds = ref<string[]>([])
+const selectedDeviceTypes = ref<string[]>(['__NONE__'])
+const selectedDeviceTypeCodes = computed(() => selectedDeviceTypes.value.filter(item => item !== '__NONE__'))
 
 const { data: tenantListData } = await useFetch<{ items: TenantOption[] }>('/api/admin/tenants')
 const tenantOptions = computed(() => tenantListData.value?.items || [])
@@ -106,53 +127,49 @@ function monthStartEnd(monthValue: string) {
   return { start, end }
 }
 
-function weeksInMonth(monthValue: string) {
-  if (!monthValue || !monthValue.includes('-')) return 4
-  const { start, end } = monthStartEnd(monthValue)
-  const firstWeekStart = new Date(start)
-  firstWeekStart.setDate(start.getDate() - start.getDay())
-  firstWeekStart.setHours(0, 0, 0, 0)
-
-  let count = 0
-  const cursor = new Date(firstWeekStart)
-  while (cursor <= end) {
-    count += 1
-    cursor.setDate(cursor.getDate() + 7)
-  }
-  return Math.max(1, count)
-}
-
-function weekRangeInMonth(monthValue: string, weekNo: number) {
-  const { start } = monthStartEnd(monthValue)
-  const firstWeekStart = new Date(start)
-  firstWeekStart.setDate(start.getDate() - start.getDay())
-  firstWeekStart.setHours(0, 0, 0, 0)
-
-  const weekStart = new Date(firstWeekStart)
-  weekStart.setDate(firstWeekStart.getDate() + (Math.max(1, weekNo) - 1) * 7)
-  const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekStart.getDate() + 6)
-  weekEnd.setHours(23, 59, 59, 999)
-
-  return { start: weekStart, end: weekEnd }
-}
-
-const weekOptions = computed(() => {
-  const total = weeksInMonth(selectedMonth.value)
-  return Array.from({ length: total }, (_, i) => i + 1)
+const dayOptionsInSelectedMonth = computed(() => {
+  const { end } = monthStartEnd(selectedMonth.value)
+  const totalDays = end.getDate()
+  return Array.from({ length: totalDays }, (_, i) => i + 1)
 })
 
-watch(weekOptions, (options) => {
-  if (!options.includes(selectedWeekOfMonth.value)) {
-    selectedWeekOfMonth.value = options[0] || 1
+watch(dayOptionsInSelectedMonth, (options) => {
+  if (!options.includes(selectedDayInMonth.value)) {
+    selectedDayInMonth.value = options[0] || 1
   }
 }, { immediate: true })
 
-function rangeQueryFor(periodValue: PeriodPreset, monthValue: string, weekValue: number, customStart: string, customEnd: string) {
+function dayStartEnd(monthValue: string, dayInMonth: number) {
+  const [yearRaw, monthRaw] = monthValue.split('-')
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  const day = Math.max(1, dayInMonth || 1)
+  const start = new Date(year, month - 1, day)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(year, month - 1, day)
+  end.setHours(23, 59, 59, 999)
+  return { start, end }
+}
+
+function rangeQueryFor(periodValue: PeriodPreset, monthValue: string, yearValue: string, dayInMonth: number, customStart: string, customEnd: string) {
   if (periodValue === 'custom') {
     return {
       start: customStart || undefined,
       end: customEnd || undefined
+    }
+  }
+  if (periodValue === 'day') {
+    const range = dayStartEnd(monthValue, dayInMonth)
+    return {
+      start: range.start.toISOString(),
+      end: range.end.toISOString()
+    }
+  }
+  if (periodValue === 'week') {
+    const range = monthStartEnd(monthValue)
+    return {
+      start: range.start.toISOString(),
+      end: range.end.toISOString()
     }
   }
   if (periodValue === 'month') {
@@ -162,25 +179,29 @@ function rangeQueryFor(periodValue: PeriodPreset, monthValue: string, weekValue:
       end: range.end.toISOString()
     }
   }
-  if (periodValue === 'week') {
-    const range = weekRangeInMonth(monthValue, weekValue)
+  if (periodValue === 'year') {
+    const year = Number(yearValue) || new Date().getFullYear()
+    const start = new Date(year, 0, 1)
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(year, 11, 31, 23, 59, 59, 999)
     return {
-      start: range.start.toISOString(),
-      end: range.end.toISOString()
+      start: start.toISOString(),
+      end: end.toISOString()
     }
   }
   return {}
 }
 
 const queryParams = computed(() => ({
-  ...rangeQueryFor(period.value, selectedMonth.value, selectedWeekOfMonth.value, startDate.value, endDate.value),
+  ...rangeQueryFor(period.value, selectedMonth.value, selectedYear.value, selectedDayInMonth.value, startDate.value, endDate.value),
   groupBy: groupBy.value,
   metric: metric.value,
   mode: mode.value,
   period: period.value,
   tenantIds: mode.value === 'custom' ? selectedTenantIds.value.join(',') : undefined,
   merchantIds: mode.value === 'custom' ? selectedMerchantIds.value.join(',') : undefined,
-  branchIds: mode.value === 'custom' ? selectedBranchIds.value.join(',') : undefined
+  branchIds: mode.value === 'custom' ? selectedBranchIds.value.join(',') : undefined,
+  deviceTypes: selectedDeviceTypeCodes.value.join(',')
 }))
 
 const { data, pending, error } = await useFetch<ExplorerResponse>('/api/admin/dashboard/sales-explorer', {
@@ -189,56 +210,78 @@ const { data, pending, error } = await useFetch<ExplorerResponse>('/api/admin/da
 
 const rows = computed(() => data.value?.rows || [])
 const totals = computed(() => data.value?.totals || { revenue: 0, orders: 0, payments: 0 })
+const timeline = computed(() => data.value?.timeline || { categories: [], series: [] as Array<{ id: string; name: string; data: number[] }> })
+const deviceTypeTimeline = computed(() => data.value?.deviceTypeTimeline || { categories: [], series: [] as Array<{ id: string; name: string; data: number[] }> })
+const deviceTypeOptions = computed(() => data.value?.deviceTypeOptions || [])
 
-const chartValue = (item: { amount: number; orderCount: number; paymentCount: number }) => {
-  if (metric.value === 'orders') return item.orderCount
-  if (metric.value === 'payments') return item.paymentCount
-  return item.amount
-}
-
-const chartSeries = computed(() => [{
-  name: metric.value === 'revenue' ? 'Revenue' : metric.value === 'orders' ? 'Orders' : 'Payments',
-  data: rows.value.map(item => chartValue(item))
-}])
+const chartSeries = computed(() => {
+  const areaSeries = timeline.value.series.map(item => ({
+    name: item.name,
+    type: 'area' as const,
+    data: item.data
+  }))
+  const includeDeviceType = metric.value === 'revenue' && selectedDeviceTypeCodes.value.length > 0
+  if (!includeDeviceType) return areaSeries
+  const lineSeries = deviceTypeTimeline.value.series.map(item => ({
+    name: `Type: ${item.name}`,
+    type: 'bar' as const,
+    data: item.data
+  }))
+  return [...areaSeries, ...lineSeries]
+})
 
 const chartHeight = computed(() => {
-  const n = Math.max(rows.value.length, 1)
-  return Math.min(520, Math.max(260, n * 36 + 90))
+  const n = Math.max(chartSeries.value.length, 1)
+  return Math.min(520, Math.max(320, n * 36 + 200))
 })
 
 const chartOptions = computed<ApexOptions>(() => {
   const isDark = colorMode.value === 'dark'
   return {
     chart: {
-      type: 'bar',
+      type: 'line',
+      stacked: true,
       toolbar: { show: false },
       background: 'transparent',
       foreColor: isDark ? '#cbd5e1' : '#475569'
     },
+    stroke: {
+      curve: 'smooth',
+      width: 3
+    },
     plotOptions: {
       bar: {
-        horizontal: true,
-        borderRadius: 6,
-        barHeight: '62%',
-        distributed: true
+        horizontal: false,
+        columnWidth: '35%',
+        borderRadius: 4
       }
+    },
+    fill: {
+      type: chartSeries.value.map(() => 'solid'),
+      gradient: {
+        shadeIntensity: 1,
+        opacityFrom: 0.2,
+        opacityTo: 0.2,
+        stops: [0, 90, 100]
+      },
+      opacity: chartSeries.value.map(series => (series.type === 'area' ? 0.2 : 1))
     },
     dataLabels: {
       enabled: true,
       formatter: (val) => Number(val).toLocaleString('en-US')
     },
     xaxis: {
-      categories: rows.value.map(item => item.label),
+      categories: timeline.value.categories,
       labels: {
-        formatter: (val) => Number(val).toLocaleString('en-US')
+        rotate: -30
       }
     },
     yaxis: {
       labels: {
-        maxWidth: 300
+        formatter: (val) => Number(val).toLocaleString('en-US')
       }
     },
-    colors: ['#3b82f6', '#06b6d4', '#22c55e', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#eab308', '#8b5cf6', '#ec4899'],
+    colors: ['#3b82f6', '#86efac', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316', '#ec4899', '#14b8a6'],
     grid: {
       borderColor: isDark ? '#334155' : '#e2e8f0'
     },
@@ -310,39 +353,54 @@ const rangeEndLabel = computed(() => formatDateOnly(data.value?.filters?.end))
               <option value="top10">Top 10</option>
               <option value="custom">Custom</option>
             </select>
+
+            <template v-if="period === 'custom'">
+              <label class="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">Start Date</label>
+              <input v-model="startDate" type="date" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+            </template>
           </div>
 
           <div class="flex w-[140px] flex-col gap-1">
             <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Period</label>
             <select v-model="period" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-              <option value="24h">24H</option>
+              <option value="day">Day</option>
               <option value="week">Week</option>
               <option value="month">Month</option>
               <option value="year">Year</option>
               <option value="custom">Date Range</option>
             </select>
+
+            <template v-if="period === 'day'">
+              <label class="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">Day</label>
+              <select v-model.number="selectedDayInMonth" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+                <option v-for="dayNo in dayOptionsInSelectedMonth" :key="dayNo" :value="dayNo">Day {{ dayNo }}</option>
+              </select>
+            </template>
+
+            <template v-if="period === 'custom'">
+              <label class="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">End Date</label>
+              <input v-model="endDate" type="date" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+            </template>
           </div>
 
-          <div v-if="period === 'month' || period === 'week'" class="flex w-[140px] flex-col gap-1">
+          <div v-if="period === 'day' || period === 'week' || period === 'month'" class="flex w-[140px] flex-col gap-1">
             <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Month</label>
             <input v-model="selectedMonth" type="month" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
           </div>
 
-          <div v-if="period === 'week'" class="flex w-[120px] flex-col gap-1">
-            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Week</label>
-            <select v-model.number="selectedWeekOfMonth" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-              <option v-for="weekNo in weekOptions" :key="weekNo" :value="weekNo">Week {{ weekNo }}</option>
+          <div v-if="period === 'year'" class="flex w-[120px] flex-col gap-1">
+            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Year</label>
+            <input v-model="selectedYear" type="number" min="2000" max="2100" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+          </div>
+
+          <div class="flex w-[180px] flex-col gap-1">
+            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Device Type</label>
+            <select v-model="selectedDeviceTypes" multiple class="h-28 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+              <option value="__NONE__">None</option>
+              <option v-for="item in deviceTypeOptions" :key="item.code" :value="item.code">
+                {{ item.name }} ({{ item.code }})
+              </option>
             </select>
-          </div>
-
-          <div v-if="period === 'custom'" class="flex w-[180px] flex-col gap-1">
-            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Start Date</label>
-            <input v-model="startDate" type="date" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-          </div>
-
-          <div v-if="period === 'custom'" class="flex w-[180px] flex-col gap-1">
-            <label class="text-xs font-medium text-slate-600 dark:text-slate-300">End Date</label>
-            <input v-model="endDate" type="date" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
           </div>
         </div>
       </div>
@@ -408,7 +466,7 @@ const rangeEndLabel = computed(() => formatDateOnly(data.value?.filters?.end))
       </div>
       <div v-else>
         <ClientOnly>
-          <ApexChart type="bar" :height="chartHeight" :options="chartOptions" :series="chartSeries" />
+          <ApexChart type="line" :height="chartHeight" :options="chartOptions" :series="chartSeries" />
         </ClientOnly>
       </div>
     </UCard>

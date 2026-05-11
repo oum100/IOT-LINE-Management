@@ -11,5 +11,5 @@ export function resolvePortalFromRole(role: AppRole): AppPortal {
 }
 
 export function resolvePortalHome(role: AppRole) {
-  return resolvePortalFromRole(role) === 'platform' ? '/platform/dashboard' : '/app/dashboard'
+  return resolvePortalFromRole(role) === 'platform' ? '/platform/dashboard' : '/app/status'
 }

@@ -1,0 +1,9 @@
+{
+  "registrationCode": "<READY_NEW_IOT_DEVICE_CODE>",
+  "registerType": "iot",
+  "spare": false,
+  "macAddress": "3C:E9:0E:54:C5:54",
+  "fwVersion": "1.2.3",
+  "name": "HW100BP14826-001",
+  "model": "ESP32-D1"
+}

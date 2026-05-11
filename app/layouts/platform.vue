@@ -26,6 +26,7 @@ const items = computed(() => [
     title: t('Business Structure', 'Business Structure'),
     icon: 'i-lucide-building-2',
     items: [
+      { to: '/admin/business-structure', label: t('Business Structure Mgmt', 'Business Structure Mgmt'), child: true, icon: 'i-lucide-network' },
       { to: '/admin/tenant', label: t('common.tenants', 'Tenants'), child: true, icon: 'i-lucide-building-2' },
       { to: '/admin/merchants', label: t('common.merchants', 'Merchants'), child: true, icon: 'i-lucide-store' },
       { to: '/admin/branches', label: t('common.branches', 'Branches'), child: true, icon: 'i-lucide-map-pinned' }
@@ -38,6 +39,7 @@ const items = computed(() => [
     items: [
       { to: '/admin/assets', label: t('common.assets', 'Assets'), child: true, icon: 'i-lucide-package' },
       { to: '/admin/devices', label: t('common.devices', 'Devices'), child: true, icon: 'i-lucide-cpu' },
+      { to: '/admin/register-codes', label: 'Register Code', child: true, icon: 'i-lucide-key-round' },
       { to: '/admin/machine', label: t('common.machines', 'Machines'), child: true, icon: 'i-lucide-cog' }
     ]
   },
@@ -46,7 +48,9 @@ const items = computed(() => [
     title: t('Product & Pricing', 'Product & Pricing'),
     icon: 'i-lucide-tag',
     items: [
-      { to: '/admin/product', label: t('Products', 'Products'), child: true, icon: 'i-lucide-receipt-text' }
+      { to: '/admin/promotion', label: t('Promotions', 'Promotions'), child: true, icon: 'i-lucide-badge-percent' },
+      { to: '/admin/product', label: t('Products', 'Products'), child: true, icon: 'i-lucide-receipt-text' },
+      { to: '/admin/product-types', label: t('Product Types', 'Product Types'), child: true, icon: 'i-lucide-tags' }
     ]
   },
   {

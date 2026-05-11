@@ -49,6 +49,17 @@ const router = useRouter()
 
 const loading = ref(false)
 const error = ref("")
+const message = ref("")
+const saving = ref(false)
+const deleting = ref(false)
+const editOpen = ref(false)
+const deleteOpen = ref(false)
+const editTargetId = ref("")
+const deleteTargetId = ref("")
+const editForm = ref({
+  name: "",
+  status: "ACTIVE" as Branch["status"],
+})
 const filters = ref<ListFilters>({
   tenantId: "",
   merchantAccountId: "",
@@ -61,6 +72,16 @@ const branches = ref<Branch[]>([])
 
 const tenants = ref<Tenant[]>([])
 const merchants = ref<Merchant[]>([])
+const inputUi = {
+  base: "bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ring-1 ring-slate-300 dark:ring-slate-600",
+}
+const selectUi = {
+  base: "bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600",
+  content: "bg-white dark:bg-slate-800",
+  item: "text-slate-900 dark:text-slate-100",
+  value: "text-slate-900 dark:text-slate-100",
+  placeholder: "text-slate-500 dark:text-slate-400",
+}
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const hasPrevPage = computed(() => page.value > 1)
@@ -68,6 +89,11 @@ const hasNextPage = computed(() => page.value < totalPages.value)
 
 function setError(err: unknown) {
   error.value = err instanceof Error ? err.message : "Request failed"
+}
+
+function setMessage(text: string) {
+  message.value = text
+  error.value = ""
 }
 
 function resetPage() {
@@ -229,6 +255,63 @@ function onMerchantChange() {
   })()
 }
 
+function openEditDialog(branch: Branch) {
+  editTargetId.value = branch.id
+  editForm.value = {
+    name: branch.name,
+    status: branch.status,
+  }
+  editOpen.value = true
+}
+
+async function saveEditBranch() {
+  if (!editTargetId.value) return
+  saving.value = true
+  error.value = ""
+  try {
+    const name = editForm.value.name.trim()
+    if (!name) throw new Error("Branch name is required.")
+    await $fetch(`/api/admin/branches/${editTargetId.value}`, {
+      method: "PATCH",
+      body: {
+        name,
+        status: editForm.value.status,
+      },
+    })
+    editOpen.value = false
+    setMessage("Branch updated.")
+    await loadBranches()
+  } catch (err) {
+    setError(err)
+  } finally {
+    saving.value = false
+  }
+}
+
+function openDeleteDialog(branch: Branch) {
+  deleteTargetId.value = branch.id
+  deleteOpen.value = true
+}
+
+async function confirmDeleteBranch() {
+  if (!deleteTargetId.value) return
+  deleting.value = true
+  error.value = ""
+  try {
+    await $fetch(`/api/admin/branches/${deleteTargetId.value}`, {
+      method: "DELETE",
+    })
+    deleteOpen.value = false
+    deleteTargetId.value = ""
+    setMessage("Branch deleted.")
+    await loadBranches()
+  } catch (err) {
+    setError(err)
+  } finally {
+    deleting.value = false
+  }
+}
+
 onMounted(() => {
   void loadInitialState()
 })
@@ -257,6 +340,7 @@ watch(() => route.query.tenantId, () => {
     </div>
 
     <UAlert v-if="error" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="error" />
+    <UAlert v-if="message" color="success" variant="soft" icon="i-lucide-check-circle-2" :title="message" />
 
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <template #header>
@@ -317,6 +401,7 @@ watch(() => route.query.tenantId, () => {
               <th class="px-3 py-2">Merchant (Brand)</th>
               <th class="px-3 py-2">Status</th>
               <th class="px-3 py-2">Updated</th>
+              <th class="px-3 py-2 text-center">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -339,10 +424,16 @@ watch(() => route.query.tenantId, () => {
                   {{ branch.status }}
                 </span>
               </td>
-              <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">{{ formatDate(branch.updatedAt) }}</td>
+              <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300"><DateTimeTwoLine :value="branch.updatedAt" /></td>
+              <td class="px-3 py-2">
+                <div class="flex items-center justify-center gap-1">
+                  <UButton size="xs" color="primary" variant="ghost" icon="i-lucide-pencil" @click.stop="openEditDialog(branch)" />
+                  <UButton size="xs" color="error" variant="ghost" icon="i-lucide-trash-2" @click.stop="openDeleteDialog(branch)" />
+                </div>
+              </td>
             </tr>
             <tr v-if="!branches.length">
-              <td colspan="5" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No branches found.</td>
+              <td colspan="6" class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">No branches found.</td>
             </tr>
           </tbody>
         </table>
@@ -361,5 +452,59 @@ watch(() => route.query.tenantId, () => {
         </div>
       </div>
     </UCard>
+
+    <UModal v-model:open="editOpen" :ui="{ content: 'sm:max-w-lg' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Edit Branch</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="editOpen = false" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UFormField label="Branch Name">
+              <UInput v-model="editForm.name" :ui="inputUi" />
+            </UFormField>
+            <UFormField label="Status">
+              <USelect
+                v-model="editForm.status"
+                :ui="selectUi"
+                :options="[
+                  { label: 'ACTIVE', value: 'ACTIVE' },
+                  { label: 'SUSPENDED', value: 'SUSPENDED' },
+                  { label: 'DISABLED', value: 'DISABLED' },
+                ]"
+              />
+            </UFormField>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="editOpen = false">Cancel</UButton>
+              <UButton color="primary" class="text-white" :loading="saving" @click="saveEditBranch">Save</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="deleteOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Delete Branch</h3>
+          </template>
+          <p class="text-sm text-slate-600 dark:text-slate-300">
+            Confirm delete branch? If linked data exists, system will block delete.
+          </p>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="deleteOpen = false">Cancel</UButton>
+              <UButton color="error" :loading="deleting" @click="confirmDeleteBranch">Delete</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
   </section>
 </template>

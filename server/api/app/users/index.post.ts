@@ -3,11 +3,14 @@ import { readBody } from 'h3'
 import { z } from 'zod'
 import { prisma } from '../../../utils/prisma'
 import { assertPermission, isPlatformRole, resolvePortalScopeContext } from '../../../utils/rbac'
+import { hashPassword } from '../../../utils/password'
+import { resolveDefaultNewUserPassword } from '../../../utils/system-config'
 
 type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
 const bodySchema = z.object({
   email: z.string().trim().email(),
+  password: z.string().min(8).optional(),
   name: z.string().trim().max(120).nullable().optional(),
   role: z.enum(['OWNER', 'MANAGER', 'STAFF']).default('STAFF'),
   isActive: z.boolean().default(true),
@@ -30,6 +33,7 @@ export default defineEventHandler(async (event) => {
   if (!user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
 
   const body = bodySchema.parse(await readBody(event))
+  const passwordHash = await hashPassword((body.password && body.password.trim()) ? body.password : await resolveDefaultNewUserPassword())
 
   const scope = await resolvePortalScopeContext(user)
   const resolvedTenantId = scope.resolvedTenantId
@@ -79,6 +83,7 @@ export default defineEventHandler(async (event) => {
         tenantId: resolvedTenantId,
         merchantAccountId: body.merchantAccountId ?? null,
         email: body.email,
+        passwordHash,
         name: body.name ?? null,
         role: body.role,
         isActive: body.isActive

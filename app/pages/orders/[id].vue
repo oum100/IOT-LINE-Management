@@ -3,6 +3,10 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from '#app'
 import type { OrderDetails } from '~~/shared/types'
 
+definePageMeta({
+  layout: 'liff'
+})
+
 const route = useRoute()
 const router = useRouter()
 const orderId = computed(() => route.params.id as string)
@@ -222,7 +226,29 @@ async function saveReceiptImage() {
   }
 }
 
-function goToMachineList() {
+async function goToMachineList() {
+  const shouldAutoCancel =
+    Boolean(order.value?.id) &&
+    Boolean(selfCancelToken.value) &&
+    Boolean(order.value?.canCancel) &&
+    !isServiceStarted.value &&
+    (order.value?.payment.status === 'PENDING' || order.value?.payment.status === 'SLIP_UPLOADED')
+
+  if (shouldAutoCancel) {
+    try {
+      await $fetch(withBranchQuery(`/api/orders/${order.value!.id}/self-cancel`), {
+        method: 'POST',
+        body: {
+          branchCode: branchCode.value || undefined,
+          token: selfCancelToken.value,
+          reason: 'Customer backed to machine list'
+        }
+      })
+    } catch {
+      // keep navigation behavior even if cancel API fails
+    }
+  }
+
   router.push(branchCode.value ? `/order?branchCode=${encodeURIComponent(branchCode.value)}` : '/order')
 }
 
@@ -350,12 +376,12 @@ watch(
 </script>
 
 <template>
-  <div v-if="order" class="mx-auto grid w-full max-w-none gap-5 px-4 py-4 sm:grid-cols-[1fr_0.95fr] sm:px-6 sm:py-6 lg:px-8">
+  <div v-if="order" class="mx-auto grid w-full max-w-none items-start gap-5 px-4 py-4 text-slate-100 sm:grid-cols-[1fr_0.95fr] sm:px-6 sm:py-6 lg:px-8">
     <section class="space-y-5">
       <div class="flex justify-end">
         <button
           type="button"
-          class="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200"
+          class="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 transition hover:bg-slate-700"
           @click="goToMachineList"
         >
           Back to Machine List
@@ -366,8 +392,8 @@ watch(
       <div class="section-card p-4">
         <div class="flex items-center justify-between">
           <div>
-            <p class="text-xs uppercase tracking-[0.25em] text-teal-700/70">Payment</p>
-            <h3 class="text-lg font-semibold text-slate-900">PromptPay QR</h3>
+            <p class="text-xs uppercase tracking-[0.25em] text-teal-300">Payment</p>
+            <h3 class="text-lg font-semibold text-slate-100">PromptPay QR</h3>
           </div>
           <UBadge
             :color="paymentStatusColor"
@@ -394,22 +420,22 @@ watch(
             >
               Save Image
             </button>
-            <p class="text-center text-[11px] text-slate-500">มือถือจะเปิดรูป QR ให้บันทึก/แชร์ได้ทันที</p>
+            <p class="text-center text-[11px] text-slate-300">มือถือจะเปิดรูป QR ให้บันทึก/แชร์ได้ทันที</p>
           </div>
           <div class="space-y-3">
-            <div class="rounded-2xl bg-slate-50 px-4 py-3">
-              <p class="text-sm text-slate-500">ยอดชำระ</p>
-              <p class="text-3xl font-semibold text-teal-700">{{ order.payment.amount }} บาท</p>
+            <div class="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3">
+              <p class="text-sm text-slate-300">ยอดชำระ</p>
+              <p class="text-3xl font-semibold text-teal-300">{{ order.payment.amount }} บาท</p>
             </div>
-            <div class="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+            <div class="rounded-2xl border border-amber-700/60 bg-amber-900/20 px-4 py-3 text-sm leading-6 text-amber-100">
               สแกน QR เพื่อชำระเงินก่อน เมื่อชำระแล้วให้ส่ง Slip กลับมาเพื่อยืนยันการชำระ
               หลังตรวจสอบสำเร็จ ระบบจึงจะเริ่มบริการและสั่งงานเครื่องตามออเดอร์
             </div>
-            <div class="rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3">
-              <p class="text-sm font-semibold" :class="countdownIsUrgent ? 'animate-pulse text-red-600' : 'text-orange-700'">
+            <div class="rounded-2xl border border-orange-700/60 bg-orange-900/20 px-4 py-3">
+              <p class="text-sm font-semibold" :class="countdownIsUrgent ? 'animate-pulse text-red-300' : 'text-orange-300'">
                 {{ paymentCountdownText }}
               </p>
-              <p class="mt-1 text-xs text-orange-600">หมดเวลาแล้วระบบจะยกเลิกออเดอร์อัตโนมัติ</p>
+              <p class="mt-1 text-xs text-orange-200">หมดเวลาแล้วระบบจะยกเลิกออเดอร์อัตโนมัติ</p>
               <button
                 v-if="canCancelOrder"
                 type="button"
@@ -420,31 +446,31 @@ watch(
                 {{ cancelling ? 'Cancelling...' : 'Cancel Order' }}
               </button>
             </div>
-            <div class="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              <p class="font-medium text-slate-900">QR Payload</p>
+            <div class="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-300">
+              <p class="font-medium text-slate-100">QR Payload</p>
               <p class="mt-2 break-all">{{ order.payment.qrPayload }}</p>
-              <p v-if="qrIncludesOrderReference" class="mt-3 text-xs font-medium text-teal-700">
+              <p v-if="qrIncludesOrderReference" class="mt-3 text-xs font-medium text-teal-300">
                 Order reference in QR: {{ order.orderNumber }}
               </p>
             </div>
-            <p class="text-xs text-slate-500">ถ้าเปิดใน LIFF ให้แตะ Save Image แล้วกดบันทึกรูปจากหน้าที่เปิดใหม่</p>
+            <p class="text-xs text-slate-300">ถ้าเปิดใน LIFF ให้แตะ Save Image แล้วกดบันทึกรูปจากหน้าที่เปิดใหม่</p>
           </div>
         </div>
       </div>
 
       <div v-if="isServiceStarted" class="section-card p-4">
-        <p class="text-xs uppercase tracking-[0.25em] text-teal-700/70">Machine Status</p>
-        <h3 class="mt-1 text-lg font-semibold text-slate-900">สถานะเครื่องทั้งหมดในออเดอร์</h3>
+        <p class="text-xs uppercase tracking-[0.25em] text-teal-300">Machine Status</p>
+        <h3 class="mt-1 text-lg font-semibold text-slate-100">สถานะเครื่องทั้งหมดในออเดอร์</h3>
         <div class="mt-4 space-y-3">
           <div
             v-for="item in order.items"
             :key="item.id"
-            class="rounded-2xl bg-slate-50 px-4 py-3"
+            class="rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3"
           >
             <div class="flex items-center justify-between gap-3">
               <div>
-                <p class="font-semibold text-slate-900">{{ item.machine.name }}</p>
-                <p class="text-sm text-slate-600">{{ item.durationMinutes }} นาที • {{ item.priceLabel }}</p>
+                <p class="font-semibold text-slate-100">{{ item.machine.name }}</p>
+                <p class="text-sm text-slate-300">{{ item.durationMinutes }} นาที • {{ item.priceLabel }}</p>
               </div>
               <UBadge :color="item.status === 'COMPLETED' ? 'success' : 'warning'" variant="soft" class="px-3 py-1 text-base font-semibold">
                 {{ item.status === 'COMPLETED' ? 'Completed' : 'Running' }}
@@ -455,23 +481,23 @@ watch(
       </div>
 
       <div v-if="isServiceStarted" class="section-card p-4">
-        <p class="text-xs uppercase tracking-[0.25em] text-teal-700/70">Receipt</p>
+        <p class="text-xs uppercase tracking-[0.25em] text-teal-300">Receipt</p>
         <div class="mt-1 flex items-center justify-between gap-3">
-          <h3 class="text-lg font-semibold text-slate-900">ใบเสร็จ</h3>
+          <h3 class="text-lg font-semibold text-slate-100">ใบเสร็จ</h3>
         </div>
-        <div class="mt-4 rounded-3xl border border-slate-100 bg-slate-50 px-4 py-4">
-          <div class="space-y-2 border-b border-dashed border-slate-200 pb-3">
+        <div class="mt-4 rounded-3xl border border-slate-700 bg-slate-800 px-4 py-4">
+          <div class="space-y-2 border-b border-dashed border-slate-600 pb-3">
             <div>
-              <p class="text-sm text-slate-500">Receipt No.</p>
-              <p class="break-all font-semibold text-slate-900">{{ receiptNumber }}</p>
+              <p class="text-sm text-slate-300">Receipt No.</p>
+              <p class="break-all font-semibold text-slate-100">{{ receiptNumber }}</p>
             </div>
             <div>
-              <p class="text-sm text-slate-500">Order</p>
-              <p class="break-all font-semibold text-slate-900">{{ order.orderNumber }}</p>
+              <p class="text-sm text-slate-300">Order</p>
+              <p class="break-all font-semibold text-slate-100">{{ order.orderNumber }}</p>
             </div>
             <div>
-              <p class="text-sm text-slate-500">Customer</p>
-              <p class="break-all font-semibold text-slate-900">{{ order.customerName }}</p>
+              <p class="text-sm text-slate-300">Customer</p>
+              <p class="break-all font-semibold text-slate-100">{{ order.customerName }}</p>
             </div>
           </div>
           <div class="mt-3 space-y-2">
@@ -480,13 +506,13 @@ watch(
               :key="item.id"
               class="flex items-center justify-between gap-3 text-sm"
             >
-              <span class="text-slate-700">{{ item.machine.name }} • {{ item.durationMinutes }} นาที</span>
-              <span class="font-medium text-slate-900">{{ item.amount }} บาท</span>
+              <span class="text-slate-200">{{ item.machine.name }} • {{ item.durationMinutes }} นาที</span>
+              <span class="font-medium text-slate-100">{{ item.amount }} บาท</span>
             </div>
           </div>
-          <div class="mt-4 flex items-center justify-between border-t border-dashed border-slate-200 pt-3">
-            <span class="text-sm text-slate-500">ยอดรวม</span>
-            <span class="text-xl font-semibold text-teal-700">{{ order.totalAmount }} บาท</span>
+          <div class="mt-4 flex items-center justify-between border-t border-dashed border-slate-600 pt-3">
+            <span class="text-sm text-slate-300">ยอดรวม</span>
+            <span class="text-xl font-semibold text-teal-300">{{ order.totalAmount }} บาท</span>
           </div>
           <button
             type="button"
@@ -495,7 +521,7 @@ watch(
           >
             Save Receipt
           </button>
-          <p class="mt-2 text-center text-[11px] text-slate-500">มือถือจะเปิดรูปใบเสร็จให้บันทึก/แชร์ได้ทันที</p>
+          <p class="mt-2 text-center text-[11px] text-slate-300">มือถือจะเปิดรูปใบเสร็จให้บันทึก/แชร์ได้ทันที</p>
         </div>
       </div>
     </section>
@@ -503,8 +529,8 @@ watch(
     <section class="space-y-5">
       <div class="section-card p-4">
         <p class="text-xs uppercase tracking-[0.25em] text-orange-500">Slip Review</p>
-        <h3 class="mt-1 text-lg font-semibold text-slate-900">อัปโหลดสลิปเพื่อรอตรวจสอบ</h3>
-        <p class="mt-2 text-sm leading-6 text-slate-600">
+        <h3 class="mt-1 text-lg font-semibold text-slate-100">อัปโหลดสลิปเพื่อรอตรวจสอบ</h3>
+        <p class="mt-2 text-sm leading-6 text-slate-300">
           ขั้นตอนนี้จำเป็นก่อนเริ่มบริการ กรุณาส่ง Slip หลังโอนเงิน เพื่อให้ระบบหรือแอดมินยืนยันแล้วค่อยเริ่มเดินเครื่อง
         </p>
 
@@ -520,7 +546,7 @@ watch(
           <input
             type="file"
             accept="image/*,.pdf"
-            class="block w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm"
+            class="block w-full rounded-2xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm text-slate-100 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-slate-100"
             @change="event => slipFile = (event.target as HTMLInputElement).files?.[0] || null"
           >
           <button
@@ -536,8 +562,8 @@ watch(
 
       <div v-if="showDemoAdminAction" class="section-card p-4">
         <p class="text-xs uppercase tracking-[0.25em] text-orange-500">Demo Admin Action</p>
-        <h3 class="mt-1 text-lg font-semibold text-slate-900">จำลอง approve slip แล้วสั่งงานเครื่อง</h3>
-        <p class="mt-2 text-sm leading-6 text-slate-600">
+        <h3 class="mt-1 text-lg font-semibold text-slate-100">จำลอง approve slip แล้วสั่งงานเครื่อง</h3>
+        <p class="mt-2 text-sm leading-6 text-slate-300">
           ปุ่มนี้ใช้เฉพาะทดสอบกรณีอยาก bypass การตรวจจริงเท่านั้น เส้นทางหลักของระบบคืออัปโหลด slip แล้วให้ Slip2Go ยืนยันก่อนเริ่มบริการ
         </p>
         <UButton block size="xl" class="mt-4" color="secondary" :loading="verifying" @click="demoApprove">

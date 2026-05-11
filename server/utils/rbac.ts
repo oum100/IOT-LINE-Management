@@ -18,6 +18,9 @@ export type AppPermission =
   | 'portal.merchant.manage'
   | 'portal.branch.read'
   | 'portal.branch.manage'
+  | 'portal.asset.read'
+  | 'portal.asset.manage.global'
+  | 'portal.asset.manage.scoped'
   | 'portal.asset.manage'
   | 'portal.order.manage'
   | 'portal.refund.manage'
@@ -34,7 +37,9 @@ const ROLE_PERMISSIONS: Record<AppRole, AppPermission[]> = {
     'portal.revenue.read',
     'portal.expense.read',
     'portal.governance.read',
-    'portal.user.manage'
+    'portal.user.manage',
+    'portal.asset.read',
+    'portal.asset.manage.global'
   ],
   USER: [
     'platform.dashboard.read',
@@ -51,7 +56,9 @@ const ROLE_PERMISSIONS: Record<AppRole, AppPermission[]> = {
     'portal.merchant.manage',
     'portal.branch.read',
     'portal.branch.manage',
-    'portal.asset.manage',
+    'portal.asset.read',
+    'portal.asset.manage.global',
+    'portal.asset.manage.scoped',
     'portal.order.manage',
     'portal.refund.manage',
     'portal.settings.manage',
@@ -64,7 +71,8 @@ const ROLE_PERMISSIONS: Record<AppRole, AppPermission[]> = {
     'portal.governance.read',
     'portal.merchant.read',
     'portal.branch.read',
-    'portal.asset.manage',
+    'portal.asset.read',
+    'portal.asset.manage.scoped',
     'portal.order.manage',
     'portal.refund.manage'
   ],
@@ -75,7 +83,8 @@ const ROLE_PERMISSIONS: Record<AppRole, AppPermission[]> = {
     'portal.governance.read',
     'portal.merchant.read',
     'portal.branch.read',
-    'portal.asset.manage',
+    'portal.asset.read',
+    'portal.asset.manage.scoped',
     'portal.order.manage',
     'portal.refund.manage'
   ]
@@ -97,7 +106,12 @@ export function isPlatformRole(role: string | null | undefined) {
 export function hasPermission(role: string | null | undefined, permission: AppPermission) {
   const normalized = normalizeRole(role)
   if (!normalized) return false
-  return ROLE_PERMISSIONS[normalized].includes(permission)
+  const rolePermissions = ROLE_PERMISSIONS[normalized]
+  if (permission === 'portal.asset.manage') {
+    return rolePermissions.includes('portal.asset.manage.global')
+      || rolePermissions.includes('portal.asset.manage.scoped')
+  }
+  return rolePermissions.includes(permission)
 }
 
 export type SessionUserLike = {

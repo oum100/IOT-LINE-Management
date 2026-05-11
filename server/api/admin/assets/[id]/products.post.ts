@@ -3,14 +3,15 @@ import { z } from 'zod'
 import { prisma } from '../../../../utils/prisma'
 import { assertAdminAccess } from '../../../../utils/admin-auth'
 import { overlaps } from '../../../../utils/asset-lifecycle'
+import { assertServiceModeCode, assertServiceUnitCode } from '../../../../utils/product-taxonomy'
 
 const schema = z.object({
   productId: z.string().min(1),
   pricingType: z.enum(['STANDARD', 'PROMOTION', 'SPECIAL']).default('STANDARD'),
   amount: z.number().int().min(0),
   durationMinutes: z.number().int().min(1).max(1440).optional(),
-  serviceMode: z.enum(['TIME', 'QUANTITY']).optional(),
-  serviceUnit: z.enum(['MINUTE', 'GRAM', 'LITER', 'PIECE', 'SLOT', 'UNIT']).optional(),
+  serviceMode: z.string().trim().min(1).optional(),
+  serviceUnit: z.string().trim().min(1).optional(),
   quantity: z.coerce.number().positive().optional(),
   priority: z.number().int().min(1).max(999).default(100),
   effectiveFrom: z.string().datetime(),
@@ -29,8 +30,8 @@ export default defineEventHandler(async (event) => {
 
   const from = new Date(body.effectiveFrom)
   const to = body.effectiveTo ? new Date(body.effectiveTo) : null
-  const serviceMode = body.serviceMode ?? 'TIME'
-  const serviceUnit = body.serviceUnit ?? (serviceMode === 'TIME' ? 'MINUTE' : 'UNIT')
+  const serviceMode = await assertServiceModeCode(body.serviceMode ?? 'TIME')
+  const serviceUnit = await assertServiceUnitCode(body.serviceUnit ?? (serviceMode === 'TIME' ? 'MINUTE' : 'UNIT'))
   const quantity = body.quantity ?? (body.durationMinutes ?? null)
   const durationMinutes = body.durationMinutes
     ?? (quantity ? Math.max(1, Math.round(quantity)) : null)

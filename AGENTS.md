@@ -12,6 +12,7 @@
 - For UI/API features, update frontend and backend together in one change set when required.
 - Any request using shared paging helper (`withPaging`) must keep `pageSize <= 200`.
 - For dropdown loaders, lookup lists, and admin selectors, default to `pageSize: 200` unless a smaller value is clearly sufficient.
+- Always use path aliases (`~~/`, `~/`) for cross-folder imports instead of deep relative paths.
 
 ## UI Standards (Important)
 - Prefer Nuxt UI components over raw HTML controls when practical.
@@ -63,6 +64,18 @@ When sticky table header is required, use this exact pattern:
 - Respect existing non-delete constraints in UI and API (`canDelete` patterns).
 - If an entity is linked/referenced, prefer disable/lock flow rather than delete.
 - In edit dialogs, only expose fields user asked to edit.
+- Order Code validation is mandatory on create/update and must be checked every time:
+  - Uppercase letters only (`A-Z`)
+  - Digits allowed (`0-9`)
+  - Allowed symbols: `-`, `_`, `.`, `/`
+  - Any lowercase or other special characters must be rejected or normalized before save.
+
+## Starter Pack References
+- UI conventions: `/Users/teerin/Documents/MyDev/Nuxt4/IOT-LINE-Merchant/UI_RULES.md`
+- API conventions: `/Users/teerin/Documents/MyDev/Nuxt4/IOT-LINE-Merchant/API_RULES.md`
+- Data conventions: `/Users/teerin/Documents/MyDev/Nuxt4/IOT-LINE-Merchant/DATA_RULES.md`
+- RBAC matrix: `/Users/teerin/Documents/MyDev/Nuxt4/IOT-LINE-Merchant/RBAC.md`
+- Guard script: `bun run guard:standards`
 
 ## Common Gotchas to Avoid
 - Do not mix multiple scroll containers around the same table.

@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
   const [items, total] = await Promise.all([
     prisma.deviceRegistrationCode.findMany({
       where,
-      include: { merchantAccount: true, branch: true, usedByIotDevice: true },
+      include: { tenant: true, merchantAccount: true, branch: true, usedByIotDevice: true },
       orderBy: { createdAt: 'desc' },
       skip,
       take

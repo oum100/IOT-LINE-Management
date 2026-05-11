@@ -67,24 +67,36 @@ const merchantSummary = ref<MerchantSummary | null>(null)
 const createOpen = ref(false)
 const createForm = ref({
   tenantId: "",
-  code: "",
   name: "",
   status: "ACTIVE" as MerchantStatus,
   environment: "TEST" as MerchantEnvironment,
 })
 
-const editingNameId = ref("")
-const nameEditValue = ref("")
-const editingStatusId = ref("")
-const statusEditValue = ref<MerchantStatus>("ACTIVE")
 
 const metadataOpen = ref(false)
 const metadataTitle = ref("")
 const metadataMerchantId = ref("")
 const metadataRaw = ref("")
+const editOpen = ref(false)
+const deleting = ref(false)
+const deleteOpen = ref(false)
+const editTargetId = ref("")
+const deleteTargetId = ref("")
+const editForm = ref({
+  name: "",
+  status: "ACTIVE" as MerchantStatus,
+  environment: "TEST" as MerchantEnvironment,
+})
 
 const inputUi = {
   base: "bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 ring-1 ring-slate-300 dark:ring-slate-600",
+}
+const selectUi = {
+  base: "bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600",
+  content: "bg-white dark:bg-slate-800",
+  item: "text-slate-900 dark:text-slate-100",
+  value: "text-slate-900 dark:text-slate-100",
+  placeholder: "text-slate-500 dark:text-slate-400",
 }
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
@@ -252,7 +264,6 @@ function openCreateDialog() {
   const routeTenantId = selectedTenantFilter.value || readTenantId()
   createForm.value = {
     tenantId: routeTenantId,
-    code: "",
     name: "",
     status: "ACTIVE",
     environment: "TEST",
@@ -267,76 +278,26 @@ function closeCreateDialog() {
 async function createMerchant() {
   await run(async () => {
     const tenantId = (createForm.value.tenantId || "").trim()
-    const code = (createForm.value.code || "").trim()
     const name = (createForm.value.name || "").trim()
     if (!tenantId) throw new Error("Tenant is required.")
-    if (!code) throw new Error("Merchant code is required.")
     if (!name) throw new Error("Merchant name is required.")
 
     await $fetch("/api/admin/merchants", {
       method: "POST",
       body: {
         tenantId,
-        code,
         name,
         status: createForm.value.status,
         environment: createForm.value.environment,
       },
     })
 
-    setMessage(`Merchant created: ${code}`)
+    setMessage("Merchant created.")
     closeCreateDialog()
     await loadMerchants()
   })
 }
 
-function startEditName(item: MerchantRecord) {
-  editingNameId.value = item.id
-  nameEditValue.value = item.name
-}
-
-function cancelEditName() {
-  editingNameId.value = ""
-  nameEditValue.value = ""
-}
-
-async function saveName(item: MerchantRecord) {
-  await run(async () => {
-    const name = (nameEditValue.value || "").trim()
-    if (!name) throw new Error("Merchant name is required.")
-
-    await $fetch(`/api/admin/merchants/${item.id}`, {
-      method: "PATCH",
-      body: { name },
-    })
-
-    setMessage(`Merchant name updated: ${item.code}`)
-    cancelEditName()
-    await loadMerchants()
-  })
-}
-
-function startEditStatus(item: MerchantRecord) {
-  editingStatusId.value = item.id
-  statusEditValue.value = item.status
-}
-
-function cancelEditStatus() {
-  editingStatusId.value = ""
-}
-
-async function saveStatus(item: MerchantRecord) {
-  await run(async () => {
-    await $fetch(`/api/admin/merchants/${item.id}`, {
-      method: "PATCH",
-      body: { status: statusEditValue.value },
-    })
-
-    setMessage(`Merchant status updated: ${item.code}`)
-    cancelEditStatus()
-    await loadMerchants()
-  })
-}
 
 function openMetadata(item: MerchantRecord) {
   metadataTitle.value = `${item.code} details`
@@ -366,6 +327,56 @@ async function saveMetadata() {
     setMessage("Merchant details updated.")
     await loadMerchants()
   })
+}
+
+function openEditDialog(item: MerchantRecord) {
+  editTargetId.value = item.id
+  editForm.value = {
+    name: item.name,
+    status: item.status,
+    environment: item.environment,
+  }
+  editOpen.value = true
+}
+
+async function saveEditDialog() {
+  await run(async () => {
+    if (!editTargetId.value) throw new Error("Missing merchant id.")
+    const name = editForm.value.name.trim()
+    if (!name) throw new Error("Merchant name is required.")
+    await $fetch(`/api/admin/merchants/${editTargetId.value}`, {
+      method: "PATCH",
+      body: {
+        name,
+        status: editForm.value.status,
+        environment: editForm.value.environment,
+      },
+    })
+    editOpen.value = false
+    setMessage("Merchant updated.")
+    await loadMerchants()
+  })
+}
+
+function openDeleteDialog(item: MerchantRecord) {
+  deleteTargetId.value = item.id
+  deleteOpen.value = true
+}
+
+async function confirmDeleteMerchant() {
+  if (!deleteTargetId.value) return
+  deleting.value = true
+  try {
+    await $fetch(`/api/admin/merchants/${deleteTargetId.value}`, { method: "DELETE" })
+    deleteOpen.value = false
+    deleteTargetId.value = ""
+    setMessage("Merchant deleted.")
+    await loadMerchants()
+  } catch (err) {
+    setError(err)
+  } finally {
+    deleting.value = false
+  }
 }
 
 async function goToMerchantArea(area: "branch" | "asset" | "device" | "payment" | "biller" | "user" | "order") {
@@ -603,44 +614,12 @@ watch(
                 </div>
               </td>
               <td class="px-3 py-2">
-                <div class="flex items-center gap-2">
-                  <template v-if="editingNameId === item.id">
-                    <UInput
-                      v-model="nameEditValue"
-                      placeholder="Merchant name"
-                      class="w-full"
-                      :ui="inputUi"
-                    />
-                    <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="loading" @click="saveName(item)" />
-                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="cancelEditName" />
-                  </template>
-                  <template v-else>
-                    <span class="truncate">{{ item.name }}</span>
-                    <UButton size="xs" color="primary" variant="ghost" icon="i-lucide-pencil" @click="startEditName(item)" />
-                  </template>
-                </div>
+                <span class="truncate">{{ item.name }}</span>
               </td>
               <td class="px-3 py-2">
-                <div class="flex items-center gap-2">
-                  <template v-if="editingStatusId === item.id">
-                    <select
-                      v-model="statusEditValue"
-                      class="w-[140px] rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
-                    >
-                      <option value="ACTIVE">ACTIVE</option>
-                      <option value="SUSPENDED">SUSPENDED</option>
-                      <option value="DISABLED">DISABLED</option>
-                    </select>
-                    <UButton size="xs" color="primary" icon="i-lucide-check" class="text-white" :loading="loading" @click="saveStatus(item)" />
-                    <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-x" @click="cancelEditStatus" />
-                  </template>
-                  <template v-else>
-                    <span class="text-xs font-semibold" :class="merchantStatusClass(item.status)">
-                      {{ item.status }}
-                    </span>
-                    <UButton size="xs" color="primary" variant="ghost" icon="i-lucide-pencil" @click="startEditStatus(item)" />
-                  </template>
-                </div>
+                <span class="text-xs font-semibold" :class="merchantStatusClass(item.status)">
+                  {{ item.status }}
+                </span>
               </td>
               <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
                 {{ item.environment }}
@@ -673,14 +652,15 @@ watch(
                 </div>
               </td>
               <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
-                {{ formatDate(item.createdAt) }}
+                <DateTimeTwoLine :value="item.createdAt" />
               </td>
               <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
-                {{ formatDate(item.updatedAt) }}
+                <DateTimeTwoLine :value="item.updatedAt" />
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
-                  <UButton size="xs" color="neutral" variant="soft" class="text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700" icon="i-lucide-building-2" @click.stop="goToMerchantArea('branch')" />
+                  <UButton size="xs" color="primary" variant="ghost" icon="i-lucide-pencil" @click.stop="openEditDialog(item)" />
+                  <UButton size="xs" color="error" variant="ghost" icon="i-lucide-trash-2" @click.stop="openDeleteDialog(item)" />
                 </div>
               </td>
             </tr>
@@ -737,6 +717,72 @@ watch(
       </div>
     </UCard>
 
+    <UModal v-model:open="editOpen" :ui="{ content: 'sm:max-w-lg' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Edit Merchant</h3>
+              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="editOpen = false" />
+            </div>
+          </template>
+          <div class="space-y-3">
+            <UFormField label="Merchant Name">
+              <UInput v-model="editForm.name" :ui="inputUi" />
+            </UFormField>
+            <div class="grid gap-3 md:grid-cols-2">
+              <UFormField label="Status">
+                <USelect
+                  v-model="editForm.status"
+                  :ui="selectUi"
+                  :options="[
+                    { label: 'ACTIVE', value: 'ACTIVE' },
+                    { label: 'SUSPENDED', value: 'SUSPENDED' },
+                    { label: 'DISABLED', value: 'DISABLED' },
+                  ]"
+                />
+              </UFormField>
+              <UFormField label="Environment">
+                <USelect
+                  v-model="editForm.environment"
+                  :ui="selectUi"
+                  :options="[
+                    { label: 'TEST', value: 'TEST' },
+                    { label: 'LIVE', value: 'LIVE' },
+                  ]"
+                />
+              </UFormField>
+            </div>
+          </div>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="editOpen = false">Cancel</UButton>
+              <UButton color="primary" class="text-white" :loading="loading" @click="saveEditDialog">Save</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="deleteOpen" :ui="{ content: 'sm:max-w-md' }">
+      <template #content>
+        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
+          <template #header>
+            <h3 class="text-lg font-semibold text-slate-900 dark:text-white">Delete Merchant</h3>
+          </template>
+          <p class="text-sm text-slate-600 dark:text-slate-300">
+            Confirm delete merchant? If already linked data exists, system will block delete.
+          </p>
+          <template #footer>
+            <div class="flex justify-end gap-2">
+              <UButton color="neutral" variant="soft" @click="deleteOpen = false">Cancel</UButton>
+              <UButton color="error" :loading="deleting" @click="confirmDeleteMerchant">Delete</UButton>
+            </div>
+          </template>
+        </UCard>
+      </template>
+    </UModal>
+
     <UModal v-model:open="createOpen" :ui="{ content: 'sm:max-w-lg' }">
       <template #content>
         <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
@@ -758,14 +804,6 @@ watch(
                   {{ tenant.name }}
                 </option>
               </select>
-            </UFormField>
-
-            <UFormField label="Code">
-              <UInput
-                v-model="createForm.code"
-                placeholder="MCH-00001"
-                :ui="inputUi"
-              />
             </UFormField>
 
             <UFormField label="Name">

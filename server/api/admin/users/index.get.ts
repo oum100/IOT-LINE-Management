@@ -62,7 +62,10 @@ export default defineEventHandler(async (event) => {
         isActive: true,
         tenantId: true,
         merchantAccountId: true,
+        emailVerified: true,
+        image: true,
         createdAt: true,
+        updatedAt: true,
         scopeAssignments: {
           where: { active: true },
           select: {

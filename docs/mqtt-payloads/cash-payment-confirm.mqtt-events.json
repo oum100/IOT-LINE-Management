@@ -1,0 +1,17 @@
+{
+  "tenantCode": "EIT",
+  "topic": "tenant/EIT/branch/RGH18/cash/confirm",
+  "qos": 1,
+  "status": "RECEIVED",
+  "note": "ESP32 coin/bill acceptor confirm",
+  "payload": {
+    "eventType": "cash_payment_confirm",
+    "eventId": "evt-cash-ord-20260509-0001",
+    "orderNumber": "ORD-ABCDEFG1",
+    "amountPaid": 40,
+    "currency": "THB",
+    "deviceCode": "ESP32-RGH18-01",
+    "assetCode": "RGH18-0001",
+    "confirmedAt": "2026-05-09T10:30:00.000Z"
+  }
+}

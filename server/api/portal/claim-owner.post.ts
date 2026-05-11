@@ -29,6 +29,13 @@ export default defineEventHandler(async (event) => {
     })
   }
 
+  if (String(currentUser.role || '').toUpperCase() !== 'OWNER') {
+    await prisma.user.update({
+      where: { id: currentUser.id },
+      data: { role: 'OWNER' }
+    })
+  }
+
   return {
     message: 'Owner flow activated in portal scope.'
   }

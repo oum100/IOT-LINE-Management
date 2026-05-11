@@ -6,10 +6,10 @@ import { assertPermission, resolvePortalScopeContext } from '../../../../utils/r
 import {
   lockAssetBindingRowsForUpdate,
   lockAssetForUpdate,
-  lockMachineUnitForUpdate,
-  readMachineUnitStatus,
+  lockMachineForUpdate,
+  readMachineStatus,
   refreshIotDeviceStatus,
-  refreshMachineUnitStatus
+  refreshMachineStatus
 } from '../../../../utils/asset-lifecycle'
 
 type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
@@ -20,7 +20,7 @@ function isPlatformRole(role: Role | string | null | undefined) {
 }
 
 const schema = z.object({
-  machineUnitId: z.string().min(1),
+  machineId: z.string().min(1),
   reason: z.string().trim().min(2).max(120).default('portal-replace-machine')
 })
 
@@ -55,10 +55,10 @@ export default defineEventHandler(async (event) => {
 
   return prisma.$transaction(async (tx) => {
     await lockAssetForUpdate(tx, assetId)
-    await lockMachineUnitForUpdate(tx, body.machineUnitId)
-    await lockAssetBindingRowsForUpdate(tx, assetId, null, body.machineUnitId)
+    await lockMachineForUpdate(tx, body.machineId)
+    await lockAssetBindingRowsForUpdate(tx, assetId, null, body.machineId)
 
-    const [asset, newMachineUnit] = await Promise.all([
+    const [asset, newMachine] = await Promise.all([
       tx.asset.findFirst({
         where: {
           id: assetId,
@@ -68,15 +68,15 @@ export default defineEventHandler(async (event) => {
         },
         select: { id: true, tenantId: true }
       }),
-      tx.machineUnit.findUnique({
-        where: { id: body.machineUnitId },
+      tx.machine.findUnique({
+        where: { id: body.machineId },
         select: { id: true, tenantId: true }
       })
     ])
 
     if (!asset) throw createError({ statusCode: 404, statusMessage: 'Asset not found in tenant scope' })
-    if (!newMachineUnit) throw createError({ statusCode: 404, statusMessage: 'Machine unit not found' })
-    if (asset.tenantId !== newMachineUnit.tenantId) throw createError({ statusCode: 409, statusMessage: 'Machine unit tenant mismatch' })
+    if (!newMachine) throw createError({ statusCode: 404, statusMessage: 'Machine not found' })
+    if (asset.tenantId !== newMachine.tenantId) throw createError({ statusCode: 409, statusMessage: 'Machine tenant mismatch' })
 
     const [currentActive, machineActiveOnAnotherAsset] = await Promise.all([
       tx.assetBinding.findFirst({
@@ -91,7 +91,7 @@ export default defineEventHandler(async (event) => {
       tx.assetBinding.findFirst({
         where: {
           tenantId: asset.tenantId,
-          machineUnitId: newMachineUnit.id,
+          machineId: newMachine.id,
           status: 'ACTIVE',
           endedAt: null,
           NOT: { assetId: asset.id }
@@ -101,18 +101,18 @@ export default defineEventHandler(async (event) => {
     ])
 
     if (machineActiveOnAnotherAsset) {
-      throw createError({ statusCode: 409, statusMessage: 'Machine unit already bound to another asset' })
+      throw createError({ statusCode: 409, statusMessage: 'Machine already bound to another asset' })
     }
-    if (currentActive?.machineUnitId === newMachineUnit.id) {
+    if (currentActive?.machineId === newMachine.id) {
       return { ok: true, changed: false, activeBindingId: currentActive.id }
     }
 
-    const nextMachineStatus = await readMachineUnitStatus(tx, newMachineUnit.id)
-    if (nextMachineStatus && nextMachineStatus !== 'SPARE') {
-      throw createError({ statusCode: 409, statusMessage: `Only SPARE machine unit can be bound/replaced (current: ${nextMachineStatus})` })
+    const nextMachineStatus = await readMachineStatus(tx, newMachine.id)
+    if (nextMachineStatus && !['NEW', 'SPARE'].includes(nextMachineStatus)) {
+      throw createError({ statusCode: 409, statusMessage: `Only NEW or SPARE machine can be bound/replaced (current: ${nextMachineStatus})` })
     }
 
-    const oldMachineUnitId = currentActive?.machineUnitId || null
+    const oldMachineId = currentActive?.machineId || null
     const oldIotDeviceId = currentActive?.iotDeviceId || null
     if (currentActive) {
       await tx.assetBinding.updateMany({
@@ -128,7 +128,7 @@ export default defineEventHandler(async (event) => {
           reason: body.reason,
           metadata: {
             action: 'replace-machine',
-            replacedWithMachineUnitId: newMachineUnit.id
+            replacedWithMachineId: newMachine.id
           }
         }
       })
@@ -138,19 +138,25 @@ export default defineEventHandler(async (event) => {
       data: {
         tenantId: asset.tenantId,
         assetId: asset.id,
-        machineUnitId: newMachineUnit.id,
+        machineId: newMachine.id,
         iotDeviceId: currentActive?.iotDeviceId || null,
         reason: body.reason,
         metadata: {
           action: 'replace-machine',
-          replacedFromMachineUnitId: currentActive?.machineUnitId || null
+          replacedFromMachineId: currentActive?.machineId || null
         }
       }
     })
 
-    if (oldMachineUnitId) await refreshMachineUnitStatus(tx, oldMachineUnitId)
+    if (oldMachineId) {
+      await tx.$executeRaw`
+        UPDATE "machines"
+        SET "status" = 'REPLACED'::"MachineStatus"
+        WHERE "id" = ${oldMachineId}
+      `
+    }
     if (oldIotDeviceId) await refreshIotDeviceStatus(tx, oldIotDeviceId)
-    await refreshMachineUnitStatus(tx, newMachineUnit.id)
+    await refreshMachineStatus(tx, newMachine.id)
     if (created.iotDeviceId) await refreshIotDeviceStatus(tx, created.iotDeviceId)
 
     return { ok: true, changed: true, activeBindingId: created.id }

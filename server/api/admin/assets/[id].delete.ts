@@ -33,12 +33,12 @@ export default defineEventHandler(async (event) => {
       select: {
         id: true,
         iotDeviceId: true,
-        machineUnitId: true
+        machineId: true
       }
     })
 
     const iotIds = Array.from(new Set(activeBindings.map(item => item.iotDeviceId).filter(Boolean))) as string[]
-    const machineUnitIds = Array.from(new Set(activeBindings.map(item => item.machineUnitId).filter(Boolean))) as string[]
+    const machineIds = Array.from(new Set(activeBindings.map(item => item.machineId).filter(Boolean))) as string[]
 
     if (activeBindings.length) {
       await tx.assetBinding.updateMany({
@@ -58,9 +58,9 @@ export default defineEventHandler(async (event) => {
       })
     }
 
-    if (machineUnitIds.length) {
-      await tx.machineUnit.updateMany({
-        where: { id: { in: machineUnitIds } },
+    if (machineIds.length) {
+      await tx.machine.updateMany({
+        where: { id: { in: machineIds } },
         data: { status: 'SPARE' }
       })
     }

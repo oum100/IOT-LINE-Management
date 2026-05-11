@@ -22,7 +22,8 @@ export default defineEventHandler(async (event) => {
       include: {
         items: {
           include: {
-            machine: true
+            machine: true,
+            asset: true
           }
         },
         payment: {
@@ -48,7 +49,7 @@ export default defineEventHandler(async (event) => {
       orderStatus: currentOrder.status,
       paymentStatus: currentPayment.status
     }, expiryMinutes)) {
-      const machineIds = Array.from(new Set(currentOrder.items.map(item => item.machineId)))
+      const machineIds = Array.from(new Set(currentOrder.items.map(item => item.machineId).filter(Boolean) as string[]))
 
       await prisma.$transaction(async (tx) => {
         await tx.payment.update({
@@ -97,7 +98,8 @@ export default defineEventHandler(async (event) => {
         include: {
           items: {
             include: {
-              machine: true
+              machine: true,
+              asset: true
             }
           },
           payment: {
@@ -118,6 +120,15 @@ export default defineEventHandler(async (event) => {
 
     return {
       ...order,
+      items: order.items.map((item) => ({
+        ...item,
+        machine: item.machine
+          ? {
+              ...item.machine,
+              name: item.asset?.name || item.machine.name
+            }
+          : item.machine
+      })),
       ...getPaymentWindowState({
         createdAt: order.createdAt,
         orderStatus: order.status,

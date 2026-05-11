@@ -52,10 +52,10 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Asset not found in tenant scope' })
   }
 
-  const items = await prisma.machineUnit.findMany({
+  const items = await prisma.machine.findMany({
     where: {
       tenantId: resolvedTenantId,
-      status: 'SPARE',
+      status: { in: ['NEW', 'SPARE'] },
       bindings: {
         none: {
           status: 'ACTIVE',

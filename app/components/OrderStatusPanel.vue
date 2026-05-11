@@ -18,8 +18,8 @@ const itemStatusMap: Record<string, string> = {
   <div class="section-card p-4">
     <div class="flex items-center justify-between">
       <div>
-        <p class="text-xs uppercase tracking-[0.25em] text-teal-700/70">Order</p>
-        <h3 class="text-lg font-semibold text-slate-900">{{ order.orderNumber }}</h3>
+        <p class="text-xs uppercase tracking-[0.25em] text-teal-300">Order</p>
+        <h3 class="text-lg font-semibold text-slate-100">{{ order.orderNumber }}</h3>
       </div>
     </div>
 

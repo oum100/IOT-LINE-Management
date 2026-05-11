@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import ProductBindModal from '~/components/asset/ProductBindModal.vue'
+import ProductUnbindModal from '~/components/asset/ProductUnbindModal.vue'
 
 definePageMeta({ middleware: 'portal-auth' })
 
@@ -16,8 +18,8 @@ type ProductItem = {
   kind: string
   amount?: number | null
   durationMinutes?: number | null
-  serviceMode: 'TIME' | 'QUANTITY' | 'UNIT'
-  serviceUnit: 'MINUTE' | 'SECOND' | 'LITER' | 'GRAM' | 'PIECE' | 'BOX' | 'SLOT'
+  serviceMode: string
+  serviceUnit: string
   quantity?: number | null
   active: boolean
   createdAt: string
@@ -35,11 +37,10 @@ type ProductSummary = {
   totalCount: number
   activeCount: number
   inactiveCount: number
-  washerCount: number
-  dryerCount: number
   unitCount: number
   totalBindings: number
   totalSoldItems: number
+  productTypeCounts: Array<{ code: string; name: string; count: number }>
 }
 
 const loading = ref(false)
@@ -48,6 +49,7 @@ const createOpen = ref(false)
 const bindOpen = ref(false)
 const editOpen = ref(false)
 const bindingsOpen = ref(false)
+const taxonomyOpen = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
@@ -67,10 +69,24 @@ const tenants = ref<Tenant[]>([])
 const merchants = ref<Merchant[]>([])
 const branches = ref<Branch[]>([])
 const assets = ref<AssetOption[]>([])
+const taxonomy = ref<{
+  productTypes: Array<{ code: string; name: string }>
+  serviceModes: Array<{ code: string; name: string }>
+  serviceUnits: Array<{ code: string; name: string; symbol?: string | null }>
+}>({ productTypes: [], serviceModes: [], serviceUnits: [] })
 const creating = ref(false)
 const binding = ref(false)
 const editing = ref(false)
 const bindingsLoading = ref(false)
+const taxonomySaving = ref(false)
+const taxonomyError = ref('')
+
+const serviceModeRows = ref<Array<{ code: string; name: string; sortOrder: number; active: boolean }>>([])
+const serviceUnitRows = ref<Array<{ code: string; name: string; symbol: string | null; sortOrder: number; active: boolean }>>([])
+const productTypeRows = ref<Array<{ code: string; name: string; sortOrder: number; active: boolean }>>([])
+const typeDraft = ref({ code: '', name: '', sortOrder: 100, active: true })
+const modeDraft = ref({ code: '', name: '', sortOrder: 100, active: true })
+const unitDraft = ref({ code: '', name: '', symbol: '', sortOrder: 100, active: true })
 
 const selectedBindProduct = ref<ProductItem | null>(null)
 const selectedEditProduct = ref<ProductItem | null>(null)
@@ -105,34 +121,38 @@ const bindForm = ref({
   tenantId: '',
   merchantAccountId: '',
   branchId: '',
-  assetId: ''
+  assetIds: [] as string[]
 })
+const bindingTargetRow = ref<(typeof bindingRows.value)[number] | null>(null)
+const unbindOpen = ref(false)
+const unbinding = ref(false)
+const unbindError = ref('')
 
 const createForm = ref({
   tenantId: '',
   name: '',
-  kind: 'WASHER',
+  kind: '',
   amount: 0,
   durationMinutes: 0,
-  serviceMode: 'TIME' as 'TIME' | 'QUANTITY' | 'UNIT',
-  serviceUnit: 'MINUTE' as 'MINUTE' | 'SECOND' | 'LITER' | 'GRAM' | 'PIECE' | 'BOX' | 'SLOT',
+  serviceMode: 'TIME',
+  serviceUnit: 'MINUTE',
   quantity: 1,
   active: true
 })
 const editForm = ref({
   name: '',
-  kind: 'WASHER',
+  kind: '',
   amount: 0,
   durationMinutes: 0,
-  serviceMode: 'TIME' as 'TIME' | 'QUANTITY' | 'UNIT',
-  serviceUnit: 'MINUTE' as 'MINUTE' | 'SECOND' | 'LITER' | 'GRAM' | 'PIECE' | 'BOX' | 'SLOT',
+  serviceMode: 'TIME',
+  serviceUnit: 'MINUTE',
   quantity: 1,
   active: true
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const bindableProducts = computed(() =>
-  products.value.filter(item => item.active && (item._count?.prices || 0) === 0)
+  products.value.filter(item => item.active)
 )
 
 function setError(err: unknown) {
@@ -145,9 +165,9 @@ function formatDate(value: string) {
 }
 
 function modeLabel(item: ProductItem) {
-  if (item.serviceMode === 'TIME') return `${item.durationMinutes || 0} min`
+  if (item.serviceMode === 'TIME') return `${item.durationMinutes || 0}`
   const qty = item.quantity == null ? 1 : Number(item.quantity)
-  const unit = item.serviceUnit.toLowerCase()
+  const unit = unitLabel(item.serviceUnit)
   return `${qty} ${unit}`
 }
 
@@ -155,24 +175,43 @@ function amountLabel(item: ProductItem) {
   return `${item.amount || 0}`
 }
 
+function priceUnitLabel() {
+  return 'THB'
+}
+
+const productTypeOptions = computed(() => taxonomy.value.productTypes)
+const serviceModeOptions = computed(() => taxonomy.value.serviceModes)
+const serviceUnitOptions = computed(() => taxonomy.value.serviceUnits)
+const summaryProductTypeCounts = computed(() => summary.value?.productTypeCounts || [])
+
 function statusClass(active: boolean) {
   return active ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
 }
 
 function serviceBindingLabel(item: { serviceMode: string; durationMinutes: number; serviceUnit: string; quantity?: number | null }) {
-  if (item.serviceMode === 'TIME') return `${item.durationMinutes} min`
+  if (item.serviceMode === 'TIME') return `${item.durationMinutes}`
   const qty = item.quantity == null ? 1 : Number(item.quantity)
-  return `${qty} ${String(item.serviceUnit || '').toLowerCase()}`
+  return `${qty} ${unitLabel(String(item.serviceUnit || ''))}`
+}
+
+function modeName(code: string) {
+  return serviceModeOptions.value.find(item => item.code === code)?.name || code
+}
+
+function unitLabel(code: string) {
+  const found = serviceUnitOptions.value.find(item => item.code === code)
+  if (!found) return code
+  return found.symbol ? `${found.name} (${found.symbol})` : found.name
 }
 
 function openCreate() {
   createForm.value.tenantId = filters.value.tenantId || tenants.value[0]?.id || ''
   createForm.value.name = ''
-  createForm.value.kind = 'WASHER'
+  createForm.value.kind = productTypeOptions.value[0]?.code || ''
   createForm.value.amount = 0
   createForm.value.durationMinutes = 0
-  createForm.value.serviceMode = 'TIME'
-  createForm.value.serviceUnit = 'MINUTE'
+  createForm.value.serviceMode = serviceModeOptions.value[0]?.code || 'TIME'
+  createForm.value.serviceUnit = serviceUnitOptions.value[0]?.code || 'MINUTE'
   createForm.value.quantity = 1
   createForm.value.active = true
   createOpen.value = true
@@ -199,47 +238,51 @@ async function createProduct() {
 }
 
 async function openBind(item: ProductItem) {
-  selectedBindProduct.value = item
+  selectedBindProduct.value = null
   bindForm.value.productId = item.id
-  bindForm.value.tenantId = item.tenantId || filters.value.tenantId || ''
-  bindForm.value.merchantAccountId = ''
-  bindForm.value.branchId = ''
-  bindForm.value.assetId = ''
+  bindForm.value.tenantId = item.tenantId || filters.value.tenantId || tenants.value[0]?.id || ''
+  bindForm.value.merchantAccountId = filters.value.merchantAccountId || ''
+  bindForm.value.branchId = filters.value.branchId || ''
+  bindForm.value.assetIds = []
   bindOpen.value = true
   await loadMerchants(bindForm.value.tenantId)
-  assets.value = []
+  await loadBranches(bindForm.value.tenantId, bindForm.value.merchantAccountId)
+  await loadAssetsByScope(bindForm.value.tenantId, bindForm.value.merchantAccountId, bindForm.value.branchId)
 }
 
 async function openBindGlobal() {
   selectedBindProduct.value = null
   bindForm.value.productId = ''
   bindForm.value.tenantId = filters.value.tenantId || tenants.value[0]?.id || ''
-  bindForm.value.merchantAccountId = ''
-  bindForm.value.branchId = ''
-  bindForm.value.assetId = ''
+  bindForm.value.merchantAccountId = filters.value.merchantAccountId || ''
+  bindForm.value.branchId = filters.value.branchId || ''
+  bindForm.value.assetIds = []
   bindOpen.value = true
   await loadMerchants(bindForm.value.tenantId)
-  assets.value = []
+  await loadBranches(bindForm.value.tenantId, bindForm.value.merchantAccountId)
+  await loadAssetsByScope(bindForm.value.tenantId, bindForm.value.merchantAccountId, bindForm.value.branchId)
 }
 
 async function submitBind() {
-  const targetProductId = selectedBindProduct.value?.id || bindForm.value.productId
-  if (!targetProductId) return
+  const targetProductId = bindForm.value.productId
+  if (!targetProductId || !bindForm.value.assetIds.length) return
   binding.value = true
   error.value = ''
   try {
-    await $fetch(`/api/admin/products/${targetProductId}/bind`, {
-      method: 'POST',
-      body: {
-        tenantId: bindForm.value.tenantId,
-        merchantAccountId: bindForm.value.merchantAccountId,
-        branchId: bindForm.value.branchId,
-        assetId: bindForm.value.assetId
-      }
-    })
+    for (const assetId of bindForm.value.assetIds) {
+      await $fetch(`/api/admin/products/${targetProductId}/bind`, {
+        method: 'POST',
+        body: {
+          tenantId: bindForm.value.tenantId,
+          merchantAccountId: bindForm.value.merchantAccountId,
+          branchId: bindForm.value.branchId,
+          assetId
+        }
+      })
+    }
     bindOpen.value = false
     selectedBindProduct.value = null
-    assets.value = []
+    bindForm.value.assetIds = []
     await loadProducts()
   } catch (err) {
     setError(err)
@@ -298,9 +341,141 @@ async function openBindings(item: ProductItem) {
   }
 }
 
+function openUnbindRow(row: (typeof bindingRows.value)[number]) {
+  bindingTargetRow.value = row
+  unbindError.value = ''
+  unbindOpen.value = true
+}
+
+async function submitUnbindRow() {
+  if (!bindingTargetRow.value) return
+  unbinding.value = true
+  unbindError.value = ''
+  try {
+    await $fetch(`/api/admin/assets/${bindingTargetRow.value.asset.id}/products/${bindingsProduct.value?.id}`, { method: 'DELETE' })
+    unbindOpen.value = false
+    if (bindingsProduct.value?.id) {
+      const response = await $fetch<{ prices: typeof bindingRows.value }>(`/api/admin/products/${bindingsProduct.value.id}/bindings`)
+      bindingRows.value = response.prices || []
+    }
+    await loadProducts()
+  } catch (err: any) {
+    unbindError.value = err?.data?.statusMessage || err?.message || 'Failed to unbind product'
+  } finally {
+    unbinding.value = false
+  }
+}
+
 async function loadTenants() {
   const response = await $fetch<PagingResponse<Tenant>>('/api/admin/tenants', { query: { page: 1, pageSize: 200 } })
   tenants.value = response.items || []
+}
+
+async function loadTaxonomy() {
+  const response = await $fetch<{
+    productTypes: Array<{ code: string; name: string }>
+    serviceModes: Array<{ code: string; name: string }>
+    serviceUnits: Array<{ code: string; name: string; symbol?: string | null }>
+  }>('/api/admin/products/taxonomy')
+  taxonomy.value = response
+}
+
+async function loadTaxonomyTables() {
+  const [types, modes, units] = await Promise.all([
+    $fetch<{ items: Array<{ code: string; name: string; sortOrder: number; active: boolean }> }>('/api/admin/product-types'),
+    $fetch<{ items: Array<{ code: string; name: string; sortOrder: number; active: boolean }> }>('/api/admin/service-modes'),
+    $fetch<{ items: Array<{ code: string; name: string; symbol: string | null; sortOrder: number; active: boolean }> }>('/api/admin/service-units')
+  ])
+  productTypeRows.value = types.items || []
+  serviceModeRows.value = modes.items || []
+  serviceUnitRows.value = units.items || []
+}
+
+async function openTaxonomyManager() {
+  taxonomyError.value = ''
+  await loadTaxonomyTables()
+  taxonomyOpen.value = true
+}
+
+async function createMode() {
+  taxonomySaving.value = true
+  taxonomyError.value = ''
+  try {
+    await $fetch('/api/admin/service-modes', { method: 'POST', body: modeDraft.value })
+    modeDraft.value = { code: '', name: '', sortOrder: 100, active: true }
+    await Promise.all([loadTaxonomy(), loadTaxonomyTables()])
+  } catch (err: any) {
+    taxonomyError.value = err?.data?.statusMessage || err?.message || 'Failed to create service mode'
+  } finally {
+    taxonomySaving.value = false
+  }
+}
+
+async function createType() {
+  taxonomySaving.value = true
+  taxonomyError.value = ''
+  try {
+    await $fetch('/api/admin/product-types', { method: 'POST', body: typeDraft.value })
+    typeDraft.value = { code: '', name: '', sortOrder: 100, active: true }
+    await Promise.all([loadTaxonomy(), loadTaxonomyTables()])
+  } catch (err: any) {
+    taxonomyError.value = err?.data?.statusMessage || err?.message || 'Failed to create product type'
+  } finally {
+    taxonomySaving.value = false
+  }
+}
+
+async function createUnit() {
+  taxonomySaving.value = true
+  taxonomyError.value = ''
+  try {
+    await $fetch('/api/admin/service-units', { method: 'POST', body: { ...unitDraft.value, symbol: unitDraft.value.symbol || null } })
+    unitDraft.value = { code: '', name: '', symbol: '', sortOrder: 100, active: true }
+    await Promise.all([loadTaxonomy(), loadTaxonomyTables()])
+  } catch (err: any) {
+    taxonomyError.value = err?.data?.statusMessage || err?.message || 'Failed to create service unit'
+  } finally {
+    taxonomySaving.value = false
+  }
+}
+
+async function updateType(item: { code: string; name: string; sortOrder: number; active: boolean }) {
+  taxonomySaving.value = true
+  taxonomyError.value = ''
+  try {
+    await $fetch(`/api/admin/product-types/${encodeURIComponent(item.code)}`, { method: 'PATCH', body: item })
+    await Promise.all([loadTaxonomy(), loadTaxonomyTables()])
+  } catch (err: any) {
+    taxonomyError.value = err?.data?.statusMessage || err?.message || 'Failed to update product type'
+  } finally {
+    taxonomySaving.value = false
+  }
+}
+
+async function updateMode(item: { code: string; name: string; sortOrder: number; active: boolean }) {
+  taxonomySaving.value = true
+  taxonomyError.value = ''
+  try {
+    await $fetch(`/api/admin/service-modes/${encodeURIComponent(item.code)}`, { method: 'PATCH', body: item })
+    await Promise.all([loadTaxonomy(), loadTaxonomyTables()])
+  } catch (err: any) {
+    taxonomyError.value = err?.data?.statusMessage || err?.message || 'Failed to update service mode'
+  } finally {
+    taxonomySaving.value = false
+  }
+}
+
+async function updateUnit(item: { code: string; name: string; symbol: string | null; sortOrder: number; active: boolean }) {
+  taxonomySaving.value = true
+  taxonomyError.value = ''
+  try {
+    await $fetch(`/api/admin/service-units/${encodeURIComponent(item.code)}`, { method: 'PATCH', body: item })
+    await Promise.all([loadTaxonomy(), loadTaxonomyTables()])
+  } catch (err: any) {
+    taxonomyError.value = err?.data?.statusMessage || err?.message || 'Failed to update service unit'
+  } finally {
+    taxonomySaving.value = false
+  }
 }
 
 async function loadMerchants(tenantId: string) {
@@ -344,7 +519,8 @@ async function loadAssetsByScope(tenantId: string, merchantAccountId: string, br
       pageSize: 200
     }
   })
-  const kind = selectedBindProduct.value?.kind || ''
+  const selected = products.value.find(item => item.id === bindForm.value.productId) || null
+  const kind = selected?.kind || ''
   assets.value = (response.items || []).filter(item => (kind ? item.kind === kind : true))
 }
 
@@ -415,17 +591,27 @@ watch(() => filters.value.active, () => applyFilters())
 
 watch(() => bindForm.value.merchantAccountId, async () => {
   bindForm.value.branchId = ''
-  bindForm.value.assetId = ''
+  bindForm.value.assetIds = []
   await loadBranches(bindForm.value.tenantId, bindForm.value.merchantAccountId)
   assets.value = []
 })
 
+watch(() => bindForm.value.tenantId, async () => {
+  bindForm.value.merchantAccountId = ''
+  bindForm.value.branchId = ''
+  bindForm.value.assetIds = []
+  await loadMerchants(bindForm.value.tenantId)
+  branches.value = []
+  assets.value = []
+})
+
 watch(() => bindForm.value.branchId, async () => {
-  bindForm.value.assetId = ''
+  bindForm.value.assetIds = []
   await loadAssetsByScope(bindForm.value.tenantId, bindForm.value.merchantAccountId, bindForm.value.branchId)
 })
 
 onMounted(async () => {
+  await loadTaxonomy()
   await loadTenants()
   await loadProducts()
 })
@@ -468,10 +654,7 @@ onMounted(async () => {
             <label class="text-xs font-medium text-slate-500 dark:text-slate-300">Type</label>
             <select v-model="filters.kind" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
               <option value="">All types</option>
-              <option value="WASHER">Washer</option>
-              <option value="DRYER">Dryer</option>
-              <option value="WATER">Water</option>
-              <option value="VENDING">Vending</option>
+              <option v-for="option in productTypeOptions" :key="option.code" :value="option.code">{{ option.name }} ({{ option.code }})</option>
             </select>
           </div>
           <div class="flex flex-col gap-1">
@@ -494,16 +677,25 @@ onMounted(async () => {
         <UCard :ui="{ root: 'bg-emerald-50/70 dark:bg-emerald-950/25 ring-1 ring-emerald-200 dark:ring-emerald-700/40' }"><p class="text-xs text-emerald-700 dark:text-emerald-300">Total</p><p class="text-2xl font-bold text-emerald-700 dark:text-emerald-200">{{ summary?.totalCount || 0 }}</p></UCard>
         <UCard :ui="{ root: 'bg-white dark:bg-slate-950/60 ring-1 ring-slate-200 dark:ring-slate-700' }"><p class="text-xs text-slate-500 dark:text-slate-400">Active</p><p class="text-2xl font-bold text-emerald-500">{{ summary?.activeCount || 0 }}</p></UCard>
         <UCard :ui="{ root: 'bg-white dark:bg-slate-950/60 ring-1 ring-slate-200 dark:ring-slate-700' }"><p class="text-xs text-slate-500 dark:text-slate-400">Inactive</p><p class="text-2xl font-bold text-rose-500">{{ summary?.inactiveCount || 0 }}</p></UCard>
-        <UCard :ui="{ root: 'bg-white dark:bg-slate-950/60 ring-1 ring-slate-200 dark:ring-slate-700' }"><p class="text-xs text-slate-500 dark:text-slate-400">Washer</p><p class="text-2xl font-bold text-blue-500">{{ summary?.washerCount || 0 }}</p></UCard>
-        <UCard :ui="{ root: 'bg-white dark:bg-slate-950/60 ring-1 ring-slate-200 dark:ring-slate-700' }"><p class="text-xs text-slate-500 dark:text-slate-400">Dryer</p><p class="text-2xl font-bold text-violet-500">{{ summary?.dryerCount || 0 }}</p></UCard>
         <UCard :ui="{ root: 'bg-white dark:bg-slate-950/60 ring-1 ring-slate-200 dark:ring-slate-700' }"><p class="text-xs text-slate-500 dark:text-slate-400">Asset Bindings</p><p class="text-2xl font-bold text-cyan-500">{{ summary?.totalBindings || 0 }}</p></UCard>
         <UCard :ui="{ root: 'bg-white dark:bg-slate-950/60 ring-1 ring-slate-200 dark:ring-slate-700' }"><p class="text-xs text-slate-500 dark:text-slate-400">Sold Items</p><p class="text-2xl font-bold text-amber-500">{{ summary?.totalSoldItems || 0 }}</p></UCard>
         <UCard :ui="{ root: 'bg-white dark:bg-slate-950/60 ring-1 ring-slate-200 dark:ring-slate-700' }"><p class="text-xs text-slate-500 dark:text-slate-400">Service Unit</p><p class="text-2xl font-bold text-slate-500">{{ summary?.unitCount || 0 }}</p></UCard>
+        <UCard
+          v-for="typeCount in summaryProductTypeCounts"
+          :key="`summary-type-${typeCount.code}`"
+          :ui="{ root: 'bg-white dark:bg-slate-950/60 ring-1 ring-slate-200 dark:ring-slate-700' }"
+        >
+          <p class="text-xs text-slate-500 dark:text-slate-400">{{ typeCount.name }}</p>
+          <p class="text-2xl font-bold text-blue-500">{{ typeCount.count }}</p>
+        </UCard>
       </div>
 
       <div class="mt-4 flex items-center justify-between">
         <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Product List</p>
         <div class="flex items-center gap-2">
+          <NuxtLink to="/admin/product-types">
+            <UButton icon="i-lucide-tags" color="neutral" variant="soft">Product Taxonomy</UButton>
+          </NuxtLink>
           <UButton icon="i-lucide-plus" color="primary" class="text-white" @click="openCreate">Create</UButton>
           <UButton icon="i-lucide-link" color="primary" class="text-white" @click="openBindGlobal">Bind</UButton>
         </div>
@@ -516,8 +708,11 @@ onMounted(async () => {
               <th class="px-3 py-2">Code</th>
               <th class="px-3 py-2">Name</th>
               <th class="px-3 py-2">Type</th>
-              <th class="px-3 py-2">Price</th>
-              <th class="px-3 py-2">Service</th>
+              <th class="px-3 py-2 text-center">Price</th>
+              <th class="px-3 py-2 text-center">Currency</th>
+              <th class="px-3 py-2 text-center">Service</th>
+              <th class="px-3 py-2 text-center">Service Mode</th>
+              <th class="px-3 py-2 text-center">Service Unit</th>
               <th class="px-3 py-2 text-center">Status</th>
               <th class="px-3 py-2 text-center">Bindings</th>
               <th class="px-3 py-2 text-center">Orders</th>
@@ -529,33 +724,51 @@ onMounted(async () => {
             <tr v-for="item in products" :key="item.id" class="border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/40">
               <td class="px-3 py-2 font-medium">{{ item.code }}</td>
               <td class="px-3 py-2">{{ item.name }}</td>
-              <td class="px-3 py-2">{{ item.kind }}</td>
-              <td class="px-3 py-2">{{ amountLabel(item) }}</td>
-              <td class="px-3 py-2">{{ modeLabel(item) }}</td>
+              <td class="px-3 py-2">{{ productTypeOptions.find(row => row.code === item.kind)?.name || item.kind }}</td>
+              <td class="px-3 py-2 text-center">{{ amountLabel(item) }}</td>
+              <td class="px-3 py-2 text-center">{{ priceUnitLabel() }}</td>
+              <td class="px-3 py-2 text-center">{{ modeLabel(item) }}</td>
+              <td class="px-3 py-2 text-center">{{ modeName(item.serviceMode) }}</td>
+              <td class="px-3 py-2 text-center">{{ unitLabel(item.serviceUnit) }}</td>
               <td class="px-3 py-2 text-center"><span :class="statusClass(item.active)">{{ item.active ? 'ACTIVE' : 'INACTIVE' }}</span></td>
               <td class="px-3 py-2 text-center">
                 <div class="flex items-center justify-center gap-1.5">
                   <span>{{ item._count?.prices || 0 }}</span>
-                  <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-list" @click="openBindings(item)" />
+                  <UButton
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    icon="i-lucide-list"
+                    title="View Bind List"
+                    @click="openBindings(item)"
+                  />
                 </div>
               </td>
               <td class="px-3 py-2 text-center">{{ item._count?.orderItems || 0 }}</td>
-              <td class="px-3 py-2">{{ formatDate(item.updatedAt) }}</td>
+              <td class="px-3 py-2"><DateTimeTwoLine :value="item.updatedAt" /></td>
               <td class="px-3 py-2 text-center">
                 <div class="flex items-center justify-center gap-1.5">
-                  <UButton size="xs" color="neutral" variant="soft" icon="i-lucide-pencil" @click="openEdit(item)" />
                   <UButton
                     size="xs"
-                    :color="(item._count?.prices || 0) > 0 ? 'warning' : 'primary'"
+                    color="neutral"
                     variant="soft"
-                    :icon="(item._count?.prices || 0) > 0 ? 'i-lucide-unlink' : 'i-lucide-link'"
+                    icon="i-lucide-pencil"
+                    title="Edit Product"
+                    @click="openEdit(item)"
+                  />
+                  <UButton
+                    size="xs"
+                    color="primary"
+                    variant="soft"
+                    icon="i-lucide-link"
+                    title="Bind Product"
                     @click="openBind(item)"
                   />
                 </div>
               </td>
             </tr>
             <tr v-if="!loading && products.length === 0">
-              <td colspan="10" class="px-3 py-6 text-center text-slate-500">No products found</td>
+              <td colspan="13" class="px-3 py-6 text-center text-slate-500">No products found</td>
             </tr>
           </tbody>
         </table>
@@ -581,56 +794,53 @@ onMounted(async () => {
             </div>
           </template>
 
-          <div class="grid gap-3 md:grid-cols-2">
-            <UFormField label="Tenant">
+          <div class="grid gap-3 md:grid-cols-6">
+            <UFormField label="Product Code" class="w-full md:col-span-3">
+              <UInput
+                model-value="Auto generated after create"
+                disabled
+                class="w-full"
+                :ui="{ base: 'w-full h-10 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 ring-1 ring-slate-300 dark:ring-slate-600' }"
+              />
+            </UFormField>
+            <UFormField label="Product Name" class="w-full md:col-span-3">
+              <UInput v-model="createForm.name" class="w-full" :ui="{ base: 'w-full h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
+            </UFormField>
+            <UFormField label="Tenant" class="md:col-span-2">
               <select v-model="createForm.tenantId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
                 <option value="" disabled>Select tenant</option>
                 <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</option>
               </select>
             </UFormField>
-            <UFormField label="Name">
-              <UInput v-model="createForm.name" :ui="{ base: 'h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
-            </UFormField>
-            <UFormField label="Type">
+            <UFormField label="Type" class="md:col-span-2">
               <select v-model="createForm.kind" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
-                <option value="WASHER">WASHER</option>
-                <option value="DRYER">DRYER</option>
-                <option value="WATER">WATER</option>
-                <option value="VENDING">VENDING</option>
+                <option v-for="option in productTypeOptions" :key="option.code" :value="option.code">{{ option.name }} ({{ option.code }})</option>
               </select>
             </UFormField>
-            <UFormField label="Status">
+            <UFormField label="Status" class="md:col-span-2">
               <select v-model="createForm.active" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
                 <option :value="true">ACTIVE</option>
                 <option :value="false">INACTIVE</option>
               </select>
             </UFormField>
-            <UFormField label="Service Mode">
+            <UFormField label="Service Mode" class="md:col-span-3">
               <select v-model="createForm.serviceMode" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
-                <option value="TIME">TIME</option>
-                <option value="QUANTITY">QUANTITY</option>
-                <option value="UNIT">UNIT</option>
+                <option v-for="option in serviceModeOptions" :key="option.code" :value="option.code">{{ option.name }} ({{ option.code }})</option>
               </select>
             </UFormField>
-            <UFormField label="Service Unit">
+            <UFormField label="Service Unit" class="md:col-span-3">
               <select v-model="createForm.serviceUnit" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
-                <option value="MINUTE">MINUTE</option>
-                <option value="SECOND">SECOND</option>
-                <option value="LITER">LITER</option>
-                <option value="GRAM">GRAM</option>
-                <option value="PIECE">PIECE</option>
-                <option value="BOX">BOX</option>
-                <option value="SLOT">SLOT</option>
+                <option v-for="option in serviceUnitOptions" :key="option.code" :value="option.code">{{ option.name }} ({{ option.code }})</option>
               </select>
             </UFormField>
-            <UFormField label="Price">
-              <UInput v-model.number="createForm.amount" type="number" :ui="{ base: 'h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
+            <UFormField label="Price" class="md:col-span-2">
+              <UInput v-model.number="createForm.amount" type="number" class="w-full" :ui="{ base: 'w-full h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
             </UFormField>
-            <UFormField label="Duration (min)">
-              <UInput v-model.number="createForm.durationMinutes" type="number" :disabled="createForm.serviceMode !== 'TIME'" :ui="{ base: 'h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
+            <UFormField label="Duration (min)" class="md:col-span-2">
+              <UInput v-model.number="createForm.durationMinutes" type="number" class="w-full" :disabled="createForm.serviceMode !== 'TIME'" :ui="{ base: 'w-full h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
             </UFormField>
-            <UFormField label="Quantity">
-              <UInput v-model.number="createForm.quantity" type="number" :disabled="createForm.serviceMode === 'TIME'" :ui="{ base: 'h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
+            <UFormField label="Quantity" class="md:col-span-2">
+              <UInput v-model.number="createForm.quantity" type="number" class="w-full" :disabled="createForm.serviceMode === 'TIME'" :ui="{ base: 'w-full h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
             </UFormField>
           </div>
 
@@ -638,63 +848,6 @@ onMounted(async () => {
             <div class="flex justify-end gap-2">
               <UButton color="neutral" variant="soft" @click="createOpen = false">Cancel</UButton>
               <UButton color="primary" class="text-white" :loading="creating" @click="createProduct">Create</UButton>
-            </div>
-          </template>
-        </UCard>
-      </template>
-    </UModal>
-
-    <UModal v-model:open="bindOpen" :ui="{ content: 'sm:max-w-2xl' }">
-      <template #content>
-        <UCard :ui="{ root: 'bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700' }">
-          <template #header>
-            <div class="flex items-center justify-between">
-              <h3 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Bind Product</h3>
-              <UButton color="neutral" variant="ghost" icon="i-lucide-x" @click="bindOpen = false" />
-            </div>
-          </template>
-
-          <div class="grid gap-3 md:grid-cols-2">
-            <UFormField label="Tenant">
-              <select v-model="bindForm.tenantId" disabled class="h-10 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
-                <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</option>
-              </select>
-            </UFormField>
-            <UFormField label="Product">
-              <template v-if="selectedBindProduct">
-                <UInput :model-value="`${selectedBindProduct.name} (${selectedBindProduct.code})`" disabled :ui="{ base: 'h-10 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 ring-1 ring-slate-300 dark:ring-slate-600' }" />
-              </template>
-              <template v-else>
-                <select v-model="bindForm.productId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
-                  <option value="" disabled>Select product</option>
-                  <option v-for="item in bindableProducts" :key="item.id" :value="item.id">{{ item.name }} ({{ item.code }})</option>
-                </select>
-              </template>
-            </UFormField>
-            <UFormField label="Merchant">
-              <select v-model="bindForm.merchantAccountId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
-                <option value="" disabled>Select merchant</option>
-                <option v-for="merchant in merchants" :key="merchant.id" :value="merchant.id">{{ merchant.name }}</option>
-              </select>
-            </UFormField>
-            <UFormField label="Branch">
-              <select v-model="bindForm.branchId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
-                <option value="" disabled>Select branch</option>
-                <option v-for="branch in branches" :key="branch.id" :value="branch.id">{{ branch.name }}</option>
-              </select>
-            </UFormField>
-            <UFormField label="Asset" class="md:col-span-2">
-              <select v-model="bindForm.assetId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
-                <option value="" disabled>Select asset</option>
-                <option v-for="asset in assets" :key="asset.id" :value="asset.id">{{ asset.name }} ({{ asset.code }})</option>
-              </select>
-            </UFormField>
-          </div>
-
-          <template #footer>
-            <div class="flex justify-end gap-2">
-              <UButton color="neutral" variant="soft" @click="bindOpen = false">Cancel</UButton>
-              <UButton color="primary" class="text-white" icon="i-lucide-link" :loading="binding" :disabled="!(selectedBindProduct?.id || bindForm.productId) || !bindForm.assetId || !bindForm.branchId || !bindForm.merchantAccountId" @click="submitBind">Bind</UButton>
             </div>
           </template>
         </UCard>
@@ -711,50 +864,47 @@ onMounted(async () => {
             </div>
           </template>
 
-          <div class="grid gap-3 md:grid-cols-2">
-            <UFormField label="Name">
-              <UInput v-model="editForm.name" :ui="{ base: 'h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
+          <div class="grid gap-3 md:grid-cols-6">
+            <UFormField label="Product Code" class="w-full md:col-span-3">
+              <UInput
+                :model-value="selectedEditProduct?.code || '-'"
+                disabled
+                class="w-full"
+                :ui="{ base: 'w-full h-10 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 ring-1 ring-slate-300 dark:ring-slate-600' }"
+              />
             </UFormField>
-            <UFormField label="Type">
+            <UFormField label="Product Name" class="w-full md:col-span-3">
+              <UInput v-model="editForm.name" class="w-full" :ui="{ base: 'w-full h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
+            </UFormField>
+            <UFormField label="Type" class="md:col-span-3">
               <select v-model="editForm.kind" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
-                <option value="WASHER">WASHER</option>
-                <option value="DRYER">DRYER</option>
-                <option value="WATER">WATER</option>
-                <option value="VENDING">VENDING</option>
+                <option v-for="option in productTypeOptions" :key="option.code" :value="option.code">{{ option.name }} ({{ option.code }})</option>
               </select>
             </UFormField>
-            <UFormField label="Status">
+            <UFormField label="Status" class="md:col-span-3">
               <select v-model="editForm.active" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
                 <option :value="true">ACTIVE</option>
                 <option :value="false">INACTIVE</option>
               </select>
             </UFormField>
-            <UFormField label="Service Mode">
+            <UFormField label="Service Mode" class="md:col-span-3">
               <select v-model="editForm.serviceMode" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
-                <option value="TIME">TIME</option>
-                <option value="QUANTITY">QUANTITY</option>
-                <option value="UNIT">UNIT</option>
+                <option v-for="option in serviceModeOptions" :key="option.code" :value="option.code">{{ option.name }} ({{ option.code }})</option>
               </select>
             </UFormField>
-            <UFormField label="Service Unit">
+            <UFormField label="Service Unit" class="md:col-span-3">
               <select v-model="editForm.serviceUnit" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
-                <option value="MINUTE">MINUTE</option>
-                <option value="SECOND">SECOND</option>
-                <option value="LITER">LITER</option>
-                <option value="GRAM">GRAM</option>
-                <option value="PIECE">PIECE</option>
-                <option value="BOX">BOX</option>
-                <option value="SLOT">SLOT</option>
+                <option v-for="option in serviceUnitOptions" :key="option.code" :value="option.code">{{ option.name }} ({{ option.code }})</option>
               </select>
             </UFormField>
-            <UFormField label="Price">
-              <UInput v-model.number="editForm.amount" type="number" :ui="{ base: 'h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
+            <UFormField label="Price" class="md:col-span-2">
+              <UInput v-model.number="editForm.amount" type="number" class="w-full" :ui="{ base: 'w-full h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
             </UFormField>
-            <UFormField label="Duration (min)">
-              <UInput v-model.number="editForm.durationMinutes" type="number" :disabled="editForm.serviceMode !== 'TIME'" :ui="{ base: 'h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
+            <UFormField label="Duration (min)" class="md:col-span-2">
+              <UInput v-model.number="editForm.durationMinutes" type="number" class="w-full" :disabled="editForm.serviceMode !== 'TIME'" :ui="{ base: 'w-full h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
             </UFormField>
-            <UFormField label="Quantity">
-              <UInput v-model.number="editForm.quantity" type="number" :disabled="editForm.serviceMode === 'TIME'" :ui="{ base: 'h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
+            <UFormField label="Quantity" class="md:col-span-2">
+              <UInput v-model.number="editForm.quantity" type="number" class="w-full" :disabled="editForm.serviceMode === 'TIME'" :ui="{ base: 'w-full h-10 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 ring-1 ring-slate-300 dark:ring-slate-600' }" />
             </UFormField>
           </div>
 
@@ -790,6 +940,7 @@ onMounted(async () => {
                   <th class="px-3 py-2">Price</th>
                   <th class="px-3 py-2">Service</th>
                   <th class="px-3 py-2">Updated</th>
+                  <th class="px-3 py-2 text-center">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -800,10 +951,20 @@ onMounted(async () => {
                   <td class="px-3 py-2">{{ row.asset.name }} ({{ row.asset.code }})</td>
                   <td class="px-3 py-2">{{ row.amount }}</td>
                   <td class="px-3 py-2">{{ serviceBindingLabel(row) }}</td>
-                  <td class="px-3 py-2">{{ formatDate(row.updatedAt) }}</td>
+                  <td class="px-3 py-2"><DateTimeTwoLine :value="row.updatedAt" /></td>
+                  <td class="px-3 py-2 text-center">
+                    <UButton
+                      size="xs"
+                      color="error"
+                      variant="ghost"
+                      icon="i-lucide-unlink"
+                      title="Unbind Product"
+                      @click="openUnbindRow(row)"
+                    />
+                  </td>
                 </tr>
                 <tr v-if="!bindingRows.length">
-                  <td colspan="7" class="px-3 py-6 text-center text-slate-500">No bind records</td>
+                  <td colspan="8" class="px-3 py-6 text-center text-slate-500">No bind records</td>
                 </tr>
               </tbody>
             </table>
@@ -811,5 +972,38 @@ onMounted(async () => {
         </UCard>
       </template>
     </UModal>
+
+    <ProductBindModal
+      v-model:open="bindOpen"
+      v-model="bindForm.productId"
+      :loading="binding"
+      :error="error"
+      :options="bindableProducts as any"
+      :tenants="tenants as any"
+      :merchants="merchants as any"
+      :branches="branches as any"
+      :assets="assets as any"
+      :tenant-id="bindForm.tenantId"
+      :merchant-account-id="bindForm.merchantAccountId"
+      :branch-id="bindForm.branchId"
+      :asset-ids="bindForm.assetIds"
+      @update:tenant-id="bindForm.tenantId = $event"
+      @update:merchant-account-id="bindForm.merchantAccountId = $event"
+      @update:branch-id="bindForm.branchId = $event"
+      @update:asset-ids="bindForm.assetIds = $event"
+      @submit="submitBind"
+    />
+
+    <ProductUnbindModal
+      v-model:open="unbindOpen"
+      :loading="unbinding"
+      :error="unbindError"
+      :asset-name="bindingTargetRow?.asset?.name || ''"
+      :asset-code="bindingTargetRow?.asset?.code || ''"
+      :product-name="bindingsProduct?.name || ''"
+      :product-code="bindingsProduct?.code || ''"
+      @confirm="submitUnbindRow"
+    />
+
   </section>
 </template>

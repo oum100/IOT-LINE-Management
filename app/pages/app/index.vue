@@ -3,7 +3,7 @@ definePageMeta({
   middleware: 'portal-auth'
 })
 
-await navigateTo('/app/dashboard')
+await navigateTo('/app/status')
 </script>
 
 <template>

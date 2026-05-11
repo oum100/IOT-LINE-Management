@@ -8,7 +8,7 @@ await getSession()
 
 const user = computed(() => data.value?.user)
 if (user.value?.tenantId) {
-  await navigateTo('/app/dashboard')
+  await navigateTo('/app/status')
 }
 
 const loading = ref(false)
@@ -39,7 +39,7 @@ async function submitCreateTenant() {
       }
     })
     await getSession()
-    await navigateTo('/app/dashboard')
+    await navigateTo('/app/status')
   } catch (error: any) {
     errorMessage.value = error?.data?.statusMessage || error?.message || 'Unable to create tenant.'
   } finally {

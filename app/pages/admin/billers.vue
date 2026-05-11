@@ -716,49 +716,48 @@ onMounted(async () => {
     <input ref="qrUploadInput" type="file" accept="image/*" class="hidden" @change="onMaeManeeQrSelected">
 
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
-      <div class="flex flex-wrap items-start justify-between gap-4">
-        <div class="min-w-[240px]">
-          <p class="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">Billers</p>
-          <h1 class="text-2xl font-semibold text-slate-900 dark:text-white">Biller Management</h1>
-          <p class="mt-1 text-sm text-slate-500 dark:text-slate-300">Manage biller profiles, routing mode, and assignment priority across tenant, merchant, and branch.</p>
-        </div>
-
-        <div class="flex w-full justify-end">
-          <div class="flex w-full gap-3 sm:grid-cols-2 xl:w-[1080px] xl:grid-cols-12">
-            <UFormField label="Tenant" class="xl:col-span-2">
-              <select v-model="filters.tenantId" :class="nativeSelectClass">
-                <option value="">All tenants</option>
-                <option v-for="item in tenantOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-              </select>
-            </UFormField>
-            <UFormField label="Merchant" class="xl:col-span-2">
-              <select v-model="filters.merchantAccountId" :class="nativeSelectClass">
-                <option value="">All merchants</option>
-                <option v-for="item in merchantOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-              </select>
-            </UFormField>
-            <UFormField label="Branch" class="xl:col-span-2">
-              <select v-model="filters.branchId" :class="nativeSelectClass">
-                <option value="">All branches</option>
-                <option v-for="item in branchOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-              </select>
-            </UFormField>
-            <UFormField label="Search" class="xl:col-span-4">
-              <SearchInput v-model="search" placeholder="Search code/name/biller id..." />
-            </UFormField>
-          </div>
-        </div>
+      <div class="min-w-60">
+        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">Billers</p>
+        <h1 class="text-2xl font-semibold text-slate-900 dark:text-white">Biller Management</h1>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-300">Manage biller profiles, routing mode, and assignment priority across tenant, merchant, and branch.</p>
       </div>
     </UCard>
 
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <template #header>
-        <div class="flex items-center justify-between gap-3">
-          <div>
-            <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Biller List</h2>
-            <p class="text-sm text-slate-500 dark:text-slate-300">{{ total }} items</p>
+        <div class="space-y-2">
+          <div class="flex w-full items-end gap-3">
+            <div class="min-w-fit">
+              <h2 class="text-lg font-semibold text-slate-900 dark:text-white">Biller List</h2>
+              <p class="text-sm text-slate-500 dark:text-slate-300">{{ total }} items</p>
+            </div>
+            <div class="ml-auto flex w-full max-w-[1080px] items-end gap-3">
+              <div class="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-10">
+                <UFormField label="Tenant" class="xl:col-span-2">
+                  <select v-model="filters.tenantId" :class="nativeSelectClass">
+                    <option value="">All tenants</option>
+                    <option v-for="item in tenantOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                  </select>
+                </UFormField>
+                <UFormField label="Merchant" class="xl:col-span-2">
+                  <select v-model="filters.merchantAccountId" :class="nativeSelectClass">
+                    <option value="">All merchants</option>
+                    <option v-for="item in merchantOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                  </select>
+                </UFormField>
+                <UFormField label="Branch" class="xl:col-span-2">
+                  <select v-model="filters.branchId" :class="nativeSelectClass">
+                    <option value="">All branches</option>
+                    <option v-for="item in branchOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                  </select>
+                </UFormField>
+                <UFormField label="Search" class="xl:col-span-4">
+                  <SearchInput v-model="search" placeholder="Search code/name/biller id..." />
+                </UFormField>
+              </div>
+              <UButton icon="i-lucide-plus" color="success" class="shrink-0" @click="openCreate">Create Biller</UButton>
+            </div>
           </div>
-          <UButton icon="i-lucide-plus" color="success" @click="openCreate">Create Biller</UButton>
         </div>
       </template>
 
@@ -819,7 +818,7 @@ onMounted(async () => {
               </td>
               <td class="px-3 py-2">
                 <p class="font-semibold" :class="statusClass(item.status)">{{ item.status }}</p>
-                <p class="text-xs text-slate-500 dark:text-slate-400">{{ formatDate(item.updatedAt) }}</p>
+                <DateTimeTwoLine :value="item.updatedAt" locale="en-GB" />
               </td>
               <td class="px-3 py-2">
                 <div class="flex justify-end gap-2">

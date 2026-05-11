@@ -36,6 +36,8 @@ export default defineEventHandler(async (event) => {
           select: {
             id: true,
             priceLabel: true,
+            amount: true,
+            durationMinutes: true,
             asset: {
               select: {
                 code: true,

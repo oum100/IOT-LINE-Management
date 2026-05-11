@@ -108,7 +108,7 @@ const BRANCH_STATUSES = ['ACTIVE', 'SUSPENDED', 'DISABLED']
 const ASSET_STATUSES = ['ACTIVE', 'INACTIVE', 'MAINTENANCE']
 const ASSET_TYPE_STATUSES = ['WASHER', 'DRYER', 'WATER', 'VENDING']
 const DEVICE_BINDING_STATUSES = ['BIND_ACTIVE', 'BIND_INACTIVE', 'UNBOUND']
-const MACHINE_STATUSES = ['SPARE', 'IN_USE', 'OFFLINE', 'DISABLED']
+const MACHINE_STATUSES = ['SPARE', 'BOUND', 'OFFLINE', 'DISABLED']
 const PRODUCT_STATUSES = ['ACTIVE', 'INACTIVE']
 const ORDER_STATUSES = ['PENDING_PAYMENT', 'SLIP_UPLOADED', 'CONFIRMED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']
 const PAYMENT_STATUSES = ['PENDING', 'SLIP_UPLOADED', 'VERIFIED', 'REJECTED']
@@ -211,8 +211,8 @@ export default defineEventHandler(async (event) => {
           }
         }
       }),
-      prisma.machineUnit.count({ where: byTenantAndDateWhere }),
-      prisma.machineUnit.count({
+      prisma.machine.count({ where: byTenantAndDateWhere }),
+      prisma.machine.count({
         where: {
           ...byTenantAndDateWhere,
           bindings: {
@@ -223,7 +223,7 @@ export default defineEventHandler(async (event) => {
           }
         }
       }),
-      prisma.machineUnit.count({
+      prisma.machine.count({
         where: {
           ...byTenantAndDateWhere,
           bindings: {
@@ -351,7 +351,7 @@ export default defineEventHandler(async (event) => {
         total: machineTotal,
         statuses: withDefaultLabelCounts(
           [
-            { label: 'IN_USE', count: machineInUseCount },
+            { label: 'BOUND', count: machineInUseCount },
             { label: 'SPARE', count: machineSpareCount },
             { label: 'OFFLINE', count: 0 },
             { label: 'DISABLED', count: 0 }

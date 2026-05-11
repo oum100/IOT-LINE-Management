@@ -6,6 +6,10 @@ import type { MachineWithPrices } from '~~/shared/types'
 import { useCartStore } from '~~/stores/cart'
 import { useLineLiff } from '~~/composables/useLineLiff'
 
+definePageMeta({
+  layout: 'liff'
+})
+
 const route = useRoute()
 const branchCode = computed(() => String(route.query.branchCode || '').trim())
 const { data: machines, refresh: refreshMachines } = await useFetch<MachineWithPrices[]>('/api/machines', {
@@ -15,6 +19,7 @@ const cart = useCartStore()
 const { profile, init, login } = useLineLiff()
 const router = useRouter()
 const pending = ref(false)
+const checkoutError = ref('')
 let machineRefreshTimer: ReturnType<typeof setInterval> | null = null
 const profileDisplayName = computed(() => profile.value.displayName?.trim() || 'คุณลูกค้า')
 const profilePictureUrl = computed(() => profile.value.pictureUrl?.trim() || 'https://api.dicebear.com/9.x/glass/svg?seed=LaundryCustomer')
@@ -26,8 +31,8 @@ const selectedPrices = ref<Record<string, string>>({})
 const allMachines = computed(() => machines.value || [])
 const washers = computed(() => allMachines.value.filter(machine => machine.kind === 'WASHER'))
 const dryers = computed(() => allMachines.value.filter(machine => machine.kind === 'DRYER'))
-const availableWashers = computed(() => washers.value.filter(machine => machine.status === 'AVAILABLE'))
-const availableDryers = computed(() => dryers.value.filter(machine => machine.status === 'AVAILABLE'))
+const availableWashers = computed(() => washers.value.filter(machine => effectiveRuntimeStatus(machine) === 'AVAILABLE'))
+const availableDryers = computed(() => dryers.value.filter(machine => effectiveRuntimeStatus(machine) === 'AVAILABLE'))
 const machineRows = computed(() =>
   Array.from({ length: 6 }, (_, index) => ({
     washer: washers.value[index] || null,
@@ -38,8 +43,15 @@ const selectedMachines = computed(() =>
   allMachines.value.filter(machine => selectedMachineIds.value.includes(machine.id))
 )
 
+function effectiveRuntimeStatus(machine: MachineWithPrices) {
+  const runtimeRaw = machine.runtimeStatus || machine.status
+  const remain = Math.max(0, Number(machine.remainingMin ?? machine.remainingMinutes ?? 0))
+  if ((runtimeRaw === 'BUSY' || runtimeRaw === 'RUNNING') && remain <= 0) return 'AVAILABLE'
+  return runtimeRaw
+}
+
 function toggleMachine(machine: MachineWithPrices) {
-  if (machine.status !== 'AVAILABLE') {
+  if (effectiveRuntimeStatus(machine) !== 'AVAILABLE') {
     return
   }
 
@@ -101,6 +113,7 @@ async function submitOrder() {
   }
 
   pending.value = true
+  checkoutError.value = ''
 
   try {
     const response = await $fetch<{ orderId: string; selfCancelToken?: string }>('/api/orders', {
@@ -111,7 +124,8 @@ async function submitOrder() {
         lineUserId: lineUserId.value || '',
         note: null,
         items: cart.items.map(item => ({
-          machineId: item.machineId,
+          assetId: item.assetId || undefined,
+          machineId: item.machineId || undefined,
           priceId: item.priceId
         }))
       }
@@ -123,54 +137,78 @@ async function submitOrder() {
     if (branchCode.value) query.set('branchCode', branchCode.value)
     const queryString = query.toString()
     await router.push(`/orders/${response.orderId}${queryString ? `?${queryString}` : ''}`)
+  } catch (err) {
+    const e = err as { data?: { statusMessage?: string }; message?: string } | undefined
+    checkoutError.value = e?.data?.statusMessage || e?.message || 'Checkout failed'
   } finally {
     pending.value = false
   }
 }
 
 function statusLabel(machine: MachineWithPrices) {
-  const status = machine.assetStatus || (machine.status === 'AVAILABLE' ? 'ACTIVE' : machine.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'INACTIVE')
-  if (status === 'ACTIVE') return 'ACTIVE'
-  if (status === 'MAINTENANCE') return 'MAINTENANCE'
+  const runtime = effectiveRuntimeStatus(machine)
+  if (runtime === 'AVAILABLE') return 'AVAILABLE'
+  if (runtime === 'RESERVED') return 'RESERVED'
+  if (runtime === 'BUSY' || runtime === 'RUNNING') return 'BUSY'
+  if (runtime === 'OFFLINE') return 'OFFLINE'
+  if (runtime === 'MAINTENANCE') return 'MAINTENANCE'
   return 'INACTIVE'
 }
 
 function statusMinutes(machine: MachineWithPrices) {
-  if (machine.status !== 'RUNNING') {
+  const runtime = effectiveRuntimeStatus(machine)
+  const remain = Math.max(0, Number(machine.remainingMin ?? machine.remainingMinutes ?? 0))
+  if (runtime !== 'BUSY' && runtime !== 'RUNNING') {
     return ''
   }
-
-  const remain = Math.max(0, Number(machine.remainingMinutes ?? 0))
   return String(remain).padStart(2, '0')
 }
 
 function statusClasses(machine: MachineWithPrices) {
-  const status = machine.assetStatus || (machine.status === 'AVAILABLE' ? 'ACTIVE' : machine.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'INACTIVE')
-  if (status === 'ACTIVE') {
+  const runtime = effectiveRuntimeStatus(machine)
+  if (runtime === 'AVAILABLE') {
     return 'border-emerald-200 bg-emerald-50 text-emerald-800'
   }
-  if (status === 'MAINTENANCE') {
+  if (runtime === 'RESERVED') {
+    return 'border-amber-200 bg-amber-50 text-amber-800'
+  }
+  if (runtime === 'BUSY' || runtime === 'RUNNING') {
+    return 'border-rose-200 bg-rose-50 text-rose-800'
+  }
+  if (runtime === 'MAINTENANCE') {
     return 'border-orange-200 bg-orange-50 text-orange-700'
+  }
+  if (runtime === 'OFFLINE') {
+    return 'border-slate-300 bg-slate-100 text-slate-700'
   }
   return 'border-rose-200 bg-rose-50 text-rose-700'
 }
 
 function statusDotClass(machine: MachineWithPrices) {
-  const status = machine.assetStatus || (machine.status === 'AVAILABLE' ? 'ACTIVE' : machine.status === 'MAINTENANCE' ? 'MAINTENANCE' : 'INACTIVE')
-  if (status === 'ACTIVE') {
+  const runtime = effectiveRuntimeStatus(machine)
+  if (runtime === 'AVAILABLE') {
     return 'bg-emerald-500'
   }
-  if (status === 'MAINTENANCE') {
+  if (runtime === 'RESERVED') {
+    return 'bg-amber-400'
+  }
+  if (runtime === 'BUSY' || runtime === 'RUNNING') {
+    return 'bg-rose-500'
+  }
+  if (runtime === 'MAINTENANCE') {
     return 'bg-orange-400'
+  }
+  if (runtime === 'OFFLINE') {
+    return 'bg-slate-500'
   }
   return 'bg-rose-500'
 }
 </script>
 
 <template>
-  <div class="mx-auto grid w-full max-w-6xl gap-5 p-4 sm:p-6 lg:grid-cols-[1.25fr_0.95fr]">
+  <div class="mx-auto grid w-full max-w-6xl gap-5 p-4 text-slate-100 sm:p-6 lg:grid-cols-[1.25fr_0.95fr]">
     <section class="space-y-5">
-      <div class="section-card p-5">
+      <div class="section-card border border-slate-800 bg-slate-950 p-5">
         <div class="flex items-center gap-4">
           <img
             :src="profilePictureUrl"
@@ -178,21 +216,21 @@ function statusDotClass(machine: MachineWithPrices) {
             class="h-16 w-16 shrink-0 rounded-full object-cover ring-2 ring-teal-100"
           >
           <div>
-            <h2 class="mt-1 max-w-[15rem] break-words text-lg font-semibold leading-tight text-slate-900 sm:max-w-none sm:text-xl">
+            <h2 class="mt-1 max-w-[15rem] break-words text-lg font-semibold leading-tight text-white sm:max-w-none sm:text-xl">
               สวัสดี {{ profileDisplayName }}
             </h2>
-            <p class="mt-2 text-sm text-slate-600">ใช้พร้อมกันหลายเครื่องได้</p>
-            <p v-if="profile.loading" class="mt-1 text-xs text-slate-500">กำลังเชื่อมต่อ LINE LIFF...</p>
-            <p v-if="!hasBranchCode" class="mt-1 text-xs text-rose-600">ไม่พบ branch code ใน URL</p>
-            <p v-else-if="profile.verified" class="mt-1 text-xs text-emerald-700">
+            <p class="mt-2 text-sm text-slate-300">ใช้พร้อมกันหลายเครื่องได้</p>
+            <p v-if="profile.loading" class="mt-1 text-xs text-slate-400">กำลังเชื่อมต่อ LINE LIFF...</p>
+            <p v-if="!hasBranchCode" class="mt-1 text-xs text-rose-400">ไม่พบ branch code ใน URL</p>
+            <p v-else-if="profile.verified" class="mt-1 text-xs text-emerald-400">
               <UIcon name="i-lucide-badge-check" class="align-middle text-base" />
             </p>
-            <p v-if="profile.verificationError" class="mt-1 text-xs text-amber-700">ตรวจสอบ LINE ไม่สำเร็จ: {{ profile.verificationError }}</p>
-            <p v-else-if="profile.error" class="mt-1 text-xs text-amber-700">LIFF: {{ profile.error }}</p>
+            <p v-if="profile.verificationError" class="mt-1 text-xs text-amber-300">ตรวจสอบ LINE ไม่สำเร็จ: {{ profile.verificationError }}</p>
+            <p v-else-if="profile.error" class="mt-1 text-xs text-amber-300">LIFF: {{ profile.error }}</p>
             <button
               v-if="profile.ready && !profile.loggedIn"
               type="button"
-              class="mt-3 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              class="mt-3 rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-700"
               @click="login"
             >
               Login LINE
@@ -201,30 +239,30 @@ function statusDotClass(machine: MachineWithPrices) {
         </div>
       </div>
 
-      <div class="section-card p-5">
+      <div class="section-card border border-slate-800 bg-slate-950 p-5">
         <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
           <div class="max-w-xs">
             <p class="text-sm font-semibold uppercase tracking-[0.25em] text-orange-500">Step 1</p>
-            <div class="mt-2 flex items-center justify-center gap-6 text-base font-medium leading-6 text-slate-700">
+            <div class="mt-2 flex items-center justify-center gap-6 text-base font-medium leading-6 text-slate-200">
               <span>ซักว่าง {{ availableWashers.length }}</span>
               <span>อบว่าง {{ availableDryers.length }}</span>
             </div>
           </div>
-          <div class="grid grid-cols-4 gap-x-4 gap-y-2 text-sm font-medium leading-5 text-slate-700">
+          <div class="grid grid-cols-4 gap-x-4 gap-y-2 text-sm font-medium leading-5 text-slate-200">
             <div class="text-center">
               <div class="mx-auto mb-1 h-2.5 w-2.5 rounded-full bg-emerald-500" />
               <p>ว่าง</p>
             </div>
             <div class="text-center">
               <div class="mx-auto mb-1 h-2.5 w-2.5 rounded-full bg-orange-400" />
-              <p>ติดจอง</p>
+              <p>Reserved</p>
             </div>
             <div class="text-center">
               <div class="mx-auto mb-1 h-2.5 w-2.5 rounded-full bg-rose-500" />
-              <p>ไม่ว่าง</p>
+              <p>Busy</p>
             </div>
             <div class="text-center">
-              <div class="mx-auto mb-1 h-2.5 w-2.5 rounded-full bg-slate-400" />
+              <div class="mx-auto mb-1 h-2.5 w-2.5 rounded-full bg-slate-500" />
               <p>Offline</p>
             </div>
           </div>
@@ -242,10 +280,10 @@ function statusDotClass(machine: MachineWithPrices) {
               class="rounded-2xl border px-3 py-2.5 text-center transition"
               :class="[
                 statusClasses(machine!),
-                machine!.status === 'AVAILABLE' ? 'hover:-translate-y-0.5 hover:border-emerald-400' : 'cursor-not-allowed opacity-90',
+                effectiveRuntimeStatus(machine!) === 'AVAILABLE' ? 'hover:-translate-y-0.5 hover:border-emerald-400' : 'cursor-not-allowed opacity-90',
                 selectedMachineIds.includes(machine!.id) ? '!border-teal-700 !bg-teal-100/80 ring-4 ring-teal-300 shadow-lg shadow-teal-200/70' : ''
               ]"
-              :disabled="machine!.status !== 'AVAILABLE'"
+              :disabled="effectiveRuntimeStatus(machine!) !== 'AVAILABLE'"
               @click="toggleMachine(machine!)"
             >
               <div class="flex flex-col items-center justify-center gap-2">
@@ -254,7 +292,7 @@ function statusDotClass(machine: MachineWithPrices) {
                   <div class="mt-1.5 flex items-center justify-center gap-1.5 text-xs font-medium opacity-90 sm:text-sm">
                     <span class="h-2 w-2 shrink-0 rounded-full" :class="statusDotClass(machine!)" />
                     <span class="leading-tight">
-                      <template v-if="machine!.status === 'RUNNING'">
+                      <template v-if="statusLabel(machine!) === 'BUSY'">
                         Busy {{ statusMinutes(machine!) }} <span class="text-[10px] align-middle sm:text-[11px]">min</span>
                       </template>
                       <template v-else>
@@ -269,11 +307,11 @@ function statusDotClass(machine: MachineWithPrices) {
         </div>
       </div>
 
-      <div class="section-card p-5">
+      <div class="section-card border border-slate-800 bg-slate-950 p-5">
         <div class="flex items-center justify-between gap-4">
           <div>
             <p class="text-sm font-semibold uppercase tracking-[0.25em] text-orange-500">Step 2</p>
-            <h3 class="mt-1 text-lg font-semibold text-slate-900">เลือกราคาบริการ (บาท)</h3>
+            <h3 class="mt-1 text-lg font-semibold text-white">เลือกราคาบริการ (บาท)</h3>
           </div>
           <UBadge :color="selectedMachines.length ? 'success' : 'warning'" variant="soft">
             {{ selectedMachines.length ? `${selectedMachines.length} เครื่องที่เลือก` : 'ยังไม่ได้เลือกเครื่อง' }}
@@ -290,13 +328,14 @@ function statusDotClass(machine: MachineWithPrices) {
           />
         </div>
 
-        <div v-else class="mt-4 rounded-2xl border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500">
+        <div v-else class="mt-4 rounded-2xl border border-dashed border-slate-700 px-4 py-8 text-center text-sm text-slate-300">
           เลือกเครื่องสีเขียวก่อน แล้วแต่ละเครื่องจะมี 3 ราคาให้เลือกในบรรทัดเดียว
         </div>
       </div>
     </section>
 
     <section class="space-y-5">
+      <UAlert v-if="checkoutError" color="error" variant="soft" :title="checkoutError" />
       <CartSummary :pending="pending" :can-checkout="canCheckout" @checkout="submitOrder" />
     </section>
   </div>

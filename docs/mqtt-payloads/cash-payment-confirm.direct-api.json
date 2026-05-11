@@ -1,0 +1,6 @@
+{
+  "orderNumber": "ORD-ABCDEFG1",
+  "deviceEventRef": "evt-cash-ord-20260509-0001",
+  "amountPaid": 40,
+  "source": "esp32:RGH18-01"
+}

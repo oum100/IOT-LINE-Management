@@ -2,9 +2,9 @@ import { getServerSession } from '#auth'
 import { readBody } from 'h3'
 import { nanoid } from 'nanoid'
 import { z } from 'zod'
-import { assertMachineKindExists } from '../../utils/machine-kind'
 import { prisma } from '../../utils/prisma'
 import { assertPermission } from '../../utils/rbac'
+import { assertProductTypeCode, assertServiceModeCode, assertServiceUnitCode } from '../../utils/product-taxonomy'
 
 type Role = 'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'
 
@@ -18,8 +18,8 @@ const bodySchema = z.object({
   kind: z.string().trim().min(1).max(40),
   amount: z.coerce.number().int().positive(),
   durationMinutes: z.coerce.number().int().positive().optional(),
-  serviceMode: z.enum(['TIME', 'QUANTITY']).optional(),
-  serviceUnit: z.enum(['MINUTE', 'GRAM', 'LITER', 'PIECE', 'SLOT', 'UNIT']).optional(),
+  serviceMode: z.string().trim().min(1).optional(),
+  serviceUnit: z.string().trim().min(1).optional(),
   quantity: z.coerce.number().positive().optional(),
   status: z.enum(['ACTIVE', 'DISABLED']).default('ACTIVE')
 })
@@ -86,10 +86,10 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Tenant not found in scope' })
   }
 
-  const normalizedKind = await assertMachineKindExists(body.kind)
+  const normalizedKind = await assertProductTypeCode(body.kind)
   const code = await generateProductCode(resolvedTenantId, body.name)
-  const serviceMode = body.serviceMode ?? 'TIME'
-  const serviceUnit = body.serviceUnit ?? (serviceMode === 'TIME' ? 'MINUTE' : 'UNIT')
+  const serviceMode = await assertServiceModeCode(body.serviceMode ?? 'TIME')
+  const serviceUnit = await assertServiceUnitCode(body.serviceUnit ?? (serviceMode === 'TIME' ? 'MINUTE' : 'UNIT'))
   const quantity = body.quantity ?? (body.durationMinutes ?? null)
   const durationMinutes = body.durationMinutes
     ?? (serviceMode === 'TIME' && serviceUnit === 'MINUTE' && quantity ? Math.max(1, Math.round(quantity)) : null)

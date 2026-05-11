@@ -15,14 +15,15 @@ export default defineEventHandler(async (event) => {
   })
   if (!device) throw createError({ statusCode: 404, statusMessage: 'Device not found' })
 
-  if (device.status !== 'SPARE') {
+  const allowedDeleteStatuses = new Set(['NEW', 'SPARE', 'REPLACED', 'OFFLINE', 'DISABLED'])
+  if (!allowedDeleteStatuses.has(device.status)) {
     throw createError({
       statusCode: 409,
-      statusMessage: 'Only SPARE devices can be deleted.'
+      statusMessage: 'Only unbound device statuses can be deleted.'
     })
   }
 
-  await requireDeleteConfirm(event, device.deviceUid || device.macAddress)
+  await requireDeleteConfirm(event)
 
   const activeBindingCount = await prisma.assetBinding.count({
     where: {

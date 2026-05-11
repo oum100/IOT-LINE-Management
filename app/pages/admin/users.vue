@@ -4,12 +4,11 @@ import { computed, onMounted, ref, watch } from 'vue'
 definePageMeta({
   middleware: 'platform-admin-auth'
 })
+const { t } = useI18n()
 
 type Tenant = { id: string; name: string; code: string }
 type Merchant = { id: string; name: string; code: string; tenantId?: string }
 type Branch = { id: string; name: string; code: string; merchantAccountId: string | null; tenantId?: string }
-type SelectOption = { label: string; value: string }
-type ScopeChip = { label: string; color: 'info' | 'success' | 'warning' | 'neutral' }
 type ScopeAssignment = {
   id: string
   scopeType: 'MERCHANT' | 'BRANCH'
@@ -26,7 +25,10 @@ type UserItem = {
   isActive: boolean
   tenantId: string | null
   merchantAccountId: string | null
+  emailVerified: string | null
+  image: string | null
   createdAt: string
+  updatedAt: string
   scopeAssignments?: ScopeAssignment[]
 }
 type PagingResponse<T> = { items: T[]; total: number; page: number; pageSize: number; adminCount?: number }
@@ -55,13 +57,14 @@ const createSaving = ref(false)
 const createError = ref('')
 const createEmail = ref('')
 const createPassword = ref('')
+const createUseDefaultPassword = ref(true)
 const createName = ref('')
 const createRole = ref<'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'>('USER')
 const createIsActive = ref(true)
 const createTenantId = ref('')
 const createMerchantId = ref('')
-const createScopeMerchantIds = ref<string[]>([])
-const createScopeBranchIds = ref<string[]>([])
+const createScopeMerchantId = ref('')
+const createScopeBranchId = ref('')
 const createModalMerchants = ref<Merchant[]>([])
 const createModalBranches = ref<Branch[]>([])
 
@@ -74,11 +77,12 @@ const editRole = ref<'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'>('USER')
 const editIsActive = ref(true)
 const editTenantId = ref('')
 const editMerchantId = ref('')
-const editScopeMerchantIds = ref<string[]>([])
-const editScopeBranchIds = ref<string[]>([])
+const editScopeMerchantId = ref('')
+const editScopeBranchId = ref('')
 const editModalMerchants = ref<Merchant[]>([])
 const editModalBranches = ref<Branch[]>([])
 const isHydratingEdit = ref(false)
+const resetPasswordSaving = ref(false)
 
 const deleteOpen = ref(false)
 const deleteSaving = ref(false)
@@ -89,98 +93,80 @@ const deleteConfirmText = ref('')
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 const roleOptions: Array<'ADMIN' | 'USER' | 'OWNER' | 'MANAGER' | 'STAFF'> = ['ADMIN', 'USER', 'OWNER', 'MANAGER', 'STAFF']
+const { data: authData } = useAuth()
+const canManageUsers = computed(() => String(authData.value?.user?.role || '').toUpperCase() === 'ADMIN')
 
-const tenantMap = computed(() => new Map(tenants.value.map((item) => [item.id, item.name])))
 const merchantMap = computed(() => new Map(merchants.value.map((item) => [item.id, item.name])))
-const createMerchantOptions = computed<SelectOption[]>(() => createModalMerchants.value.map((merchant) => ({
-  label: merchant.name,
-  value: merchant.id
-})))
-const createBranchOptions = computed<SelectOption[]>(() => createModalBranches.value.map((branch) => ({
-  label: branch.name,
-  value: branch.id
-})))
-const editMerchantOptions = computed<SelectOption[]>(() => editModalMerchants.value.map((merchant) => ({
-  label: merchant.name,
-  value: merchant.id
-})))
-const editBranchOptions = computed<SelectOption[]>(() => editModalBranches.value.map((branch) => ({
-  label: branch.name,
-  value: branch.id
-})))
-
 const createCanScope = computed(() => createRole.value === 'MANAGER' || createRole.value === 'STAFF')
 const editCanScope = computed(() => editRole.value === 'MANAGER' || editRole.value === 'STAFF')
 const createIsPortalRole = computed(() => createRole.value === 'OWNER' || createRole.value === 'MANAGER' || createRole.value === 'STAFF')
 const editIsPortalRole = computed(() => editRole.value === 'OWNER' || editRole.value === 'MANAGER' || editRole.value === 'STAFF')
 const inputUi = {
-  base: 'bg-white text-slate-900 placeholder:text-slate-500 ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:ring-slate-500'
-}
-const selectMenuUi = {
-  base: 'bg-white text-slate-900 ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-500',
-  content: 'z-[70] bg-white dark:bg-slate-800',
-  input: 'bg-white text-slate-900 placeholder:text-slate-500 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400'
+  root: 'w-full',
+  base: 'h-10 w-full bg-white text-slate-900 placeholder:text-slate-500 ring-1 ring-slate-300 focus:ring-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-400 dark:ring-slate-500'
 }
 
-function formatDate(date: string) {
-  return new Date(date).toLocaleString('en-GB')
+function formatDateOnly(value?: string | null) {
+  if (!value) return '-'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return '-'
+  return d.toLocaleDateString('en-GB')
 }
 
-function roleClass(role: string) {
-  if (role === 'ADMIN') return 'text-blue-600 dark:text-blue-400'
-  if (role === 'OWNER') return 'text-emerald-600 dark:text-emerald-400'
-  if (role === 'MANAGER') return 'text-amber-600 dark:text-amber-400'
-  if (role === 'STAFF') return 'text-violet-600 dark:text-violet-400'
-  return 'text-slate-700 dark:text-slate-200'
+function formatTimeOnly(value?: string | null) {
+  if (!value) return '-'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return '-'
+  return d.toLocaleTimeString('en-GB')
 }
 
-function scopeSummary(item: UserItem) {
-  const scopes = item.scopeAssignments || []
-  const merchantCount = scopes.filter((s) => s.scopeType === 'MERCHANT').length
-  const branchCount = scopes.filter((s) => s.scopeType === 'BRANCH').length
-  if (!merchantCount && !branchCount) return '-'
-  return `M:${merchantCount} / B:${branchCount}`
-}
+const userRows = computed(() => items.value.map((item) => {
+  const merchantScope = (item.scopeAssignments || []).find(s => s.scopeType === 'MERCHANT')?.merchantAccountId || ''
+  const branchScope = (item.scopeAssignments || []).find(s => s.scopeType === 'BRANCH')?.branchId || ''
+  const branchLabel = branchScope
+    ? ((item.scopeAssignments || []).find(s => s.scopeType === 'BRANCH' && s.branchId === branchScope)?.branch?.name || '-')
+    : '-'
+  const scopeLabel = branchScope ? 'BRANCH' : merchantScope ? 'MERCHANT' : 'NONE'
+  return {
+    ...item,
+    merchantAccountLabel: item.merchantAccountId ? (merchantMap.value.get(item.merchantAccountId) || item.merchantAccountId) : '-',
+    branchLabel,
+    emailVerifiedLabel: item.emailVerified ? 'YES' : 'NO',
+    imageLabel: item.image ? 'YES' : 'NO',
+    isActiveLabel: item.isActive ? 'ACTIVE' : 'INACTIVE',
+    createdAtDate: formatDateOnly(item.createdAt),
+    createdAtTime: formatTimeOnly(item.createdAt),
+    updatedAtDate: formatDateOnly(item.updatedAt),
+    updatedAtTime: formatTimeOnly(item.updatedAt),
+    scopeLabel
+  }
+}))
 
-function scopeLabels(item: UserItem) {
-  const scopes = item.scopeAssignments || []
-  if (!scopes.length) return []
-
-  return scopes
-    .map((scope) => {
-      if (scope.scopeType === 'MERCHANT') {
-        return scope.merchantAccount ? `${scope.merchantAccount.name} (${scope.merchantAccount.code})` : scope.merchantAccountId || '-'
-      }
-      return scope.branch ? `${scope.branch.name} (${scope.branch.code})` : scope.branchId || '-'
-    })
-}
-
-function scopeChips(item: UserItem): ScopeChip[] {
-  return (item.scopeAssignments || []).map((scope) => {
-    if (scope.scopeType === 'MERCHANT') {
-      return {
-        label: scope.merchantAccount ? scope.merchantAccount.name : (scope.merchantAccountId || '-'),
-        color: 'info'
-      }
-    }
-
-    return {
-      label: scope.branch ? scope.branch.name : (scope.branchId || '-'),
-      color: 'success'
-    }
-  })
-}
+const userColumns = [
+  { accessorKey: 'imageLabel', header: 'Image' },
+  { accessorKey: 'email', header: 'Email' },
+  { accessorKey: 'name', header: 'Name' },
+  { accessorKey: 'role', header: 'Role' },
+  { accessorKey: 'scopeLabel', header: 'Scope' },
+  { accessorKey: 'merchantAccountLabel', header: 'Merchant' },
+  { accessorKey: 'branchLabel', header: 'Branch' },
+  { accessorKey: 'emailVerifiedLabel', header: 'EmailVerify' },
+  { accessorKey: 'isActiveLabel', header: 'Status' },
+  { accessorKey: 'createdAt', header: 'CreatedAt' },
+  { accessorKey: 'updatedAt', header: 'UpdatedAt' },
+  { accessorKey: 'actions', header: 'Actions' }
+]
 
 function scopeStateMessage(role: string, tenantId: string) {
   if (role !== 'MANAGER' && role !== 'STAFF') {
-    return 'Scope assignment is only used for MANAGER and STAFF roles.'
+    return t('userForm.scopeOnlyForManagerStaff')
   }
 
   if (!tenantId) {
-    return 'Select tenant first to enable merchant and branch scope assignment.'
+    return t('userForm.scopeSelectTenantFirst')
   }
 
-  return 'Choose merchant and branch scope for this user.'
+  return t('userForm.scopeChooseMerchantBranch')
 }
 
 function isLastAdmin(item: UserItem) {
@@ -287,14 +273,15 @@ function applyFilters() {
 function openCreate() {
   createError.value = ''
   createEmail.value = ''
+  createUseDefaultPassword.value = true
   createPassword.value = ''
   createName.value = ''
   createRole.value = 'USER'
   createIsActive.value = true
   createTenantId.value = ''
   createMerchantId.value = ''
-  createScopeMerchantIds.value = []
-  createScopeBranchIds.value = []
+  createScopeMerchantId.value = ''
+  createScopeBranchId.value = ''
   createModalMerchants.value = []
   createModalBranches.value = []
   createOpen.value = true
@@ -307,8 +294,12 @@ function closeCreate() {
 }
 
 async function submitCreate() {
-  if (!createEmail.value.trim() || !createPassword.value.trim()) {
-    createError.value = 'Email and password are required'
+  if (!createEmail.value.trim()) {
+    createError.value = 'Email is required'
+    return
+  }
+  if (!createUseDefaultPassword.value && !createPassword.value.trim()) {
+    createError.value = 'Password is required when default password is disabled'
     return
   }
   createSaving.value = true
@@ -318,15 +309,15 @@ async function submitCreate() {
       method: 'POST',
       body: {
         email: createEmail.value.trim(),
-        password: createPassword.value,
+        password: createUseDefaultPassword.value ? undefined : createPassword.value,
         name: createName.value.trim() || null,
         role: createRole.value,
         isActive: createIsActive.value,
         tenantId: createTenantId.value || null,
-        merchantAccountId: createMerchantId.value || null,
+        merchantAccountId: createMerchantId.value || createScopeMerchantId.value || null,
         scopeAssignments: {
-          merchantIds: createCanScope.value ? createScopeMerchantIds.value : [],
-          branchIds: createCanScope.value ? createScopeBranchIds.value : []
+          merchantIds: createCanScope.value && createScopeMerchantId.value ? [createScopeMerchantId.value] : [],
+          branchIds: createCanScope.value && createScopeBranchId.value ? [createScopeBranchId.value] : []
         }
       }
     })
@@ -339,6 +330,12 @@ async function submitCreate() {
   }
 }
 
+watch(createUseDefaultPassword, (enabled) => {
+  if (enabled) {
+    createPassword.value = ''
+  }
+})
+
 async function openEdit(item: UserItem) {
   isHydratingEdit.value = true
   editError.value = ''
@@ -348,12 +345,12 @@ async function openEdit(item: UserItem) {
   editIsActive.value = item.isActive
   editTenantId.value = item.tenantId || ''
   editMerchantId.value = item.merchantAccountId || ''
-  editScopeMerchantIds.value = (item.scopeAssignments || [])
+  editScopeMerchantId.value = (item.scopeAssignments || [])
     .filter((s) => s.scopeType === 'MERCHANT' && s.merchantAccountId)
-    .map((s) => s.merchantAccountId as string)
-  editScopeBranchIds.value = (item.scopeAssignments || [])
+    .map((s) => s.merchantAccountId as string)[0] || item.merchantAccountId || ''
+  editScopeBranchId.value = (item.scopeAssignments || [])
     .filter((s) => s.scopeType === 'BRANCH' && s.branchId)
-    .map((s) => s.branchId as string)
+    .map((s) => s.branchId as string)[0] || ''
 
   await loadModalMerchants(editTenantId.value, 'edit')
   await loadModalBranches(editTenantId.value, editMerchantId.value, 'edit')
@@ -381,8 +378,8 @@ async function submitEdit() {
         tenantId: editTenantId.value || null,
         merchantAccountId: editMerchantId.value || null,
         scopeAssignments: {
-          merchantIds: editCanScope.value ? editScopeMerchantIds.value : [],
-          branchIds: editCanScope.value ? editScopeBranchIds.value : []
+          merchantIds: editCanScope.value && editScopeMerchantId.value ? [editScopeMerchantId.value] : [],
+          branchIds: editCanScope.value && editScopeBranchId.value ? [editScopeBranchId.value] : []
         }
       }
     })
@@ -392,6 +389,21 @@ async function submitEdit() {
     editError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || 'Failed to update user'
   } finally {
     editSaving.value = false
+  }
+}
+
+async function resetEditPassword() {
+  if (!editUserId.value) return
+  resetPasswordSaving.value = true
+  editError.value = ''
+  try {
+    await $fetch(`/api/admin/users/${editUserId.value}/reset-password`, {
+      method: 'POST'
+    })
+  } catch (err) {
+    editError.value = (err as { data?: { statusMessage?: string }; message?: string })?.data?.statusMessage || 'Failed to reset password'
+  } finally {
+    resetPasswordSaving.value = false
   }
 }
 
@@ -461,25 +473,11 @@ watch(
 )
 
 watch(
-  () => createRole.value,
-  (role) => {
-    if (role === 'ADMIN' || role === 'USER') {
-      createTenantId.value = ''
-      createMerchantId.value = ''
-      createScopeMerchantIds.value = []
-      createScopeBranchIds.value = []
-      createModalMerchants.value = []
-      createModalBranches.value = []
-    }
-  }
-)
-
-watch(
   () => createTenantId.value,
   async () => {
     createMerchantId.value = ''
-    createScopeMerchantIds.value = []
-    createScopeBranchIds.value = []
+    createScopeMerchantId.value = ''
+    createScopeBranchId.value = ''
     await loadModalMerchants(createTenantId.value, 'create')
     await loadModalBranches(createTenantId.value, '', 'create')
   }
@@ -488,8 +486,16 @@ watch(
 watch(
   () => createMerchantId.value,
   async () => {
-    createScopeBranchIds.value = []
     await loadModalBranches(createTenantId.value, createMerchantId.value, 'create')
+  }
+)
+
+watch(
+  () => createScopeMerchantId.value,
+  async () => {
+    createMerchantId.value = createScopeMerchantId.value
+    createScopeBranchId.value = ''
+    await loadModalBranches(createTenantId.value, createScopeMerchantId.value, 'create')
   }
 )
 
@@ -500,8 +506,8 @@ watch(
     if (role === 'ADMIN' || role === 'USER') {
       editTenantId.value = ''
       editMerchantId.value = ''
-      editScopeMerchantIds.value = []
-      editScopeBranchIds.value = []
+      editScopeMerchantId.value = ''
+      editScopeBranchId.value = ''
       editModalMerchants.value = []
       editModalBranches.value = []
     }
@@ -513,8 +519,8 @@ watch(
   async () => {
     if (isHydratingEdit.value) return
     editMerchantId.value = ''
-    editScopeMerchantIds.value = []
-    editScopeBranchIds.value = []
+    editScopeMerchantId.value = ''
+    editScopeBranchId.value = ''
     await loadModalMerchants(editTenantId.value, 'edit')
     await loadModalBranches(editTenantId.value, '', 'edit')
   }
@@ -524,8 +530,22 @@ watch(
   () => editMerchantId.value,
   async () => {
     if (isHydratingEdit.value) return
-    editScopeBranchIds.value = []
+    if (!editMerchantId.value) {
+      editScopeMerchantId.value = ''
+      editScopeBranchId.value = ''
+    } else {
+      editScopeBranchId.value = ''
+    }
     await loadModalBranches(editTenantId.value, editMerchantId.value, 'edit')
+  }
+)
+
+watch(
+  () => editScopeMerchantId.value,
+  async () => {
+    if (isHydratingEdit.value) return
+    editScopeBranchId.value = ''
+    await loadModalBranches(editTenantId.value, editScopeMerchantId.value, 'edit')
   }
 )
 
@@ -533,8 +553,8 @@ watch(
   () => createCanScope.value,
   (canScope) => {
     if (!canScope) {
-      createScopeMerchantIds.value = []
-      createScopeBranchIds.value = []
+      createScopeMerchantId.value = ''
+      createScopeBranchId.value = ''
     }
   }
 )
@@ -543,8 +563,12 @@ watch(
   () => editCanScope.value,
   (canScope) => {
     if (!canScope) {
-      editScopeMerchantIds.value = []
-      editScopeBranchIds.value = []
+      editScopeMerchantId.value = ''
+      editScopeBranchId.value = ''
+    } else {
+      // For MANAGER/STAFF, use scope assignments as single source of truth.
+      // Clear base merchant to avoid duplicated/ambiguous scope definition.
+      editMerchantId.value = ''
     }
   }
 )
@@ -562,7 +586,8 @@ onMounted(async () => {
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-[240px]">
-          <p class="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">User Management</p>
+          <p class="text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 dark:text-blue-300">User Management
+          </p>
           <h2 class="text-2xl font-semibold text-slate-900 dark:text-white">Platform Users</h2>
           <p class="mt-1 text-sm text-slate-500 dark:text-slate-300">Manage platform and portal user access</p>
         </div>
@@ -570,7 +595,8 @@ onMounted(async () => {
         <div class="flex flex-1 flex-wrap items-start justify-end gap-3">
           <div class="flex w-[220px] flex-col gap-1">
             <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Tenant</label>
-            <select v-model="filters.tenantId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+            <select v-model="filters.tenantId"
+              class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
               <option value="">All tenants</option>
               <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</option>
             </select>
@@ -578,7 +604,8 @@ onMounted(async () => {
 
           <div class="flex w-[260px] flex-col gap-1">
             <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Merchant (Brand)</label>
-            <select v-model="filters.merchantAccountId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+            <select v-model="filters.merchantAccountId"
+              class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
               <option value="">All merchant (brand)</option>
               <option v-for="merchant in merchants" :key="merchant.id" :value="merchant.id">{{ merchant.name }}</option>
             </select>
@@ -586,7 +613,8 @@ onMounted(async () => {
 
           <div class="flex w-[240px] flex-col gap-1">
             <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Branch</label>
-            <select v-model="filters.branchId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+            <select v-model="filters.branchId"
+              class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
               <option value="">All branches</option>
               <option v-for="branch in branches" :key="branch.id" :value="branch.id">{{ branch.name }}</option>
             </select>
@@ -594,93 +622,41 @@ onMounted(async () => {
 
           <div class="flex w-[280px] flex-col gap-1">
             <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Search</label>
-            <SearchInput
-              v-model="search"
-              placeholder="Search email/name..."
-              @enter="applyFilters"
-            />
+            <SearchInput v-model="search" placeholder="Search email/name..." @enter="applyFilters" />
           </div>
 
           <div class="flex h-10 items-center self-end gap-2">
-            <UButton icon="i-lucide-plus" color="success" @click="openCreate">Create</UButton>
+            <UButton v-if="canManageUsers" icon="i-lucide-plus" color="primary" class="text-white" @click="openCreate">Create</UButton>
             <UButton icon="i-lucide-refresh-cw" color="neutral" variant="soft" @click="loadData">Refresh</UButton>
           </div>
         </div>
       </div>
     </UCard>
 
-    <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
-      <div class="mt-2 overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-        <table class="min-w-full text-sm">
-          <thead class="bg-slate-200 text-left text-slate-700 dark:bg-slate-700 dark:text-slate-100">
-            <tr>
-              <th class="px-3 py-2">Email</th>
-              <th class="px-3 py-2">Name</th>
-              <th class="px-3 py-2">Role</th>
-              <th class="px-3 py-2">Status</th>
-              <th class="px-3 py-2">Tenant</th>
-              <th class="px-3 py-2">Merchant</th>
-              <th class="px-3 py-2">Assignments</th>
-              <th class="px-3 py-2">Created</th>
-              <th class="px-3 py-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in items" :key="item.id" class="border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950/40">
-              <td class="px-3 py-2 font-medium">{{ item.email }}</td>
-              <td class="px-3 py-2">{{ item.name || '-' }}</td>
-              <td class="px-3 py-2"><span class="font-semibold" :class="roleClass(item.role)">{{ item.role }}</span></td>
-              <td class="px-3 py-2">
-                <span class="font-semibold" :class="item.isActive ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'">
-                  {{ item.isActive ? 'ACTIVE' : 'INACTIVE' }}
-                </span>
-              </td>
-              <td class="px-3 py-2">{{ item.tenantId ? (tenantMap.get(item.tenantId) || item.tenantId) : '-' }}</td>
-              <td class="px-3 py-2">{{ item.merchantAccountId ? (merchantMap.get(item.merchantAccountId) || item.merchantAccountId) : '-' }}</td>
-              <td class="px-3 py-2">
-                <div v-if="scopeChips(item).length" class="flex flex-wrap gap-1" :title="scopeLabels(item).join(' | ')">
-                  <UBadge
-                    v-for="(chip, index) in scopeChips(item)"
-                    :key="`${item.id}-scope-${index}`"
-                    :color="chip.color"
-                    variant="soft"
-                    size="md"
-                    class="font-medium"
-                  >
-                    {{ chip.label }}
-                  </UBadge>
-                </div>
-                <span v-else class="text-slate-400">{{ scopeSummary(item) }}</span>
-              </td>
-              <td class="px-3 py-2">{{ formatDate(item.createdAt) }}</td>
-              <td class="px-3 py-2">
-                <div class="flex items-center gap-1">
-                  <UButton icon="i-lucide-pencil" color="neutral" variant="ghost" size="xs" @click="openEdit(item)" />
-                  <UButton
-                    icon="i-lucide-trash-2"
-                    color="error"
-                    variant="ghost"
-                    size="xs"
-                    :disabled="isLastAdmin(item)"
-                    :title="isLastAdmin(item) ? 'The last platform admin cannot be deleted.' : 'Delete user'"
-                    @click="openDelete(item)"
-                  />
-                </div>
-              </td>
-            </tr>
-            <tr v-if="!loading && items.length === 0">
-              <td colspan="9" class="px-3 py-6 text-center text-slate-500">No users found</td>
-            </tr>
-          </tbody>
-        </table>
+    <UCard :ui="{ root: 'h-[620px] bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700', body: 'h-full p-3 flex flex-col' }">
+      <div class="mb-2 flex items-center justify-between">
+        <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">User Access</p>
+        <p class="text-sm text-slate-500 dark:text-slate-400">{{ total }} users</p>
       </div>
+      <div v-if="loading" class="py-6 text-center text-sm text-slate-500 dark:text-slate-400">Loading...</div>
+      <UserAccessTable
+        v-else
+        :rows="userRows"
+        :columns="userColumns"
+        :can-manage-users="canManageUsers"
+        :delete-disabled-ids="userRows.filter((row) => isLastAdmin(row)).map((row) => row.id)"
+        @edit="openEdit"
+        @delete="openDelete"
+      />
 
       <div class="mt-4 flex items-center justify-between text-sm">
         <p class="text-slate-500 dark:text-slate-400">Showing {{ items.length }} of {{ total }} users</p>
         <div class="flex items-center gap-2">
-          <UButton icon="i-lucide-chevron-left" color="neutral" variant="soft" :disabled="page <= 1" @click="page -= 1; loadData()" />
+          <UButton icon="i-lucide-chevron-left" color="neutral" variant="soft" :disabled="page <= 1"
+            @click="page -= 1; loadData()" />
           <span class="text-xs text-slate-500 dark:text-slate-400">Page {{ page }} / {{ totalPages }}</span>
-          <UButton icon="i-lucide-chevron-right" color="neutral" variant="soft" :disabled="page >= totalPages" @click="page += 1; loadData()" />
+          <UButton icon="i-lucide-chevron-right" color="neutral" variant="soft" :disabled="page >= totalPages"
+            @click="page += 1; loadData()" />
         </div>
       </div>
     </UCard>
@@ -696,82 +672,81 @@ onMounted(async () => {
           </template>
 
           <div class="space-y-3">
-            <UAlert v-if="createError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="createError" />
+            <UAlert v-if="createError" color="error" variant="soft" icon="i-lucide-alert-triangle"
+              :title="createError" />
 
             <div class="grid gap-3 sm:grid-cols-2">
               <UFormField>
                 <template #label><span>Email <span class="text-rose-500">*</span></span></template>
-                <UInput v-model="createEmail" placeholder="user@example.com" :ui="inputUi" />
+                <UInput v-model="createEmail" class="h-10 w-full" placeholder="user@example.com" :ui="inputUi" />
               </UFormField>
               <UFormField>
-                <template #label><span>Password <span class="text-rose-500">*</span></span></template>
-                <UInput v-model="createPassword" type="password" placeholder="At least 8 characters" :ui="inputUi" />
+                <template #label>
+                  <div class="flex items-center justify-between gap-3">
+                    <span>Password <span class="text-rose-500">*</span></span>
+                    <label
+                      class="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+                      <input v-model="createUseDefaultPassword" type="checkbox"
+                        class="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 dark:border-slate-500 dark:bg-slate-800" />
+                      <span>Default password</span>
+                    </label>
+                  </div>
+                </template>
+                <UInput v-model="createPassword" class="h-10 w-full" type="password" placeholder="At least 8 characters"
+                  :disabled="createUseDefaultPassword" :ui="inputUi" />
               </UFormField>
             </div>
 
-            <div class="grid gap-3 sm:grid-cols-3">
-              <UFormField label="Name"><UInput v-model="createName" placeholder="Display name" :ui="inputUi" /></UFormField>
+            <UFormField label="Name">
+              <UInput v-model="createName" class="h-10 w-full" placeholder="Display name" :ui="inputUi" />
+            </UFormField>
+
+            <div class="grid gap-3 sm:grid-cols-2">
               <UFormField>
                 <template #label><span>Role <span class="text-rose-500">*</span></span></template>
-                <select v-model="createRole" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
+                <select v-model="createRole"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
                   <option v-for="role in roleOptions" :key="role" :value="role">{{ role }}</option>
                 </select>
               </UFormField>
               <UFormField>
                 <template #label><span>Status <span class="text-rose-500">*</span></span></template>
-                <select v-model="createIsActive" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
+                <select v-model="createIsActive"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
                   <option :value="true">ACTIVE</option>
                   <option :value="false">INACTIVE</option>
                 </select>
               </UFormField>
             </div>
 
-            <div v-if="createIsPortalRole" class="grid gap-3 sm:grid-cols-2">
-              <UFormField :label="createCanScope ? 'Tenant' : 'Tenant (optional)'">
-                <select v-model="createTenantId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
-                  <option value="">None</option>
-                  <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</option>
-                </select>
-              </UFormField>
-              <UFormField label="Merchant (optional)">
-                <select v-model="createMerchantId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100" :disabled="!createTenantId">
-                  <option value="">None</option>
-                  <option v-for="merchant in createModalMerchants" :key="merchant.id" :value="merchant.id">{{ merchant.name }}</option>
-                </select>
-              </UFormField>
-            </div>
-
-            <div v-if="createIsPortalRole" class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-              <p class="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Scope Assignments (Manager/Staff)</p>
-              <p class="mb-3 text-sm text-slate-500 dark:text-slate-400">{{ scopeStateMessage(createRole, createTenantId) }}</p>
-              <div class="grid gap-3 sm:grid-cols-2">
-                <UFormField>
-                  <template #label><span>Merchant Scope (multi)</span></template>
-                  <USelectMenu
-                    v-model="createScopeMerchantIds"
-                    :items="createMerchantOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    placeholder="Select merchant scopes"
-                    :disabled="!createCanScope || !createTenantId"
-                    :search-input="{ placeholder: 'Search merchant...' }"
-                    :ui="selectMenuUi"
-                  />
+            <div class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+              <div class="grid gap-3 sm:grid-cols-3">
+                <UFormField :label="t('userForm.tenantOptional')">
+                  <select v-model="createTenantId"
+                    class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
+                    <option value="">None</option>
+                    <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</option>
+                  </select>
                 </UFormField>
-                <UFormField>
-                  <template #label><span>Branch Scope (multi)</span></template>
-                  <USelectMenu
-                    v-model="createScopeBranchIds"
-                    :items="createBranchOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    placeholder="Select branch scopes"
-                    :disabled="!createCanScope || !createTenantId"
-                    :search-input="{ placeholder: 'Search branch...' }"
-                    :ui="selectMenuUi"
-                  />
+                <UFormField :label="t('userForm.merchantOptional')">
+                  <select v-model="createScopeMerchantId"
+                    class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                    :disabled="!createTenantId">
+                    <option value="">None</option>
+                    <option v-for="merchant in createModalMerchants" :key="merchant.id" :value="merchant.id">{{
+                      merchant.name }}
+                    </option>
+                  </select>
+                </UFormField>
+                <UFormField :label="t('userForm.scopeBranchOptional')">
+                  <select v-model="createScopeBranchId"
+                    class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                    :disabled="!createTenantId || !createScopeMerchantId">
+                    <option value="">None</option>
+                    <option
+                      v-for="branch in createModalBranches.filter((b) => b.merchantAccountId === createScopeMerchantId)"
+                      :key="branch.id" :value="branch.id">{{ branch.name }}</option>
+                  </select>
                 </UFormField>
               </div>
             </div>
@@ -801,94 +776,94 @@ onMounted(async () => {
             <UAlert v-if="editError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="editError" />
 
             <UFormField label="Name">
-              <UInput v-model="editName" placeholder="Display name" :ui="inputUi" />
+              <UInput v-model="editName" class="w-full h-10" placeholder="Display name" :ui="inputUi" />
             </UFormField>
 
             <div class="grid gap-3 sm:grid-cols-3">
               <UFormField>
                 <template #label><span>Role <span class="text-rose-500">*</span></span></template>
-                <select v-model="editRole" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
-                  <option
-                    v-for="role in roleOptions"
-                    :key="role"
-                    :value="role"
-                    :disabled="editIsLastAdmin() && role !== 'ADMIN'"
-                  >
+                <select v-model="editRole"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
+                  <option v-for="role in roleOptions" :key="role" :value="role"
+                    :disabled="editIsLastAdmin() && role !== 'ADMIN'">
                     {{ role }}
                   </option>
                 </select>
               </UFormField>
               <UFormField>
                 <template #label><span>Status <span class="text-rose-500">*</span></span></template>
-                <select v-model="editIsActive" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
+                <select v-model="editIsActive"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
                   <option :value="true">ACTIVE</option>
                   <option :value="false" :disabled="editIsLastAdmin()">INACTIVE</option>
                 </select>
               </UFormField>
-              <UFormField v-if="editIsPortalRole" :label="editCanScope ? 'Tenant' : 'Tenant (optional)'">
-                <select v-model="editTenantId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
+              <UFormField v-if="editIsPortalRole" :label="editCanScope ? 'Tenant' : t('userForm.tenantOptional')">
+                <select v-model="editTenantId"
+                  class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100">
                   <option value="">None</option>
                   <option v-for="tenant in tenants" :key="tenant.id" :value="tenant.id">{{ tenant.name }}</option>
                 </select>
               </UFormField>
             </div>
 
-            <UFormField v-if="editIsPortalRole" label="Merchant (optional)">
-              <select v-model="editMerchantId" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100" :disabled="!editTenantId">
+            <UFormField v-if="editIsPortalRole && !editCanScope" :label="t('userForm.merchantOptional')">
+              <select v-model="editMerchantId"
+                class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                :disabled="!editTenantId">
                 <option value="">None</option>
-                <option v-for="merchant in editModalMerchants" :key="merchant.id" :value="merchant.id">{{ merchant.name }}</option>
+                <option v-for="merchant in editModalMerchants" :key="merchant.id" :value="merchant.id">{{ merchant.name
+                  }}
+                </option>
               </select>
             </UFormField>
 
             <div v-if="editIsPortalRole" class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-              <p class="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Scope Assignments (Manager/Staff)</p>
-              <p class="mb-3 text-sm text-slate-500 dark:text-slate-400">{{ scopeStateMessage(editRole, editTenantId) }}</p>
+              <p class="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">{{ t('userForm.scopeAssignmentsManagerStaff') }}
+              </p>
+              <p class="mb-3 text-sm text-slate-500 dark:text-slate-400">
+                {{ scopeStateMessage(editRole, editTenantId) }}
+                <span class="block">{{ t('userForm.scopeEffectiveOverride') }}</span>
+              </p>
               <div class="grid gap-3 sm:grid-cols-2">
-                <UFormField>
-                  <template #label><span>Merchant Scope (multi)</span></template>
-                  <USelectMenu
-                    v-model="editScopeMerchantIds"
-                    :items="editMerchantOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    placeholder="Select merchant scopes"
-                    :disabled="!editCanScope || !editTenantId"
-                    :search-input="{ placeholder: 'Search merchant...' }"
-                    :ui="selectMenuUi"
-                  />
+                <UFormField :label="t('userForm.scopeMerchant')">
+                  <select v-model="editScopeMerchantId"
+                    class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                    :disabled="!editCanScope || !editTenantId">
+                    <option value="">None</option>
+                    <option v-for="merchant in editModalMerchants" :key="merchant.id" :value="merchant.id">{{
+                      merchant.name }}
+                    </option>
+                  </select>
                 </UFormField>
-                <UFormField>
-                  <template #label><span>Branch Scope (multi)</span></template>
-                  <USelectMenu
-                    v-model="editScopeBranchIds"
-                    :items="editBranchOptions"
-                    value-key="value"
-                    label-key="label"
-                    multiple
-                    placeholder="Select branch scopes"
-                    :disabled="!editCanScope || !editTenantId"
-                    :search-input="{ placeholder: 'Search branch...' }"
-                    :ui="selectMenuUi"
-                  />
+                <UFormField :label="t('userForm.scopeBranchOptional')">
+                  <select v-model="editScopeBranchId"
+                    class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-500 dark:bg-slate-800 dark:text-slate-100"
+                    :disabled="!editCanScope || !editTenantId || !editScopeMerchantId">
+                    <option value="">None</option>
+                    <option
+                      v-for="branch in editModalBranches.filter((b) => b.merchantAccountId === editScopeMerchantId)"
+                      :key="branch.id" :value="branch.id">{{ branch.name }}</option>
+                  </select>
                 </UFormField>
               </div>
             </div>
 
-            <UAlert
-              v-if="editIsLastAdmin()"
-              color="warning"
-              variant="soft"
-              icon="i-lucide-shield-alert"
+            <UAlert v-if="editIsLastAdmin()" color="warning" variant="soft" icon="i-lucide-shield-alert"
               title="This is the last platform admin."
-              description="Role downgrade and inactive status are disabled to keep platform administration reachable."
-            />
+              description="Role downgrade and inactive status are disabled to keep platform administration reachable." />
           </div>
 
           <template #footer>
-            <div class="flex justify-end gap-2">
-              <UButton color="neutral" variant="soft" @click="closeEdit">Cancel</UButton>
-              <UButton color="primary" class="text-white" :loading="editSaving" @click="submitEdit">Save</UButton>
+            <div class="flex w-full items-center justify-between gap-2">
+              <UButton color="warning" variant="soft" icon="i-lucide-key-round" :loading="resetPasswordSaving"
+                :disabled="!editUserId" @click="resetEditPassword">
+                Reset Password
+              </UButton>
+              <div class="flex items-center gap-2">
+                <UButton color="neutral" variant="soft" @click="closeEdit">Cancel</UButton>
+                <UButton color="primary" class="text-white" :loading="editSaving" @click="submitEdit">Save</UButton>
+              </div>
             </div>
           </template>
         </UCard>
@@ -903,9 +878,11 @@ onMounted(async () => {
           </template>
 
           <div class="space-y-3">
-            <UAlert v-if="deleteError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="deleteError" />
+            <UAlert v-if="deleteError" color="error" variant="soft" icon="i-lucide-alert-triangle"
+              :title="deleteError" />
             <p class="text-sm text-slate-700 dark:text-slate-200">Delete confirmation requires `DELETE`.</p>
-            <p class="text-sm text-slate-700 dark:text-slate-200">Target user: <span class="font-semibold text-slate-900 dark:text-slate-100">{{ deleteUserEmail }}</span></p>
+            <p class="text-sm text-slate-700 dark:text-slate-200">Target user: <span
+                class="font-semibold text-slate-900 dark:text-slate-100">{{ deleteUserEmail }}</span></p>
             <UInput v-model="deleteConfirmText" placeholder="Type DELETE" :ui="inputUi" />
           </div>
 

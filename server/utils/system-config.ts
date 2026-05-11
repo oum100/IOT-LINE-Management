@@ -1,5 +1,5 @@
 import type { H3Event } from 'h3'
-import { getNumberSetting, setSystemSetting } from './system-settings'
+import { getNumberSetting, getStringSetting, setSystemSetting } from './system-settings'
 import { QR_PAYMENT_MODE_OPTIONS, SYSTEM_SETTING_KEYS, type QrPaymentMode } from '../../shared/system-settings-catalog'
 
 function runtimeNumber(event: H3Event, key: 'paymentExpiryMinutes' | 'emailVerificationExpiresMinutes' | 'passwordResetExpiresMinutes', fallback: number) {
@@ -20,6 +20,12 @@ export async function resolvePasswordResetExpiryMinutes(event: H3Event) {
   return Number.isFinite(override) && override >= 1 && override <= 1440 ? override : fallback
 }
 
+export async function resolveDefaultNewUserPassword() {
+  const fallback = 'P@ssw0rd'
+  const configured = (await getStringSetting(SYSTEM_SETTING_KEYS.defaultNewUserPassword, fallback)).trim()
+  return configured.length >= 8 ? configured : fallback
+}
+
 export async function resolveQrPaymentMode(event: H3Event): Promise<QrPaymentMode> {
   const config = useRuntimeConfig(event)
   const fallback = String(config.qrPaymentMode || 'promptpay').trim() as QrPaymentMode
@@ -34,12 +40,14 @@ export async function resolveMaeManeeReferencePrefix(event: H3Event) {
 
 export async function ensureCoreSystemSettings(values: {
   paymentExpiryMinutes: number
+  defaultNewUserPassword: string
   emailVerificationExpiryMinutes: number
   passwordResetExpiryMinutes: number
   platformInitialized: boolean
 }) {
   await Promise.all([
     setSystemSetting(SYSTEM_SETTING_KEYS.paymentExpiryMinutes, values.paymentExpiryMinutes),
+    setSystemSetting(SYSTEM_SETTING_KEYS.defaultNewUserPassword, values.defaultNewUserPassword),
     setSystemSetting(SYSTEM_SETTING_KEYS.emailVerificationExpiryMinutes, values.emailVerificationExpiryMinutes),
     setSystemSetting(SYSTEM_SETTING_KEYS.passwordResetExpiryMinutes, values.passwordResetExpiryMinutes),
     setSystemSetting(SYSTEM_SETTING_KEYS.platformInitialized, values.platformInitialized)

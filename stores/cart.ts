@@ -4,7 +4,8 @@ import type { MachineWithPrices } from '~~/shared/types'
 
 type CartItem = {
   cartId: string
-  machineId: string
+  assetId?: string | null
+  machineId?: string | null
   machineName: string
   priceId: string
   priceLabel: string
@@ -39,7 +40,8 @@ export const useCartStore = defineStore(
 
         this.items.push({
           cartId: nanoid(),
-          machineId: machine.id,
+          assetId: machine.assetId || null,
+          machineId: machine.id || null,
           machineName: machine.name,
           priceId: price.id,
           priceLabel: price.label,
@@ -60,7 +62,8 @@ export const useCartStore = defineStore(
 
           return [{
             cartId: nanoid(),
-            machineId: selection.machine.id,
+            assetId: selection.machine.assetId || null,
+            machineId: selection.machine.id || null,
             machineName: selection.machine.name,
             priceId: price.id,
             priceLabel: price.label,

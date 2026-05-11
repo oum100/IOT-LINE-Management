@@ -35,17 +35,15 @@ export default defineEventHandler(async (event) => {
     totalCount,
     activeCount,
     inactiveCount,
-    washerCount,
-    dryerCount,
     unitCount,
     totalBindings,
-    totalSoldItems
+    totalSoldItems,
+    productTypes,
+    productTypeCountsRaw
   ] = await Promise.all([
     prisma.product.count({ where }),
     prisma.product.count({ where: { ...where, active: true } }),
     prisma.product.count({ where: { ...where, active: false } }),
-    prisma.product.count({ where: { ...where, kind: 'WASHER' } }),
-    prisma.product.count({ where: { ...where, kind: 'DRYER' } }),
     prisma.product.count({ where: { ...where, serviceMode: { not: 'TIME' } } }),
     prisma.assetProductPrice.count({
       where: {
@@ -64,17 +62,33 @@ export default defineEventHandler(async (event) => {
         ...(Object.keys(orderWhere).length ? { order: orderWhere } : {}),
         ...(kind ? { product: { kind } } : {})
       }
+    }),
+    prisma.productType.findMany({
+      where: { active: true },
+      select: { code: true, name: true, sortOrder: true },
+      orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }]
+    }),
+    prisma.product.groupBy({
+      by: ['kind'],
+      where,
+      _count: { _all: true }
     })
   ])
+
+  const countByKind = new Map(productTypeCountsRaw.map(item => [item.kind, item._count._all]))
+  const productTypeCounts = productTypes.map(item => ({
+    code: item.code,
+    name: item.name,
+    count: countByKind.get(item.code) || 0
+  }))
 
   return {
     totalCount,
     activeCount,
     inactiveCount,
-    washerCount,
-    dryerCount,
     unitCount,
     totalBindings,
-    totalSoldItems
+    totalSoldItems,
+    productTypeCounts
   }
 })

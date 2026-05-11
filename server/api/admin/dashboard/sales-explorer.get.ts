@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../../../utils/prisma'
 import { assertAdminAccess } from '../../../utils/admin-auth'
 
-type PeriodPreset = '24h' | 'week' | 'month' | 'year' | 'custom'
+type PeriodPreset = 'day' | 'week' | 'month' | 'year' | 'custom'
 type GroupBy = 'tenant' | 'merchant' | 'branch'
 type Metric = 'revenue' | 'orders' | 'payments'
 type Mode = 'all' | 'top5' | 'top10' | 'custom'
@@ -12,12 +12,13 @@ const querySchema = z.object({
   groupBy: z.enum(['tenant', 'merchant', 'branch']).default('tenant'),
   metric: z.enum(['revenue', 'orders', 'payments']).default('revenue'),
   mode: z.enum(['all', 'top5', 'top10', 'custom']).default('all'),
-  period: z.enum(['24h', 'week', 'month', 'year', 'custom']).default('month'),
+  period: z.enum(['day', 'week', 'month', 'year', 'custom']).default('month'),
   start: z.string().optional(),
   end: z.string().optional(),
   tenantIds: z.string().optional(),
   merchantIds: z.string().optional(),
-  branchIds: z.string().optional()
+  branchIds: z.string().optional(),
+  deviceTypes: z.string().optional()
 })
 
 function parseIds(raw?: string) {
@@ -35,28 +36,24 @@ function getRange(period: PeriodPreset, startRaw?: string, endRaw?: string) {
     return { start, end }
   }
 
-  if ((period === 'week' || period === 'month' || period === 'year') && startRaw && endRaw) {
+  if ((period === 'day' || period === 'week' || period === 'month' || period === 'year') && startRaw && endRaw) {
     return {
       start: new Date(startRaw),
       end: new Date(endRaw)
     }
   }
 
-  if (period === '24h') {
+  if (period === 'day') {
     const start = new Date(now)
-    start.setHours(start.getHours() - 24)
-    return { start, end: now }
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(now)
+    end.setHours(23, 59, 59, 999)
+    return { start, end }
   }
 
   if (period === 'week') {
-    const day = now.getDay()
-    const start = new Date(now)
-    start.setDate(now.getDate() - day)
-    start.setHours(0, 0, 0, 0)
-
-    const end = new Date(start)
-    end.setDate(start.getDate() + 6)
-    end.setHours(23, 59, 59, 999)
+    const start = new Date(now.getFullYear(), now.getMonth(), 1)
+    const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
     return { start, end }
   }
 
@@ -77,6 +74,103 @@ function getTopLimit(mode: Mode) {
   return undefined
 }
 
+type TimelineBucket = { key: string; label: string }
+
+function monthLabel(date: Date) {
+  return date.toLocaleString('en-US', { month: 'short' })
+}
+
+function weekOfMonth(date: Date) {
+  const first = new Date(date.getFullYear(), date.getMonth(), 1)
+  const offset = first.getDay()
+  return Math.ceil((date.getDate() + offset) / 7)
+}
+
+function buildTimelineBuckets(period: PeriodPreset, start: Date, end: Date) {
+  const buckets: TimelineBucket[] = []
+  const indexByKey = new Map<string, number>()
+  const ensure = (key: string, label: string) => {
+    if (indexByKey.has(key)) return
+    indexByKey.set(key, buckets.length)
+    buckets.push({ key, label })
+  }
+
+  if (period === 'day') {
+    const cursor = new Date(start)
+    cursor.setMinutes(0, 0, 0)
+    while (cursor <= end) {
+      const key = `${cursor.getFullYear()}-${cursor.getMonth() + 1}-${cursor.getDate()}-${cursor.getHours()}`
+      const label = `${String(cursor.getHours()).padStart(2, '0')}:00`
+      ensure(key, label)
+      cursor.setHours(cursor.getHours() + 1)
+    }
+    return { buckets, indexByKey }
+  }
+
+  if (period === 'week') {
+    const cursor = new Date(start)
+    cursor.setHours(0, 0, 0, 0)
+    while (cursor <= end) {
+      const y = cursor.getFullYear()
+      const m = cursor.getMonth() + 1
+      const w = weekOfMonth(cursor)
+      const key = `${y}-${m}-W${w}`
+      const label = `${monthLabel(cursor)} W${w}`
+      ensure(key, label)
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    return { buckets, indexByKey }
+  }
+
+  if (period === 'month') {
+    const year = start.getFullYear()
+    const month = start.getMonth() + 1
+    for (let day = 1; day <= 31; day += 1) {
+      const key = `${year}-${month}-${day}`
+      const label = String(day)
+      ensure(key, label)
+    }
+    return { buckets, indexByKey }
+  }
+
+  if (period === 'year') {
+    const cursor = new Date(start.getFullYear(), start.getMonth(), 1)
+    while (cursor <= end) {
+      const key = `${cursor.getFullYear()}-${cursor.getMonth() + 1}`
+      const label = monthLabel(cursor)
+      ensure(key, label)
+      cursor.setMonth(cursor.getMonth() + 1)
+    }
+    return { buckets, indexByKey }
+  }
+
+  const cursor = new Date(start)
+  cursor.setHours(0, 0, 0, 0)
+  while (cursor <= end) {
+    const key = `${cursor.getFullYear()}-${cursor.getMonth() + 1}-${cursor.getDate()}`
+    const label = cursor.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })
+    ensure(key, label)
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return { buckets, indexByKey }
+}
+
+function bucketKeyFor(period: PeriodPreset, date: Date) {
+  if (period === 'day') {
+    return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}-${date.getHours()}`
+  }
+  if (period === 'month') {
+    return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
+  }
+  if (period === 'week') {
+    return `${date.getFullYear()}-${date.getMonth() + 1}-W${weekOfMonth(date)}`
+  }
+  if (period === 'year') {
+    return `${date.getFullYear()}-${date.getMonth() + 1}`
+  }
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
+}
+
 export default defineEventHandler(async (event) => {
   await assertAdminAccess(event)
 
@@ -86,6 +180,7 @@ export default defineEventHandler(async (event) => {
   const tenantIds = parseIds(query.tenantIds)
   const merchantIds = parseIds(query.merchantIds)
   const branchIds = parseIds(query.branchIds)
+  const deviceTypes = parseIds(query.deviceTypes)
 
   const baseWhere = {
     createdAt: { gte: range.start, lte: range.end },
@@ -248,11 +343,101 @@ export default defineEventHandler(async (event) => {
 
   const topLimit = getTopLimit(query.mode)
   const slicedRows = topLimit ? rows.slice(0, topLimit) : rows
+  const selectedRowIds = new Set(slicedRows.map(item => item.id))
 
   const totals = {
     revenue: rows.reduce((sum, item) => sum + item.amount, 0),
     orders: rows.reduce((sum, item) => sum + item.orderCount, 0),
     payments: rows.reduce((sum, item) => sum + item.paymentCount, 0)
+  }
+
+  const deviceTypeOptions = await prisma.machineKind.findMany({
+    where: { active: true },
+    select: { code: true, name: true },
+    orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }]
+  })
+
+  const timelineSeed = buildTimelineBuckets(query.period, range.start, range.end)
+  const timelineSeriesMap = new Map(
+    slicedRows.map(item => [item.id, {
+      id: item.id,
+      name: item.label,
+      data: Array.from({ length: timelineSeed.buckets.length }, () => 0)
+    }])
+  )
+
+  const deviceTypeSeriesMap = new Map<string, { id: string; name: string; data: number[] }>()
+  for (const item of deviceTypeOptions) {
+    if (!deviceTypes.length || deviceTypes.includes(item.code)) {
+      deviceTypeSeriesMap.set(item.code, {
+        id: item.code,
+        name: item.name,
+        data: Array.from({ length: timelineSeed.buckets.length }, () => 0)
+      })
+    }
+  }
+
+  if (selectedRowIds.size) {
+    const orderRows = await prisma.order.findMany({
+      where: {
+        ...baseWhere,
+        ...(query.groupBy === 'tenant' ? { tenantId: { in: Array.from(selectedRowIds) } } : {}),
+        ...(query.groupBy === 'merchant' ? { merchantAccountId: { in: Array.from(selectedRowIds) } } : {}),
+        ...(query.groupBy === 'branch' ? { branchId: { in: Array.from(selectedRowIds) } } : {})
+      },
+      select: {
+        createdAt: true,
+        totalAmount: true,
+        tenantId: true,
+        merchantAccountId: true,
+        branchId: true
+      }
+    })
+
+    for (const order of orderRows) {
+      const id = query.groupBy === 'tenant'
+        ? order.tenantId
+        : query.groupBy === 'merchant'
+          ? order.merchantAccountId
+          : order.branchId
+      if (!id) continue
+      const line = timelineSeriesMap.get(id)
+      if (!line) continue
+      const key = bucketKeyFor(query.period, order.createdAt)
+      const idx = timelineSeed.indexByKey.get(key)
+      if (idx === undefined) continue
+      line.data[idx] += Number(order.totalAmount || 0)
+    }
+
+    const orderItemRows = await prisma.orderItem.findMany({
+      where: {
+        order: {
+          createdAt: { gte: range.start, lte: range.end },
+          ...(tenantIds.length ? { tenantId: { in: tenantIds } } : {}),
+          ...(merchantIds.length ? { merchantAccountId: { in: merchantIds } } : {}),
+          ...(branchIds.length ? { branchId: { in: branchIds } } : {})
+        },
+        asset: {
+          ...(deviceTypes.length ? { kind: { in: deviceTypes } } : {})
+        }
+      },
+      select: {
+        amount: true,
+        asset: { select: { kind: true } },
+        order: { select: { createdAt: true } }
+      }
+    })
+
+    for (const item of orderItemRows) {
+      const kind = item.asset?.kind
+      if (!kind) continue
+      const line = deviceTypeSeriesMap.get(kind)
+      if (!line) continue
+      const key = bucketKeyFor(query.period, item.order.createdAt)
+      const idx = timelineSeed.indexByKey.get(key)
+      if (idx === undefined) continue
+      line.data[idx] += Number(item.amount || 0)
+    }
   }
 
   return {
@@ -265,9 +450,19 @@ export default defineEventHandler(async (event) => {
       end: range.end.toISOString(),
       tenantIds,
       merchantIds,
-      branchIds
+      branchIds,
+      deviceTypes
     },
     totals,
-    rows: slicedRows
+    rows: slicedRows,
+    deviceTypeOptions,
+    deviceTypeTimeline: {
+      categories: timelineSeed.buckets.map(item => item.label),
+      series: Array.from(deviceTypeSeriesMap.values())
+    },
+    timeline: {
+      categories: timelineSeed.buckets.map(item => item.label),
+      series: Array.from(timelineSeriesMap.values())
+    }
   }
 })

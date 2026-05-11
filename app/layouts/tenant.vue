@@ -1,11 +1,28 @@
 <script setup lang="ts">
 const tenantMenus = computed(() => [
-  { to: '/app/dashboard', label: 'Dashboard' },
+  { to: '/app/status', label: 'Status' },
   { to: '/app/revenue', label: 'Revenue' },
-  { to: '/app/tenant', label: 'Tenant' },
-  { to: '/app/user', label: 'Users' },
-  { to: '/app/asset', label: 'Assets' }
+  { to: '/app/bizstructure', label: 'Business' }
 ])
+
+const operationMenus = computed(() => [
+  { to: '/app/asset', label: 'Asset' },
+  { to: '/app/orders', label: 'Orders' },
+  { to: '/app/promotion', label: 'Promotion' }
+])
+
+const settingMenus = computed(() => [
+  { to: '/app/user', label: 'User' }
+])
+
+const operationMenuItems = computed(() => operationMenus.value.map(item => ({
+  label: item.label,
+  to: item.to
+})))
+const settingMenuItems = computed(() => settingMenus.value.map(item => ({
+  label: item.label,
+  to: item.to
+})))
 </script>
 
 <template>
@@ -24,6 +41,38 @@ const tenantMenus = computed(() => [
           >
             {{ item.label }}
           </NuxtLink>
+          <UDropdownMenu
+            :items="operationMenuItems"
+            :ui="{
+              content: 'min-w-[180px] bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700',
+              item: 'text-sm text-slate-700 dark:text-slate-200'
+            }"
+          >
+            <UButton
+              color="neutral"
+              variant="ghost"
+              trailing-icon="i-lucide-chevron-down"
+              class="px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Operation
+            </UButton>
+          </UDropdownMenu>
+          <UDropdownMenu
+            :items="settingMenuItems"
+            :ui="{
+              content: 'min-w-[180px] bg-white dark:bg-slate-900 ring-1 ring-slate-200 dark:ring-slate-700',
+              item: 'text-sm text-slate-700 dark:text-slate-200'
+            }"
+          >
+            <UButton
+              color="neutral"
+              variant="ghost"
+              trailing-icon="i-lucide-chevron-down"
+              class="px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              Setting
+            </UButton>
+          </UDropdownMenu>
         </nav>
         <div class="flex min-w-[260px] justify-end">
           <AppHeaderControls
@@ -31,7 +80,7 @@ const tenantMenus = computed(() => [
             :show-profile="true"
             :show-settings="true"
             profile-path="/portal"
-            settings-path="/admin/settings"
+            settings-path="/app/setting"
           />
         </div>
       </div>

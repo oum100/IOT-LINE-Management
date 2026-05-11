@@ -7,13 +7,14 @@ definePageMeta({
   middleware: 'portal-auth'
 })
 
-type PeriodPreset = '24h' | 'week' | 'month' | 'year' | 'custom'
+type PeriodPreset = 'day' | 'week' | 'month' | 'year' | 'custom'
 type GroupBy = 'merchant' | 'branch'
 type Metric = 'revenue' | 'orders' | 'payments'
 type Mode = 'all' | 'top5' | 'top10' | 'custom'
 
 type MerchantOption = { id: string; code: string; name: string }
 type BranchOption = { id: string; code: string; name: string; merchantAccountId: string }
+type DeviceTypeOption = { code: string; name: string }
 
 type ExplorerResponse = {
   tenant?: { id: string; code: string; name: string } | null
@@ -45,6 +46,23 @@ type ExplorerResponse = {
     paymentCount: number
     paymentAmount: number
   }>
+  timeline?: {
+    categories: string[]
+    series: Array<{
+      id: string
+      name: string
+      data: number[]
+    }>
+  }
+  deviceTypeTimeline?: {
+    categories: string[]
+    series: Array<{
+      id: string
+      name: string
+      data: number[]
+    }>
+  }
+  deviceTypeOptions?: DeviceTypeOption[]
 }
 type Totals = {
   revenue: number
@@ -55,9 +73,22 @@ type RevenueTrendsResponse = {
   daily: Array<{ key: string; label: string; amount: number }>
   monthly: Array<{ key: string; label: string; amount: number }>
 }
+type RevenueAssetUsageResponse = {
+  filters: {
+    period: PeriodPreset
+    start: string
+    end: string
+  }
+  categories: string[]
+  series: Array<{
+    name: string
+    data: number[]
+  }>
+}
 
 const ApexChart = defineAsyncComponent(async () => (await import('vue3-apexcharts')).default)
 const colorMode = useColorMode()
+const { data: authData } = useAuth()
 
 const groupBy = ref<GroupBy>('merchant')
 const metric = ref<Metric>('revenue')
@@ -66,9 +97,14 @@ const period = ref<PeriodPreset>('month')
 const startDate = ref('')
 const endDate = ref('')
 const selectedMonth = ref(new Date().toISOString().slice(0, 7))
-const selectedWeekOfMonth = ref(1)
+const selectedYear = ref(String(new Date().getFullYear()))
+const selectedDayInMonth = ref(new Date().getDate())
 const selectedMerchantIds = ref<string[]>([])
 const selectedBranchIds = ref<string[]>([])
+const selectedDeviceTypes = ref<string[]>(['__NONE__'])
+const selectedDeviceTypeCodes = computed(() => selectedDeviceTypes.value.filter(item => item !== '__NONE__'))
+const roleKey = computed(() => String(authData.value?.user?.role || '').toUpperCase())
+const isScopedRole = computed(() => roleKey.value === 'MANAGER' || roleKey.value === 'STAFF')
 
 function monthStartEnd(monthValue: string) {
   const [yearRaw, monthRaw] = monthValue.split('-')
@@ -80,53 +116,49 @@ function monthStartEnd(monthValue: string) {
   return { start, end }
 }
 
-function weeksInMonth(monthValue: string) {
-  if (!monthValue || !monthValue.includes('-')) return 4
-  const { start, end } = monthStartEnd(monthValue)
-  const firstWeekStart = new Date(start)
-  firstWeekStart.setDate(start.getDate() - start.getDay())
-  firstWeekStart.setHours(0, 0, 0, 0)
-
-  let count = 0
-  const cursor = new Date(firstWeekStart)
-  while (cursor <= end) {
-    count += 1
-    cursor.setDate(cursor.getDate() + 7)
-  }
-  return Math.max(1, count)
-}
-
-function weekRangeInMonth(monthValue: string, weekNo: number) {
-  const { start } = monthStartEnd(monthValue)
-  const firstWeekStart = new Date(start)
-  firstWeekStart.setDate(start.getDate() - start.getDay())
-  firstWeekStart.setHours(0, 0, 0, 0)
-
-  const weekStart = new Date(firstWeekStart)
-  weekStart.setDate(firstWeekStart.getDate() + (Math.max(1, weekNo) - 1) * 7)
-  const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekStart.getDate() + 6)
-  weekEnd.setHours(23, 59, 59, 999)
-
-  return { start: weekStart, end: weekEnd }
-}
-
-const weekOptions = computed(() => {
-  const total = weeksInMonth(selectedMonth.value)
-  return Array.from({ length: total }, (_, i) => i + 1)
+const dayOptionsInSelectedMonth = computed(() => {
+  const { end } = monthStartEnd(selectedMonth.value)
+  const totalDays = end.getDate()
+  return Array.from({ length: totalDays }, (_, i) => i + 1)
 })
 
-watch(weekOptions, (options) => {
-  if (!options.includes(selectedWeekOfMonth.value)) {
-    selectedWeekOfMonth.value = options[0] || 1
+watch(dayOptionsInSelectedMonth, (options) => {
+  if (!options.includes(selectedDayInMonth.value)) {
+    selectedDayInMonth.value = options[0] || 1
   }
 }, { immediate: true })
 
-function rangeQueryFor(periodValue: PeriodPreset, monthValue: string, weekValue: number, customStart: string, customEnd: string) {
+function dayStartEnd(monthValue: string, dayInMonth: number) {
+  const [yearRaw, monthRaw] = monthValue.split('-')
+  const year = Number(yearRaw)
+  const month = Number(monthRaw)
+  const day = Math.max(1, dayInMonth || 1)
+  const start = new Date(year, month - 1, day)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(year, month - 1, day)
+  end.setHours(23, 59, 59, 999)
+  return { start, end }
+}
+
+function rangeQueryFor(periodValue: PeriodPreset, monthValue: string, yearValue: string, dayInMonth: number, customStart: string, customEnd: string) {
   if (periodValue === 'custom') {
     return {
       start: customStart || undefined,
       end: customEnd || undefined
+    }
+  }
+  if (periodValue === 'day') {
+    const range = dayStartEnd(monthValue, dayInMonth)
+    return {
+      start: range.start.toISOString(),
+      end: range.end.toISOString()
+    }
+  }
+  if (periodValue === 'week') {
+    const range = monthStartEnd(monthValue)
+    return {
+      start: range.start.toISOString(),
+      end: range.end.toISOString()
     }
   }
   if (periodValue === 'month') {
@@ -136,24 +168,28 @@ function rangeQueryFor(periodValue: PeriodPreset, monthValue: string, weekValue:
       end: range.end.toISOString()
     }
   }
-  if (periodValue === 'week') {
-    const range = weekRangeInMonth(monthValue, weekValue)
+  if (periodValue === 'year') {
+    const year = Number(yearValue) || new Date().getFullYear()
+    const start = new Date(year, 0, 1)
+    start.setHours(0, 0, 0, 0)
+    const end = new Date(year, 11, 31, 23, 59, 59, 999)
     return {
-      start: range.start.toISOString(),
-      end: range.end.toISOString()
+      start: start.toISOString(),
+      end: end.toISOString()
     }
   }
   return {}
 }
 
 const queryParams = computed(() => ({
-  ...rangeQueryFor(period.value, selectedMonth.value, selectedWeekOfMonth.value, startDate.value, endDate.value),
+  ...rangeQueryFor(period.value, selectedMonth.value, selectedYear.value, selectedDayInMonth.value, startDate.value, endDate.value),
   groupBy: groupBy.value,
   metric: metric.value,
   mode: mode.value,
   period: period.value,
   merchantIds: mode.value === 'custom' && selectedMerchantIds.value.length ? selectedMerchantIds.value.join(',') : undefined,
-  branchIds: mode.value === 'custom' && selectedBranchIds.value.length ? selectedBranchIds.value.join(',') : undefined
+  branchIds: mode.value === 'custom' && selectedBranchIds.value.length ? selectedBranchIds.value.join(',') : undefined,
+  deviceTypes: selectedDeviceTypeCodes.value.length ? selectedDeviceTypeCodes.value.join(',') : undefined
 }))
 
 const { data, pending, error } = await useFetch<ExplorerResponse>('/api/app/dashboard-explorer', {
@@ -170,14 +206,28 @@ const { data: trendsData, pending: trendsPending } = await useFetch<RevenueTrend
 const { data: summaryData } = await useFetch<{
   tenant?: { id: string; code: string; name: string } | null
 }>('/api/app/dashboard')
+const assetUsageQuery = computed(() => ({
+  ...rangeQueryFor(period.value, selectedMonth.value, selectedYear.value, selectedDayInMonth.value, startDate.value, endDate.value),
+  mode: mode.value,
+  period: period.value,
+  merchantIds: mode.value === 'custom' && selectedMerchantIds.value.length ? selectedMerchantIds.value.join(',') : undefined,
+  branchIds: mode.value === 'custom' && selectedBranchIds.value.length ? selectedBranchIds.value.join(',') : undefined
+}))
+const { data: assetUsageData, pending: assetUsagePending } = await useFetch<RevenueAssetUsageResponse>('/api/app/revenue-asset-usage', {
+  query: assetUsageQuery
+})
 
 const rows = computed(() => data.value?.rows || [])
+const timeline = computed(() => data.value?.timeline || { categories: [] as string[], series: [] as Array<{ id: string; name: string; data: number[] }> })
+const deviceTypeTimeline = computed(() => data.value?.deviceTypeTimeline || { categories: [] as string[], series: [] as Array<{ id: string; name: string; data: number[] }> })
+const deviceTypeOptions = computed(() => data.value?.deviceTypeOptions || [])
 const totals = computed<Totals>(() => data.value?.totals || { revenue: 0, orders: 0, payments: 0 })
 const tenantName = computed(() => data.value?.tenant?.name || summaryData.value?.tenant?.name || '-')
 const tenantCode = computed(() => data.value?.tenant?.code || summaryData.value?.tenant?.code || '-')
 
 const merchants = computed(() => data.value?.options?.merchants || [])
 const branches = computed(() => data.value?.options?.branches || [])
+const isBranchScopedGroupBy = computed(() => isScopedRole.value && branches.value.length <= 1)
 
 const filteredBranches = computed(() => {
   const merchantSet = new Set(selectedMerchantIds.value)
@@ -198,55 +248,92 @@ watch(filteredBranches, (items) => {
   }
 }, { immediate: true })
 
-const chartValue = (item: { amount: number; orderCount: number; paymentCount: number }) => {
-  if (metric.value === 'orders') return item.orderCount
-  if (metric.value === 'payments') return item.paymentCount
-  return item.amount
-}
+watch([merchants, branches, mode, isScopedRole], () => {
+  if (!isScopedRole.value) return
+  if (mode.value !== 'custom') return
 
-const chartSeries = computed(() => [{
-  name: metric.value === 'revenue' ? 'Revenue' : metric.value === 'orders' ? 'Orders' : 'Payments',
-  data: rows.value.map(item => chartValue(item))
-}])
+  const merchantIds = merchants.value.map(item => item.id)
+  if (!sameIds(merchantIds, selectedMerchantIds.value)) {
+    selectedMerchantIds.value = merchantIds
+  }
+
+  const allowedBranchSet = new Set(branches.value
+    .filter(item => !merchantIds.length || merchantIds.includes(item.merchantAccountId))
+    .map(item => item.id))
+  const scopedBranchIds = branches.value.filter(item => allowedBranchSet.has(item.id)).map(item => item.id)
+  if (!sameIds(scopedBranchIds, selectedBranchIds.value)) {
+    selectedBranchIds.value = scopedBranchIds
+  }
+}, { immediate: true })
+
+watch(isBranchScopedGroupBy, (locked) => {
+  if (locked && groupBy.value !== 'branch') groupBy.value = 'branch'
+}, { immediate: true })
+
+const chartSeries = computed(() => [
+  ...timeline.value.series.map((item) => ({
+    name: item.name,
+    type: 'area' as const,
+    data: item.data
+  })),
+  ...(selectedDeviceTypeCodes.value.length ? deviceTypeTimeline.value.series.map((item) => ({
+    name: `Type: ${item.name}`,
+    type: 'bar' as const,
+    data: item.data
+  })) : [])
+])
 
 const chartHeight = computed(() => {
-  const n = Math.max(rows.value.length, 1)
-  return Math.min(520, Math.max(260, n * 36 + 90))
+  const n = Math.max(chartSeries.value.length, 1)
+  return Math.min(520, Math.max(320, n * 36 + 200))
 })
 
 const chartOptions = computed<ApexOptions>(() => {
   const isDark = colorMode.value === 'dark'
   return {
     chart: {
-      type: 'bar',
+      type: 'line',
+      stacked: true,
       toolbar: { show: false },
       background: 'transparent',
       foreColor: isDark ? '#cbd5e1' : '#475569'
     },
+    stroke: {
+      curve: 'smooth',
+      width: chartSeries.value.map((series) => (series.type === 'area' ? 3 : 0))
+    },
     plotOptions: {
       bar: {
-        horizontal: true,
-        borderRadius: 6,
-        barHeight: '62%',
-        distributed: true
+        horizontal: false,
+        columnWidth: '35%',
+        borderRadius: 4
       }
     },
     dataLabels: {
-      enabled: true,
-      formatter: (val) => Number(val).toLocaleString('en-US')
+      enabled: false
     },
     xaxis: {
-      categories: rows.value.map(item => item.label),
+      categories: timeline.value.categories,
       labels: {
-        formatter: (val) => Number(val).toLocaleString('en-US')
+        rotate: -30
       }
     },
     yaxis: {
       labels: {
-        maxWidth: 300
+        formatter: (val) => Number(val).toLocaleString('en-US')
       }
     },
-    colors: ['#3b82f6', '#06b6d4', '#22c55e', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6', '#eab308', '#8b5cf6', '#ec4899'],
+    fill: {
+      type: chartSeries.value.map(() => 'solid'),
+      gradient: {
+        shadeIntensity: 1,
+        opacityFrom: 0.2,
+        opacityTo: 0.2,
+        stops: [0, 90, 100]
+      },
+      opacity: chartSeries.value.map(series => (series.type === 'area' ? 0.2 : 1))
+    },
+    colors: ['#3b82f6', '#86efac', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#84cc16', '#f97316'],
     grid: {
       borderColor: isDark ? '#334155' : '#e2e8f0'
     },
@@ -261,8 +348,8 @@ function fmtNumber(value: number) {
 }
 
 const viewTitle = computed(() => {
-  if (groupBy.value === 'merchant') return 'Compare by Merchant'
-  return 'Compare by Branch'
+  if (groupBy.value === 'merchant') return 'Revenue by Merchant'
+  return 'Revenue by Branch'
 })
 
 function formatDateOnly(value?: string) {
@@ -500,6 +587,62 @@ const yearCompareOptions = computed<ApexOptions>(() => {
   }
 })
 
+const assetUsageChartOptions = computed<ApexOptions>(() => {
+  const isDark = colorMode.value === 'dark'
+  return {
+    chart: {
+      type: 'line',
+      stacked: false,
+      toolbar: { show: false },
+      background: 'transparent',
+      foreColor: isDark ? '#cbd5e1' : '#475569'
+    },
+    plotOptions: {
+      bar: {
+        horizontal: false,
+        columnWidth: '48%',
+        borderRadius: 4
+      }
+    },
+    stroke: {
+      width: [0, 3],
+      curve: 'smooth'
+    },
+    markers: {
+      size: [0, 4]
+    },
+    dataLabels: { enabled: false },
+    xaxis: {
+      categories: assetUsageData.value?.categories || []
+    },
+    yaxis: [
+      {
+        title: { text: 'Used Count' },
+        labels: {
+          formatter: (val) => Number(val).toLocaleString('en-US')
+        }
+      },
+      {
+        opposite: true,
+        title: { text: 'Revenue' },
+        labels: {
+          formatter: (val) => Number(val).toLocaleString('en-US')
+        }
+      }
+    ],
+    colors: ['#2563eb', '#f97316'],
+    legend: {
+      position: 'top'
+    },
+    grid: {
+      borderColor: isDark ? '#334155' : '#e2e8f0'
+    },
+    tooltip: {
+      theme: isDark ? 'dark' : 'light'
+    }
+  }
+})
+
 const compareKey = computed(() => [
   data.value?.filters?.start || '',
   data.value?.filters?.end || '',
@@ -507,7 +650,8 @@ const compareKey = computed(() => [
   metric.value,
   mode.value,
   selectedMerchantIds.value.join(','),
-  selectedBranchIds.value.join(',')
+  selectedBranchIds.value.join(','),
+  selectedDeviceTypeCodes.value.join(',')
 ].join('|'))
 
 watch(compareKey, async () => {
@@ -565,11 +709,11 @@ watch(compareKey, async () => {
         <p class="mt-1 text-sm text-slate-500 dark:text-slate-300">Tenant: {{ tenantCode }} ({{ tenantName }})</p>
       </div>
 
-      <div class="flex flex-wrap items-start justify-end gap-3">
+      <div class="flex flex-1 flex-wrap items-start justify-end gap-3">
         <div class="flex w-[140px] flex-col gap-1">
           <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Group By</label>
-          <select v-model="groupBy" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-            <option value="merchant">Merchant</option>
+          <select v-model="groupBy" :disabled="isBranchScopedGroupBy" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+            <option v-if="!isBranchScopedGroupBy" value="merchant">Merchant</option>
             <option value="branch">Branch</option>
           </select>
         </div>
@@ -591,40 +735,56 @@ watch(compareKey, async () => {
             <option value="top10">Top 10</option>
             <option value="custom">Custom</option>
           </select>
+
+          <template v-if="period === 'custom'">
+            <label class="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">Start Date</label>
+            <input v-model="startDate" type="date" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+          </template>
         </div>
 
         <div class="flex w-[140px] flex-col gap-1">
           <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Period</label>
           <select v-model="period" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-            <option value="24h">24H</option>
+            <option value="day">Day</option>
             <option value="week">Week</option>
             <option value="month">Month</option>
             <option value="year">Year</option>
             <option value="custom">Date Range</option>
           </select>
+
+          <template v-if="period === 'day'">
+            <label class="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">Day</label>
+            <select v-model.number="selectedDayInMonth" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+              <option v-for="dayNo in dayOptionsInSelectedMonth" :key="dayNo" :value="dayNo">Day {{ dayNo }}</option>
+            </select>
+          </template>
+
+          <template v-if="period === 'custom'">
+            <label class="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">End Date</label>
+            <input v-model="endDate" type="date" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+          </template>
         </div>
 
-        <div v-if="period === 'month' || period === 'week'" class="flex w-[140px] flex-col gap-1">
+        <div v-if="period === 'day' || period === 'week' || period === 'month'" class="flex w-[140px] flex-col gap-1">
           <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Month</label>
           <input v-model="selectedMonth" type="month" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
         </div>
 
-        <div v-if="period === 'week'" class="flex w-[120px] flex-col gap-1">
-          <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Week</label>
-          <select v-model.number="selectedWeekOfMonth" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-            <option v-for="weekNo in weekOptions" :key="weekNo" :value="weekNo">Week {{ weekNo }}</option>
+        <div v-if="period === 'year'" class="flex w-[120px] flex-col gap-1">
+          <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Year</label>
+          <input v-model="selectedYear" type="number" min="2000" max="2100" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+        </div>
+
+        <div class="flex w-[180px] flex-col gap-1">
+          <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Device Type</label>
+          <select v-model="selectedDeviceTypes" multiple class="h-28 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+            <option value="__NONE__">None</option>
+            <option v-for="item in deviceTypeOptions" :key="item.code" :value="item.code">
+              {{ item.name }} ({{ item.code }})
+            </option>
           </select>
         </div>
 
-        <div v-if="period === 'custom'" class="flex w-[180px] flex-col gap-1">
-          <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Start Date</label>
-          <input v-model="startDate" type="date" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-        </div>
-
-        <div v-if="period === 'custom'" class="flex w-[180px] flex-col gap-1">
-          <label class="text-xs font-medium text-slate-600 dark:text-slate-300">End Date</label>
-          <input v-model="endDate" type="date" class="h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-        </div>
       </div>
     </div>
 
@@ -632,22 +792,28 @@ watch(compareKey, async () => {
       <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div class="flex min-w-0 flex-col gap-1">
           <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Merchant (multi)</label>
-          <select v-model="selectedMerchantIds" multiple class="h-28 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+          <select v-model="selectedMerchantIds" :disabled="isScopedRole" multiple class="h-28 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
             <option v-for="item in merchants" :key="item.id" :value="item.id">{{ item.code }} ({{ item.name }})</option>
           </select>
         </div>
 
         <div class="flex min-w-0 flex-col gap-1">
           <label class="text-xs font-medium text-slate-600 dark:text-slate-300">Branch (multi)</label>
-          <select v-model="selectedBranchIds" multiple class="h-28 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+          <select v-model="selectedBranchIds" :disabled="isScopedRole" multiple class="h-28 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-900 disabled:cursor-not-allowed disabled:opacity-70 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
             <option v-for="item in filteredBranches" :key="item.id" :value="item.id">{{ item.code }} ({{ item.name }})</option>
           </select>
         </div>
       </div>
+      <p v-if="isScopedRole" class="mt-2 text-sm text-slate-500 dark:text-slate-400">
+        Merchant/Branch are fixed by your scope.
+      </p>
     </div>
 
     <UCard :ui="{ root: 'ring-1 ring-slate-200 bg-white dark:ring-slate-700 dark:bg-slate-900' }">
-      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-6">
+      <div class="mb-3 flex items-center justify-between">
+        <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Revenue Summary</p>
+      </div>
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <div class="flex min-h-[92px] flex-col items-center justify-center rounded-lg border border-slate-200 px-3 py-2 text-center dark:border-slate-700">
           <p class="text-sm text-slate-600 dark:text-slate-300">Total Revenue</p>
           <p class="text-lg font-semibold text-emerald-600 dark:text-emerald-400">{{ fmtNumber(totals.revenue) }}</p>
@@ -660,6 +826,63 @@ watch(compareKey, async () => {
           <p class="text-sm text-slate-600 dark:text-slate-300">Total Payments</p>
           <p class="text-lg font-semibold text-violet-600 dark:text-violet-400">{{ fmtNumber(totals.payments) }}</p>
         </div>
+      </div>
+    </UCard>
+
+    <UCard class="w-full xl:w-2/3" :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
+      <div class="mb-4 flex items-center justify-between">
+        <div>
+          <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">{{ viewTitle }}</p>
+          <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            Data range: {{ rangeStartLabel }} - {{ rangeEndLabel }}
+          </p>
+        </div>
+      </div>
+
+      <div v-if="error" class="rounded-lg border border-rose-300/60 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-200">
+        {{ error.message }}
+      </div>
+      <div v-else-if="pending" class="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+        Loading chart...
+      </div>
+      <div v-else-if="!rows.length" class="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+        No data in selected filters.
+      </div>
+      <div v-else>
+        <ClientOnly>
+          <ApexChart type="line" :height="chartHeight" :options="chartOptions" :series="chartSeries" />
+        </ClientOnly>
+      </div>
+    </UCard>
+
+    <UCard class="w-full xl:w-2/3" :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
+      <div class="mb-2 flex items-center justify-between">
+        <div>
+          <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Asset Used & Revenue by Usage</p>
+          <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">Combo chart (Used = bar, Revenue = line)</p>
+        </div>
+        <p class="text-xs text-slate-500 dark:text-slate-400">{{ (assetUsageData?.categories || []).length }} assets</p>
+      </div>
+      <div v-if="assetUsagePending" class="py-10 text-center text-sm text-slate-500 dark:text-slate-400">Loading asset usage...</div>
+      <div v-else-if="!(assetUsageData?.categories || []).length" class="py-10 text-center text-sm text-slate-500 dark:text-slate-400">No asset usage data.</div>
+      <ClientOnly v-else>
+        <ApexChart
+          type="line"
+          height="320"
+          :options="assetUsageChartOptions"
+          :series="[
+            { name: assetUsageData?.series?.[0]?.name || 'Asset Used', type: 'bar', data: assetUsageData?.series?.[0]?.data || [] },
+            { name: assetUsageData?.series?.[1]?.name || 'Revenue by Usage', type: 'line', data: assetUsageData?.series?.[1]?.data || [] }
+          ]"
+        />
+      </ClientOnly>
+    </UCard>
+
+    <UCard :ui="{ root: 'ring-1 ring-slate-200 bg-white dark:ring-slate-700 dark:bg-slate-900' }">
+      <div class="mb-3 flex items-center justify-between">
+        <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">Comparison Summary</p>
+      </div>
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <div class="flex min-h-[92px] flex-col items-center justify-center rounded-lg border border-slate-200 px-3 py-2 text-center dark:border-slate-700">
           <p class="text-sm text-slate-600 dark:text-slate-300">WoW</p>
           <p class="text-lg font-semibold" :class="deltaTextClass(wowRevenuePct)">{{ wowRevenuePct }}</p>
@@ -678,6 +901,7 @@ watch(compareKey, async () => {
       </div>
       <p v-if="compareLoading" class="mt-2 text-xs text-slate-500 dark:text-slate-400">Updating WoW/MoM/YoY...</p>
     </UCard>
+
 
     <div class="grid gap-3 lg:grid-cols-2">
       <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
@@ -705,32 +929,6 @@ watch(compareKey, async () => {
       </UCard>
     </div>
 
-    <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
-      <div class="mb-4 flex items-center justify-between">
-        <div>
-          <p class="text-sm font-semibold text-slate-700 dark:text-slate-200">{{ viewTitle }}</p>
-          <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Data range: {{ rangeStartLabel }} - {{ rangeEndLabel }}
-          </p>
-        </div>
-        <p class="text-sm text-slate-500 dark:text-slate-400">{{ rows.length }} items</p>
-      </div>
-
-      <div v-if="error" class="rounded-lg border border-rose-300/60 bg-rose-50 p-3 text-sm text-rose-700 dark:border-rose-800 dark:bg-rose-900/20 dark:text-rose-200">
-        {{ error.message }}
-      </div>
-      <div v-else-if="pending" class="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-        Loading chart...
-      </div>
-      <div v-else-if="!rows.length" class="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-        No data in selected filters.
-      </div>
-      <div v-else>
-        <ClientOnly>
-          <ApexChart type="bar" :height="chartHeight" :options="chartOptions" :series="chartSeries" />
-        </ClientOnly>
-      </div>
-    </UCard>
 
     <UCard :ui="{ root: 'bg-white/95 dark:bg-slate-900/90 ring-1 ring-slate-200 dark:ring-slate-700' }">
       <div class="overflow-x-auto">
@@ -756,5 +954,6 @@ watch(compareKey, async () => {
         </table>
       </div>
     </UCard>
+
   </div>
 </template>

@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Tenant not found in scope' })
   }
 
-  const unit = await prisma.machineUnit.findFirst({
+  const unit = await prisma.machine.findFirst({
     where: { id, tenantId: resolvedTenantId },
     select: { id: true, status: true, _count: { select: { bindings: true } } }
   })
@@ -51,6 +51,6 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 409, statusMessage: 'Machine unit has binding history. Delete blocked.' })
   }
 
-  await prisma.machineUnit.delete({ where: { id } })
+  await prisma.machine.delete({ where: { id } })
   return { ok: true }
 })

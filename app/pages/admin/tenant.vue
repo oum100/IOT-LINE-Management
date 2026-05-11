@@ -424,7 +424,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="space-y-4 text-slate-900 dark:text-slate-100">
+  <section class="space-y-4 text-sm text-slate-900 dark:text-slate-100">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h1 class="text-2xl font-bold text-slate-900 dark:text-white">Tenant Management</h1>
@@ -500,74 +500,74 @@ onMounted(async () => {
       <div v-else-if="tenantSummary" class="overflow-x-auto">
         <div class="grid min-w-[1220px] grid-cols-10 gap-1">
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('merchant')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <p class="flex items-center justify-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-store" class="size-4" />
-              <span>Merchant (Brand)</span>
+              <span>Merchant</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.merchantCount }}</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ tenantSummary.merchantCount }}</p>
           </button>
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('branch')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <p class="flex items-center justify-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-building-2" class="size-4" />
               <span>Branch</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.branchCount }}</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ tenantSummary.branchCount }}</p>
           </button>
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('asset')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <p class="flex items-center justify-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-package" class="size-4" />
               <span>Asset</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.assetCount }}</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ tenantSummary.assetCount }}</p>
           </button>
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('device')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <p class="flex items-center justify-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-cpu" class="size-4" />
               <span>Device</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.deviceCount }}</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ tenantSummary.deviceCount }}</p>
           </button>
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('machine')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <p class="flex items-center justify-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-cog" class="size-4" />
               <span>Machine</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.machineCount }}</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ tenantSummary.machineCount }}</p>
           </button>
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('product')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <p class="flex items-center justify-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-box" class="size-4" />
               <span>Product</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.productCount }}</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ tenantSummary.productCount }}</p>
           </button>
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('order')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <p class="flex items-center justify-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-shopping-cart" class="size-4" />
               <span>Order</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.orderCount }}</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ tenantSummary.orderCount }}</p>
           </button>
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('payment')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <p class="flex items-center justify-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-wallet" class="size-4" />
               <span>Payment</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.paymentCount }}</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ tenantSummary.paymentCount }}</p>
           </button>
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('biller')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <p class="flex items-center justify-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-receipt-text" class="size-4" />
               <span>Biller</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.billerCount }}</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ tenantSummary.billerCount }}</p>
           </button>
           <button type="button" class="rounded-md border border-slate-200 bg-white px-2 py-2 text-center transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:bg-slate-800/70" @click="goToTenantArea('user')">
-            <p class="flex items-center justify-center gap-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <p class="flex items-center justify-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
               <UIcon name="i-lucide-users" class="size-4" />
               <span>User</span>
             </p>
-            <p class="mt-1 text-lg font-bold text-slate-900 dark:text-white">{{ tenantSummary.userCount }}</p>
+            <p class="mt-1 text-2xl font-bold text-slate-900 dark:text-white">{{ tenantSummary.userCount }}</p>
           </button>
         </div>
       </div>
@@ -705,10 +705,10 @@ onMounted(async () => {
                 </div>
               </td>
               <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
-                {{ formatDate(item.createdAt) }}
+                <DateTimeTwoLine :value="item.createdAt" />
               </td>
               <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
-                {{ formatDate(item.updatedAt) }}
+                <DateTimeTwoLine :value="item.updatedAt" />
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">

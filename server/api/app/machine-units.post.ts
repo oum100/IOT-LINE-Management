@@ -12,7 +12,7 @@ function isPlatformRole(role: Role | string | null | undefined) {
 }
 
 const bodySchema = z.object({
-  serialNo: z.string().trim().min(2).max(120),
+  serialNo: z.string().trim().regex(/^[A-Za-z0-9]{13}$/, 'Serial No must be 13 alphanumeric characters'),
   brand: z.string().trim().max(120).optional().nullable(),
   model: z.string().trim().max(120).optional().nullable()
 })
@@ -45,12 +45,16 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: 'Tenant not found in scope' })
   }
 
-  const created = await prisma.machineUnit.create({
+  const created = await prisma.machine.create({
     data: {
       tenantId: resolvedTenantId,
+      code: `MU-${body.serialNo.replace(/[^a-zA-Z0-9]/g, '').slice(-12) || Date.now().toString().slice(-6)}`,
+      name: body.serialNo,
       serialNo: body.serialNo,
       brand: body.brand || null,
       model: body.model || null,
+      kind: 'WASHER',
+      locationLabel: 'Unassigned',
       status: 'SPARE'
     },
     select: {

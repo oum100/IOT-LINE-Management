@@ -18,7 +18,7 @@ export default defineEventHandler(async (event) => {
     data: {
       tenantId: body.tenantId,
       code,
-      note: body.note || 'SPARE_IOT',
+      note: body.note || 'NEW_IOT_DEVICE',
       expiresAt: body.expiresAt ? new Date(body.expiresAt) : null
     }
   })

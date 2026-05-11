@@ -15,16 +15,23 @@ model Machine {
   assetId           String?
   code              String           @unique
   name              String
+  serialNo          String           @unique
+  brand             String?
+  model             String?
+  warrantyStartAt   DateTime?
+  warrantyEndAt     DateTime?
   kind              String
   status            MachineStatus    @default(AVAILABLE)
   locationLabel     String
   topic             String?
+  metadata          Json?
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   remainingMinutes  Int?
   commands          DeviceCommand[]
   prices            MachinePrice[]
   orderItems        OrderItem[]
+  bindings          AssetBinding[]
   tenant            Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   merchantAccount   MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
   branch            Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
@@ -48,27 +55,29 @@ model MachinePrice {
 }
 
 model Order {
-  id                    String           @id @default(cuid())
-  tenantId              String?
-  merchantAccountId     String?
-  branchId              String?
-  paymentIntentPublicId String?
-  orderNumber           String           @unique
-  customerName          String
-  lineUserId            String?
-  note                  String?
-  selfCancelTokenHash   String?
+  id                      String           @id @default(cuid())
+  tenantId                String?
+  merchantAccountId       String?
+  branchId                String?
+  paymentIntentPublicId   String?
+  orderNumber             String           @unique
+  customerName            String
+  lineUserId              String?
+  note                    String?
+  selfCancelTokenHash     String?
   selfCancelTokenIssuedAt DateTime?
-  totalAmount           Int
-  status                OrderStatus      @default(PENDING_PAYMENT)
-  createdAt             DateTime         @default(now())
-  updatedAt             DateTime         @updatedAt
-  items                 OrderItem[]
-  payment               Payment?
-  refunds               Refund[]
-  tenant                Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-  merchantAccount       MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
-  branch                Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  totalAmount             Int
+  status                  OrderStatus      @default(PENDING_PAYMENT)
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  items                   OrderItem[]
+  commands                DeviceCommand[]
+  payment                 Payment?
+  traces                  PaymentTrace[]
+  refunds                 Refund[]
+  tenant                  Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  merchantAccount         MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
+  branch                  Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, branchId, createdAt])
   @@index([merchantAccountId, createdAt])
@@ -76,27 +85,27 @@ model Order {
 }
 
 model OrderItem {
-  id              String          @id @default(cuid())
-  orderId         String
-  machineId       String
-  assetId         String?
-  productId       String?
-  priceId         String
-  priceLabel      String
-  amount          Int
-  durationMinutes Int
-  serviceModeSnapshot ServiceMode?
-  unitSnapshot    ServiceUnit?
-  quantitySnapshot Decimal?       @db.Decimal(12, 3)
-  status          OrderItemStatus @default(PENDING)
-  startedAt       DateTime?
-  completedAt     DateTime?
-  machine         Machine         @relation(fields: [machineId], references: [id])
-  asset           Asset?          @relation(fields: [assetId], references: [id], onDelete: SetNull)
-  product         Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
-  order           Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  price           MachinePrice    @relation(fields: [priceId], references: [id])
-  refundItems     RefundItem[]
+  id                  String          @id @default(cuid())
+  orderId             String
+  machineId           String?
+  assetId             String
+  productId           String?
+  priceId             String
+  priceLabel          String
+  amount              Int
+  durationMinutes     Int
+  serviceModeSnapshot String?
+  unitSnapshot        String?
+  quantitySnapshot    Decimal?        @db.Decimal(12, 3)
+  status              OrderItemStatus @default(PENDING)
+  startedAt           DateTime?
+  completedAt         DateTime?
+  machine             Machine?        @relation(fields: [machineId], references: [id])
+  asset               Asset           @relation(fields: [assetId], references: [id], onDelete: Restrict)
+  product             Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  order               Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  price               MachinePrice    @relation(fields: [priceId], references: [id])
+  refundItems         RefundItem[]
 
   @@index([assetId])
   @@index([productId])
@@ -109,9 +118,11 @@ model Payment {
   merchantAccountId       String?
   branchId                String?
   billerProfileId         String?
+  paymentMethod           PaymentMethod    @default(INTERNAL_QR)
   providerCode            String?
   providerPaymentIntentId String?
   providerReference       String?
+  deviceEventRef          String?
   amount                  Int
   qrPayload               String
   status                  PaymentStatus    @default(PENDING)
@@ -122,6 +133,7 @@ model Payment {
   order                   Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
   refunds                 Refund[]
   slips                   PaymentSlip[]
+  traces                  PaymentTrace[]
   tenant                  Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   merchantAccount         MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
   branch                  Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
@@ -131,34 +143,59 @@ model Payment {
   @@index([merchantAccountId, status])
   @@index([billerProfileId, status])
   @@index([providerPaymentIntentId])
+  @@index([deviceEventRef])
+}
+
+model PaymentTrace {
+  id             String   @id @default(cuid())
+  paymentId      String?
+  orderId        String?
+  stage          String
+  direction      String
+  providerCode   String?
+  statusCode     Int?
+  requestHeaders Json?
+  requestBody    Json?
+  responseBody   Json?
+  mappedStatus   String?
+  note           String?
+  createdAt      DateTime @default(now())
+
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  order   Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([paymentId, createdAt])
+  @@index([orderId, createdAt])
+  @@index([stage, createdAt])
+  @@map("payment_traces")
 }
 
 model BillerProfile {
-  id                   String               @id @default(cuid())
-  tenantId             String
-  code                 String
-  displayName          String
-  providerCode         String
-  integrationMode      IntegrationMode      @default(PLATFORM_QR)
-  status               BillerStatus         @default(ACTIVE)
-  priority             Int                  @default(100)
-  providerConnectionId String?
-  billerId             String?
-  shopId               String?
-  accountName          String?
-  bankName             String?
-  accountNumber        String?
-  promptPayTarget      String?
+  id                     String          @id @default(cuid())
+  tenantId               String
+  code                   String
+  displayName            String
+  providerCode           String
+  integrationMode        IntegrationMode @default(PLATFORM_QR)
+  status                 BillerStatus    @default(ACTIVE)
+  priority               Int             @default(100)
+  providerConnectionId   String?
+  billerId               String?
+  shopId                 String?
+  accountName            String?
+  bankName               String?
+  accountNumber          String?
+  promptPayTarget        String?
   slipVerifyConnectionId String?
-  credentials          Json?
-  config               Json?
-  metadata             Json?
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  credentials            Json?
+  config                 Json?
+  metadata               Json?
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
 
-  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  providerConnection   ProviderConnection?   @relation(fields: [providerConnectionId], references: [id], onDelete: SetNull)
-  slipVerifyConnection SlipVerifyConnection? @relation(fields: [slipVerifyConnectionId], references: [id], onDelete: SetNull)
+  tenant               Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  providerConnection   ProviderConnection?     @relation(fields: [providerConnectionId], references: [id], onDelete: SetNull)
+  slipVerifyConnection SlipVerifyConnection?   @relation(fields: [slipVerifyConnectionId], references: [id], onDelete: SetNull)
   payments             Payment[]
   tenantBindings       TenantBillerBinding[]
   merchantBindings     MerchantBillerBinding[]
@@ -172,28 +209,28 @@ model BillerProfile {
 }
 
 model ProviderConnection {
-  id                 String        @id @default(cuid())
+  id                 String       @id @default(cuid())
   tenantId           String
   code               String
   displayName        String
   providerServiceId  String?
   providerCode       String
-  status             BillerStatus  @default(ACTIVE)
+  status             BillerStatus @default(ACTIVE)
   baseUrl            String?
   appKey             String?
   appSecret          String?
   webhookSecret      String?
-  supportsQrIssue    Boolean       @default(false)
-  supportsCallback   Boolean       @default(false)
-  supportsSlipVerify Boolean       @default(false)
+  supportsQrIssue    Boolean      @default(false)
+  supportsCallback   Boolean      @default(false)
+  supportsSlipVerify Boolean      @default(false)
   credentials        Json?
   metadata           Json?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 
-  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  providerService  ProviderService? @relation(fields: [providerServiceId], references: [id], onDelete: SetNull)
-  billerProfiles   BillerProfile[]
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  providerService ProviderService? @relation(fields: [providerServiceId], references: [id], onDelete: SetNull)
+  billerProfiles  BillerProfile[]
 
   @@unique([tenantId, code])
   @@index([tenantId, providerCode, status])
@@ -202,20 +239,20 @@ model ProviderConnection {
 }
 
 model ProviderService {
-  id                        String              @id @default(cuid())
-  tenantId                  String?
-  code                      String
-  displayName               String
-  serviceType               ProviderServiceType
-  status                    BillerStatus        @default(ACTIVE)
-  supportsQrGeneration      Boolean             @default(false)
-  supportsConfirmCallback   Boolean             @default(false)
-  supportsSingleTxnVerify   Boolean             @default(false)
-  supportsSingleSlipVerify  Boolean             @default(false)
-  isDefault                 Boolean             @default(false)
-  metadata                  Json?
-  createdAt                 DateTime            @default(now())
-  updatedAt                 DateTime            @updatedAt
+  id                       String              @id @default(cuid())
+  tenantId                 String?
+  code                     String
+  displayName              String
+  serviceType              ProviderServiceType
+  status                   BillerStatus        @default(ACTIVE)
+  supportsQrGeneration     Boolean             @default(false)
+  supportsConfirmCallback  Boolean             @default(false)
+  supportsSingleTxnVerify  Boolean             @default(false)
+  supportsSingleSlipVerify Boolean             @default(false)
+  isDefault                Boolean             @default(false)
+  metadata                 Json?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
 
   tenant              Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   providerConnections ProviderConnection[]
@@ -325,14 +362,24 @@ model DeviceCommand {
   id             String              @id @default(cuid())
   orderId        String
   machineId      String
+  commandRef     String?             @unique
   commandType    String
   payloadJson    String
   status         DeviceCommandStatus @default(PENDING)
+  retryCount     Int                 @default(0)
+  maxRetries     Int                 @default(3)
   queuedAt       DateTime            @default(now())
+  lastAttemptAt  DateTime?
+  nextRetryAt    DateTime?
   acknowledgedAt DateTime?
   completedAt    DateTime?
+  deadLetteredAt DateTime?
   errorMessage   String?
   machine        Machine             @relation(fields: [machineId], references: [id])
+  order          Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([status, queuedAt])
+  @@index([status, nextRetryAt])
 }
 
 model MachineKind {
@@ -352,10 +399,16 @@ model MachineKind {
 }
 
 enum MachineStatus {
+  NEW
   AVAILABLE
   RESERVED
   RUNNING
   MAINTENANCE
+  SPARE
+  BOUND
+  REPLACED
+  OFFLINE
+  DISABLED
 }
 
 enum OrderStatus {
@@ -380,6 +433,12 @@ enum PaymentStatus {
   SLIP_UPLOADED
   VERIFIED
   REJECTED
+}
+
+enum PaymentMethod {
+  INTERNAL_QR
+  PROVIDER_QR
+  CASH_DEVICE
 }
 
 enum RefundStatus {
@@ -429,15 +488,10 @@ enum AssetStatus {
 }
 
 enum IotDeviceStatus {
+  NEW
   SPARE
-  IN_USE
-  OFFLINE
-  DISABLED
-}
-
-enum MachineUnitStatus {
-  SPARE
-  IN_USE
+  BOUND
+  REPLACED
   OFFLINE
   DISABLED
 }
@@ -446,22 +500,6 @@ enum ProductPricingType {
   STANDARD
   PROMOTION
   SPECIAL
-}
-
-enum ServiceMode {
-  TIME
-  QUANTITY
-  UNIT
-}
-
-enum ServiceUnit {
-  MINUTE
-  SECOND
-  LITER
-  GRAM
-  PIECE
-  BOX
-  SLOT
 }
 
 enum DeviceBindingStatus {
@@ -531,7 +569,6 @@ model Tenant {
   assetBindings           AssetBinding[]
   assetProductPrices      AssetProductPrice[]
   assetProductOffers      AssetProductOffer[]
-  machineUnits            MachineUnit[]
   iotDevices              IotDevice[]
   products                Product[]
   machines                Machine[]
@@ -549,9 +586,77 @@ model Tenant {
   deviceRegistrationCodes DeviceRegistrationCode[]
   expenseTypes            ExpenseType[]
   expenses                Expense[]
+  mqttBindings            TenantMqttBinding[]
+  mqttTraces              MqttTrace[]
 
   @@index([status])
   @@map("tenants")
+}
+
+model MqttServer {
+  id               String   @id @default(cuid())
+  code             String   @unique
+  name             String
+  host             String
+  port             Int      @default(1883)
+  protocol         String   @default("mqtt")
+  username         String?
+  password         String?
+  tlsEnabled       Boolean  @default(false)
+  qosMode          Int      @default(0)
+  mqttVersion      String   @default("3.1.1")
+  connectTimeoutMs Int      @default(10000)
+  keepAliveSec     Int      @default(60)
+  autoReconnect    Boolean  @default(true)
+  reconnectPeriodMs Int     @default(3000)
+  status           String   @default("ACTIVE")
+  metadata         Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  tenantBindings TenantMqttBinding[]
+  traces         MqttTrace[]
+
+  @@index([status])
+  @@map("mqtt_servers")
+}
+
+model TenantMqttBinding {
+  id           String   @id @default(cuid())
+  tenantId     String
+  mqttServerId String
+  topicPrefix  String
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  mqttServer MqttServer @relation(fields: [mqttServerId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId])
+  @@index([mqttServerId, active])
+  @@map("tenant_mqtt_bindings")
+}
+
+model MqttTrace {
+  id           String   @id @default(cuid())
+  mqttServerId String?
+  tenantId     String?
+  direction    String
+  topic        String
+  qos          Int?
+  payload      Json?
+  status       String?
+  note         String?
+  createdAt    DateTime @default(now())
+
+  mqttServer MqttServer? @relation(fields: [mqttServerId], references: [id], onDelete: SetNull)
+  tenant     Tenant?     @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([mqttServerId, createdAt])
+  @@index([tenantId, createdAt])
+  @@index([direction, createdAt])
+  @@map("mqtt_traces")
 }
 
 model MerchantAccount {
@@ -640,16 +745,63 @@ model Expense {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   merchantAccount MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
-  branch          Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
-  expenseType     ExpenseType     @relation(fields: [expenseTypeId], references: [id], onDelete: Restrict)
+  branch          Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  expenseType     ExpenseType      @relation(fields: [expenseTypeId], references: [id], onDelete: Restrict)
 
   @@index([tenantId, occurredAt])
   @@index([merchantAccountId, occurredAt])
   @@index([branchId, occurredAt])
   @@index([expenseTypeId, occurredAt])
   @@map("expenses")
+}
+
+model ServiceModeType {
+  code      String   @id
+  name      String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products           Product[]
+  assetProductPrices AssetProductPrice[]
+  assetProductOffers AssetProductOffer[]
+
+  @@index([active, sortOrder])
+  @@map("service_mode_types")
+}
+
+model ProductType {
+  code      String   @id
+  name      String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+
+  @@index([active, sortOrder])
+  @@map("product_types")
+}
+
+model ServiceUnitType {
+  code      String   @id
+  name      String
+  symbol    String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products           Product[]
+  assetProductPrices AssetProductPrice[]
+  assetProductOffers AssetProductOffer[]
+
+  @@index([active, sortOrder])
+  @@map("service_unit_types")
 }
 
 model Asset {
@@ -665,53 +817,32 @@ model Asset {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  branch     Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  machineKind MachineKind        @relation(fields: [kind], references: [code], onDelete: Restrict)
-  machines   Machine[]
-  bindings   AssetBinding[]
-  prices     AssetProductPrice[]
-  offers     AssetProductOffer[]
-  orderItems OrderItem[]
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch      Branch              @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  machineKind MachineKind         @relation(fields: [kind], references: [code], onDelete: Restrict)
+  machines    Machine[]
+  bindings    AssetBinding[]
+  prices      AssetProductPrice[]
+  offers      AssetProductOffer[]
+  orderItems  OrderItem[]
 
   @@unique([branchId, code])
   @@index([tenantId, branchId, status])
   @@map("assets")
 }
 
-model MachineUnit {
-  id        String   @id @default(cuid())
-  tenantId  String
-  serialNo  String   @unique
-  status    MachineUnitStatus @default(SPARE)
-  brand     String?
-  model     String?
-  warrantyStartAt DateTime?
-  warrantyEndAt DateTime?
-  metadata  Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  tenant   Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  bindings AssetBinding[]
-
-  @@index([tenantId])
-  @@index([tenantId, status])
-  @@map("machine_units")
-}
-
 model IotDevice {
-  id         String   @id @default(cuid())
+  id         String          @id @default(cuid())
   tenantId   String
-  macAddress String   @unique
-  deviceUid  String?  @unique
+  macAddress String          @unique
+  deviceUid  String?         @unique
   name       String?
   model      String?
   status     IotDeviceStatus @default(SPARE)
   fwVersion  String?
   metadata   Json?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
 
   tenant                  Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   bindings                AssetBinding[]
@@ -724,50 +855,54 @@ model IotDevice {
 }
 
 model AssetBinding {
-  id            String              @id @default(cuid())
-  tenantId      String
-  assetId       String
-  machineUnitId String?
-  iotDeviceId   String?
-  status        DeviceBindingStatus @default(ACTIVE)
-  startedAt     DateTime            @default(now())
-  endedAt       DateTime?
-  reason        String?
-  metadata      Json?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  id          String              @id @default(cuid())
+  tenantId    String
+  assetId     String
+  machineId   String?
+  iotDeviceId String?
+  status      DeviceBindingStatus @default(ACTIVE)
+  startedAt   DateTime            @default(now())
+  endedAt     DateTime?
+  reason      String?
+  metadata    Json?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
-  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  asset       Asset        @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  machineUnit MachineUnit? @relation(fields: [machineUnitId], references: [id], onDelete: SetNull)
-  iotDevice   IotDevice?   @relation(fields: [iotDeviceId], references: [id], onDelete: SetNull)
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  asset     Asset      @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  machine   Machine?   @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  iotDevice IotDevice? @relation(fields: [iotDeviceId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, assetId, status])
-  @@index([machineUnitId])
+  @@index([machineId])
   @@index([iotDeviceId])
   @@map("asset_bindings")
 }
 
 model Product {
-  id        String      @id @default(cuid())
-  tenantId  String
-  code      String
-  name      String
-  kind      String
-  amount    Int?
+  id              String   @id @default(cuid())
+  tenantId        String
+  code            String
+  name            String
+  kind            String
+  amount          Int?
   durationMinutes Int?
-  serviceMode ServiceMode @default(TIME)
-  serviceUnit ServiceUnit @default(MINUTE)
-  quantity  Decimal?    @db.Decimal(12, 3)
-  active    Boolean     @default(true)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
+  serviceMode     String   @default("TIME")
+  serviceUnit     String   @default("MINUTE")
+  quantity        Decimal? @db.Decimal(12, 3)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  machineKind MachineKind         @relation(fields: [kind], references: [code], onDelete: Restrict)
-  prices      AssetProductPrice[]
-  offers      AssetProductOffer[]
-  orderItems  OrderItem[]
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productType     ProductType         @relation(fields: [kind], references: [code], onDelete: Restrict)
+  serviceModeRef  ServiceModeType     @relation(fields: [serviceMode], references: [code], onDelete: Restrict)
+  serviceUnitRef  ServiceUnitType     @relation(fields: [serviceUnit], references: [code], onDelete: Restrict)
+  prices          AssetProductPrice[]
+  offers          AssetProductOffer[]
+  orderItems      OrderItem[]
+  machineKind     MachineKind?        @relation(fields: [machineKindCode], references: [code])
+  machineKindCode String?
 
   @@unique([tenantId, code])
   @@index([tenantId, kind, active])
@@ -781,9 +916,9 @@ model AssetProductPrice {
   productId       String
   amount          Int
   durationMinutes Int
-  serviceMode     ServiceMode @default(TIME)
-  serviceUnit     ServiceUnit @default(MINUTE)
-  quantity        Decimal?    @db.Decimal(12, 3)
+  serviceMode     String   @default("TIME")
+  serviceUnit     String   @default("MINUTE")
+  quantity        Decimal? @db.Decimal(12, 3)
   slotNo          Int?
   stockQty        Int?
   sortOrder       Int      @default(0)
@@ -791,9 +926,11 @@ model AssetProductPrice {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  asset   Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  asset          Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  serviceModeRef ServiceModeType @relation(fields: [serviceMode], references: [code], onDelete: Restrict)
+  serviceUnitRef ServiceUnitType @relation(fields: [serviceUnit], references: [code], onDelete: Restrict)
 
   @@unique([assetId, productId])
   @@index([tenantId, assetId, active])
@@ -808,9 +945,9 @@ model AssetProductOffer {
   pricingType     ProductPricingType @default(STANDARD)
   amount          Int
   durationMinutes Int
-  serviceMode     ServiceMode @default(TIME)
-  serviceUnit     ServiceUnit @default(MINUTE)
-  quantity        Decimal?    @db.Decimal(12, 3)
+  serviceMode     String             @default("TIME")
+  serviceUnit     String             @default("MINUTE")
+  quantity        Decimal?           @db.Decimal(12, 3)
   priority        Int                @default(100)
   effectiveFrom   DateTime
   effectiveTo     DateTime?
@@ -820,9 +957,11 @@ model AssetProductOffer {
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
-  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  asset   Asset   @relation(fields: [assetId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  asset          Asset           @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  serviceModeRef ServiceModeType @relation(fields: [serviceMode], references: [code], onDelete: Restrict)
+  serviceUnitRef ServiceUnitType @relation(fields: [serviceUnit], references: [code], onDelete: Restrict)
 
   @@index([tenantId, assetId, active, effectiveFrom, effectiveTo])
   @@index([tenantId, productId, active, pricingType])
@@ -848,8 +987,8 @@ model Refund {
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
-  order     Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  payment   Payment?          @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  order     Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment   Payment?         @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   items     RefundItem[]
   auditLogs RefundAuditLog[]
 
@@ -871,13 +1010,13 @@ model RefundItem {
   refund    Refund    @relation(fields: [refundId], references: [id], onDelete: Cascade)
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
 
-  @@index([orderItemId])
   @@unique([refundId, orderItemId])
+  @@index([orderItemId])
   @@map("refund_items")
 }
 
 model RefundAuditLog {
-  id                String       @id @default(cuid())
+  id                String        @id @default(cuid())
   refundId          String
   fromStatus        RefundStatus?
   toStatus          RefundStatus
@@ -886,7 +1025,7 @@ model RefundAuditLog {
   note              String?
   providerRefundRef String?
   metadata          Json?
-  createdAt         DateTime     @default(now())
+  createdAt         DateTime      @default(now())
 
   refund Refund @relation(fields: [refundId], references: [id], onDelete: Cascade)
 
@@ -909,10 +1048,10 @@ model User {
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
-  tenant          Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-  merchantAccount MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
-  accounts        Account[]
-  sessions        Session[]
+  tenant           Tenant?               @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  merchantAccount  MerchantAccount?      @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
+  accounts         Account[]
+  sessions         Session[]
   scopeAssignments UserScopeAssignment[]
 
   @@index([tenantId, role, isActive])
@@ -931,10 +1070,10 @@ model UserScopeAssignment {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user            User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   merchantAccount MerchantAccount? @relation(fields: [merchantAccountId], references: [id], onDelete: SetNull)
-  branch          Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  branch          Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
 
   @@index([userId, active])
   @@index([tenantId, scopeType, active])

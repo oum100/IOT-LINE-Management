@@ -32,9 +32,18 @@ function chooseMember() {
 }
 
 async function continueOwnerFlow() {
+  loading.value = true
   errorMessage.value = ''
   infoMessage.value = ''
-  await navigateTo('/portal/onboarding')
+  try {
+    await $fetch('/api/portal/claim-owner', { method: 'POST' })
+    await getSession()
+    await navigateTo('/portal/onboarding')
+  } catch (error: any) {
+    errorMessage.value = error?.data?.statusMessage || error?.message || 'Unable to start owner flow.'
+  } finally {
+    loading.value = false
+  }
 }
 
 async function joinByCode() {
@@ -54,7 +63,7 @@ async function joinByCode() {
     })
     infoMessage.value = response.message || 'Workspace linked successfully.'
     await getSession()
-    await navigateTo('/app/dashboard')
+    await navigateTo('/app/status')
   } catch (error: any) {
     errorMessage.value = error?.data?.statusMessage || error?.message || 'Unable to join workspace.'
   } finally {

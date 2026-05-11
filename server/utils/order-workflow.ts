@@ -3,6 +3,7 @@ import { deviceCommandCounter } from './metrics'
 import { prisma } from './prisma'
 import { getLaundryQueue } from './queue'
 import { sendCustomerNotification } from './notifications'
+import { logMqttTrace, resolveTenantMqtt } from './mqtt-trace'
 
 export async function startOrderMachines(orderId: string) {
   const config = useRuntimeConfig()
@@ -31,16 +32,20 @@ export async function startOrderMachines(orderId: string) {
   }
 
   for (const item of order.items) {
+    if (!item.machineId || !item.machine) {
+      continue
+    }
     const payload = {
       machineCode: item.machine.code,
       durationMinutes: item.durationMinutes,
       orderItemId: item.id
     }
 
-    await prisma.deviceCommand.create({
+    const command = await prisma.deviceCommand.create({
       data: {
         orderId: order.id,
         machineId: item.machineId,
+        commandRef: `cmd-${item.id}-${Date.now()}`,
         commandType: 'START_PROGRAM',
         payloadJson: JSON.stringify(payload),
         status: DeviceCommandStatus.PENDING
@@ -66,12 +71,34 @@ export async function startOrderMachines(orderId: string) {
     if (queue) {
       try {
         await queue.add('start-machine', payload, {
-          jobId: item.id
+          jobId: command.id
         })
       } catch (error) {
         console.warn('queue add failed, command stored in database only', error)
       }
     }
+
+    const mqttBinding = await resolveTenantMqtt(item.machine.tenantId || null)
+    const topicPrefix = String(mqttBinding?.topicPrefix || '').replace(/\/+$/, '')
+    const machineTopic = String(item.machine.topic || '').trim()
+    const topic = machineTopic || (topicPrefix ? `${topicPrefix}/${item.machine.code}/command/start` : `machine/${item.machine.code}/command/start`)
+    await logMqttTrace({
+      tenantId: item.machine.tenantId || null,
+      mqttServerId: mqttBinding?.mqttServerId || null,
+      direction: 'OUTBOUND_PUBLISH',
+      topic,
+      qos: 1,
+      payload: {
+        commandRef: command.commandRef,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        orderItemId: item.id,
+        machineCode: item.machine.code,
+        durationMinutes: item.durationMinutes
+      },
+      status: 'PENDING',
+      note: 'Device command queued'
+    })
 
     deviceCommandCounter.inc()
   }
@@ -107,6 +134,9 @@ export async function completeOrder(orderId: string) {
   }
 
   for (const item of order.items) {
+    if (!item.machineId || !item.machine) {
+      continue
+    }
     await prisma.orderItem.update({
       where: { id: item.id },
       data: {
@@ -137,7 +167,7 @@ export async function completeOrder(orderId: string) {
     message: [
       'บริการเสร็จครบทุกเครื่องแล้ว',
       `Order: ${order.orderNumber}`,
-      ...order.items.map(item => `• ${item.machine.name}`)
+    ...order.items.map(item => `• ${item.machine?.name || '-'}`)
     ].join('\n')
   })
 }
@@ -185,26 +215,30 @@ export async function reconcileRunningOrderItems() {
           }
         })
 
-        await tx.machine.update({
-          where: { id: freshItem.machineId },
-          data: {
-            status: MachineStatus.AVAILABLE,
-            remainingMinutes: null
-          }
-        })
+        if (freshItem.machineId) {
+          await tx.machine.update({
+            where: { id: freshItem.machineId },
+            data: {
+              status: MachineStatus.AVAILABLE,
+              remainingMinutes: null
+            }
+          })
+        }
 
         touchedOrderIds.add(freshItem.orderId)
       })
       continue
     }
 
-    await prisma.machine.update({
-      where: { id: item.machineId },
-      data: {
-        status: MachineStatus.RUNNING,
-        remainingMinutes
-      }
-    })
+    if (item.machineId) {
+      await prisma.machine.update({
+        where: { id: item.machineId },
+        data: {
+          status: MachineStatus.RUNNING,
+          remainingMinutes
+        }
+      })
+    }
   }
 
   for (const orderId of touchedOrderIds) {
@@ -241,7 +275,7 @@ export async function reconcileRunningOrderItems() {
       message: [
         'บริการเสร็จครบทุกเครื่องแล้ว',
         `Order: ${order.orderNumber}`,
-        ...order.items.map(entry => `• ${entry.machine.name}`)
+      ...order.items.map(entry => `• ${entry.machine?.name || '-'}`)
       ].join('\n')
     })
   }
